@@ -12,6 +12,7 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'transform.grab': 'G',
   'transform.scale': 'S',
   'transform.rotate': 'R',
+  'add.menu': 'Shift+A',
   'tool.select': 'Q',
   'tool.addNode': 'N',
   'tool.beam': 'B',
@@ -104,6 +105,7 @@ export interface Settings {
   antialias: boolean;
   pixelRatioCap: number;
   orbitButton: 'middle' | 'right';
+  frameOnScope: boolean;
   invertZoom: boolean;
   zoomSpeed: number;
   orbitSpeed: number;
@@ -224,6 +226,7 @@ export const DEFAULT_SETTINGS: Settings = {
   antialias: true,
   pixelRatioCap: 2,
   orbitButton: 'middle',
+  frameOnScope: true,
   invertZoom: false,
   zoomSpeed: 1,
   orbitSpeed: 1,

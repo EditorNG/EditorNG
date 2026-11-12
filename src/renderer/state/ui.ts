@@ -24,10 +24,12 @@ export interface UiState {
   output: string[];
   /** a form is waiting for a node to be clicked in 3D */
   pick: null | { label: string; cb: (node: string) => void };
+  /** "Add" menu → open a placer pre-filled with a position / nodes */
+  toolReq: null | { section: string; pos?: [number, number, number]; nodes?: string[]; seq: number };
 }
 
 export const useUi = create<UiState>(() => ({
-  activity: 'vehicles',
+  activity: 'explorer',
   sidebar: true,
   page: 'workbench',
   tool: 'select',
@@ -43,7 +45,13 @@ export const useUi = create<UiState>(() => ({
   naming: { prefix: 'n', next: 1, mirror: true },
   output: [],
   pick: null,
+  toolReq: null,
 }));
+
+let reqSeq = 1;
+export function requestTool(section: string, pos?: [number, number, number], nodes?: string[]) {
+  useUi.setState({ toolReq: { section, pos, nodes, seq: reqSeq++ }, activity: 'tools', sidebar: true, page: 'workbench' });
+}
 
 export function requestPick(label: string): Promise<string | null> {
   return new Promise((resolve) => {

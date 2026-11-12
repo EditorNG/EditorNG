@@ -76,7 +76,8 @@ const GROUPS: Group[] = [
   },
   {
     id: 'controls', title: 'Camera & mouse', fields: [
-      { key: 'orbitButton', label: 'Orbit with', type: 'select', options: [['middle', 'Middle mouse (Blender style)'], ['right', 'Right mouse']] },
+      { key: 'orbitButton', label: 'Mouse layout', type: 'select', options: [['middle', 'Blender: MMB orbit, Shift+MMB pan, LMB select, RMB menu'], ['right', 'RMB orbit, MMB pan']] },
+      { key: 'frameOnScope', label: 'Frame the view when picking a part / file', type: 'bool' },
       { key: 'zoomSpeed', label: 'Zoom speed', type: 'range', min: 0.2, max: 3, step: 0.1 },
       { key: 'invertZoom', label: 'Invert zoom', type: 'bool' },
       { key: 'zoomToCursor', label: 'Zoom towards cursor', type: 'bool' },

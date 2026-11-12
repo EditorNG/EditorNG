@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Crosshair, MousePointerClick, Box, Lightbulb, Armchair, CircleDot, Zap, FileUp, Link2, Target, Sparkles } from 'lucide-react';
 import { ws, useWs } from '../project/workspace';
 import { useUi, requestPick } from '../state/ui';
@@ -20,10 +20,18 @@ import { command } from './commands';
 // small form helpers
 // ------------------------------------------------------------------------------------------
 
-function Section(props: { icon: React.ReactNode; title: string; children: React.ReactNode; open?: boolean }) {
+function Section(props: { id?: string; icon: React.ReactNode; title: string; children: React.ReactNode; open?: boolean }) {
   const [open, setOpen] = useState(!!props.open);
+  const req = useUi((x) => x.toolReq);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (req && props.id && req.section === props.id) {
+      setOpen(true);
+      setTimeout(() => ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 30);
+    }
+  }, [req?.seq]);
   return (
-    <div className={'tool-section' + (open ? ' open' : '')}>
+    <div ref={ref} className={'tool-section' + (open ? ' open' : '')}>
       <button className="tool-section-head" onClick={() => setOpen(!open)}>
         {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {props.icon}
@@ -69,6 +77,15 @@ function TextField(props: { label: string; value: string; onChange: (v: string) 
       {props.list && <datalist id={id}>{props.list.map((x) => <option key={x} value={x} />)}</datalist>}
     </label>
   );
+}
+
+/** Applies an "Add" request (position / nodes) to a placer form. */
+function useToolRequest(section: string, apply: (pos: V3 | undefined, nodes: string[]) => void) {
+  const req = useUi((x) => x.toolReq);
+  useEffect(() => {
+    if (!req || req.section !== section) return;
+    apply(req.pos ? { x: req.pos[0], y: req.pos[1], z: req.pos[2] } : undefined, req.nodes ?? []);
+  }, [req?.seq]);
 }
 
 function selectionCentre(): V3 | null {
@@ -126,6 +143,14 @@ function TriggerTool() {
   const [mesh, setMesh] = useState('');
   const [action, setAction] = useState('common:toggle_headlights');
   const [action2, setAction2] = useState('');
+  useToolRequest('trigger', (p, n) => {
+    if (p) setPos(p);
+    if (n.length >= 3) {
+      setRef(n[0]);
+      setNx(n[1]);
+      setNy(n[2]);
+    }
+  });
   const fromSel = () => {
     const n = selectedNames();
     if (n.length >= 3) {
@@ -198,6 +223,14 @@ function BulbTool() {
   const [rot, setRot] = useState<V3>({ x: 0, y: 0, z: 180 });
   const [shadow, setShadow] = useState(true);
   const [pattern, setPattern] = useState('');
+  useToolRequest('bulb', (p, n) => {
+    if (p) setPos(p);
+    if (n.length >= 3) {
+      setRef(n[0]);
+      setNx(n[1]);
+      setNy(n[2]);
+    }
+  });
   const fromSel = () => {
     const n = selectedNames();
     if (n.length >= 3) {
@@ -281,6 +314,9 @@ function OccupantTool() {
   const [makeRig, setMakeRig] = useState(true);
   const [noSelfCol, setNoSelfCol] = useState(false);
   const setA = (k: keyof typeof att) => (v: string) => setAtt({ ...att, [k]: v });
+  useToolRequest('occupant', (_p, n) => {
+    if (n.length >= 6) setAtt({ FL: n[0], FR: n[1], RL: n[2], RR: n[3], TL: n[4], TR: n[5] });
+  });
   const fromSel = () => {
     const n = selectedNames();
     if (n.length < 6) return toast('info', 'Select 6 seat nodes in order: cushion FL, FR, RL, RR, backrest TL, TR (occupant left = car +X)');
@@ -376,6 +412,9 @@ function WheelTool() {
   const [spec, setSpec] = useState<WheelSpec>({ name: 'FR', center: { x: -0.78, y: -1.46, z: 0.46 }, prefix: 'fw1', hubWidth: 0.14, nodeArm: '', radius: 0.36, hubRadius: 0.23, tireWidth: 0.24, numRays: 16, pressurePSI: 32, createNodes: true });
   const [mirror, setMirror] = useState(true);
   const u = (p: Partial<WheelSpec>) => setSpec({ ...spec, ...p });
+  useToolRequest('wheel', (p) => {
+    if (p) setSpec((s) => ({ ...s, center: p, name: p.x >= 0 ? s.name.replace(/R$/, 'L') : s.name.replace(/L$/, 'R') }));
+  });
   const create = () => {
     const t = targetPart();
     if (!t) return toast('warn', 'No writable target part');
@@ -479,11 +518,11 @@ export function ToolsPanel() {
           </div>
           <div className="tf-note">Vertices → nodes, edges → beams, faces → collision triangles. Names get l/r suffixes by side and re-imports keep existing names.</div>
         </Section>
-        <Section icon={<Zap size={14} />} title="Trigger (triggers2)"><TriggerTool /></Section>
-        <Section icon={<Lightbulb size={14} />} title="Light bulb (slots2)"><BulbTool /></Section>
-        <Section icon={<Armchair size={14} />} title="Occupant seat (0.40)"><OccupantTool /></Section>
-        <Section icon={<CircleDot size={14} />} title="Pressure wheels"><WheelTool /></Section>
-        <Section icon={<Box size={14} />} title="Subdivide between nodes"><NodeTool /></Section>
+        <Section id="trigger" icon={<Zap size={14} />} title="Trigger (triggers2)"><TriggerTool /></Section>
+        <Section id="bulb" icon={<Lightbulb size={14} />} title="Light bulb (slots2)"><BulbTool /></Section>
+        <Section id="occupant" icon={<Armchair size={14} />} title="Occupant seat (0.40)"><OccupantTool /></Section>
+        <Section id="wheel" icon={<CircleDot size={14} />} title="Pressure wheels"><WheelTool /></Section>
+        <Section id="subdivide" icon={<Box size={14} />} title="Subdivide between nodes"><NodeTool /></Section>
       </div>
     </div>
   );

@@ -127,7 +127,13 @@ export class Viewport {
   private sel: SelIdx | null = null;
   private highlight: SelIdx | null = null;
   private hover: Hover | null = null;
-  private focusPart: string | null = null;
+  /** visible parts (null = whole vehicle) */
+  private scopeParts: Set<string> | null = null;
+  /** beams / tris actually drawn (indices into vehicle arrays) */
+  drawBeams: number[] = [];
+  drawTris: number[] = [];
+  /** per node: 0 hidden, 1 context (other part, attached to the scope), 2 in scope */
+  nodeVis = new Uint8Array(0);
   private dirtyColors = true;
   private needsRender = true;
   private raf = 0;
@@ -287,7 +293,9 @@ export class Viewport {
     const s = this.s;
     const c = this.controls;
     if (s.orbitButton === 'middle') {
-      c.mouseButtons = { LEFT: null as any, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+      // Blender: MMB orbits, Shift+MMB pans (OrbitControls pans when Shift is held on the rotate button),
+      // LMB is free for selection, RMB stays the context menu
+      c.mouseButtons = { LEFT: null as any, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: null as any };
     } else {
       c.mouseButtons = { LEFT: null as any, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     }
@@ -419,7 +427,7 @@ export class Viewport {
     const size = box.getSize(new THREE.Vector3()).length();
     const radius = Math.max(0.15, size * 0.5);
     const fov = THREE.MathUtils.degToRad(this.persp.fov);
-    const dist = radius / Math.sin(fov / 2) * 1.05;
+    const dist = (radius / Math.sin(fov / 2)) * 1.45;
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     if (dir.lengthSq() < 0.5) dir.set(-0.5, -0.7, 0.45).normalize();
     this.controls.target.copy(center);
@@ -442,7 +450,9 @@ export class Viewport {
     if (indices) {
       for (const i of indices) box.expandByPoint(tmpV.set(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]));
     } else {
-      for (let i = 0; i < p.length; i += 3) box.expandByPoint(tmpV.set(p[i], p[i + 1], p[i + 2]));
+      const vis = this.nodeVis;
+      for (let i = 0; i < p.length / 3; i++) if (!vis.length || vis[i] === 2) box.expandByPoint(tmpV.set(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]));
+      if (box.isEmpty()) for (let i = 0; i < p.length / 3; i++) if (vis[i]) box.expandByPoint(tmpV.set(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]));
       if (box.isEmpty()) box.setFromObject(this.meshRoot);
     }
     if (!box.isEmpty()) this.frameBox(box);
@@ -452,7 +462,7 @@ export class Viewport {
   // vehicle
   // ---------------------------------------------------------------------------------------
 
-  setVehicle(v: Vehicle | null) {
+  setVehicle(v: Vehicle | null, frame = false) {
     const first = !this.vehicle && !!v;
     this.vehicle = v;
     this.disposeGeometry();
@@ -467,7 +477,6 @@ export class Viewport {
       this.pos[i * 3 + 1] = nd.y;
       this.pos[i * 3 + 2] = nd.z;
     });
-    // nodes
     this.nodePos = this.pos.slice();
     this.nodeColor = new Float32Array(n * 4);
     this.nodeSizeAttr = new Float32Array(n);
@@ -481,35 +490,97 @@ export class Viewport {
     this.nodePoints.frustumCulled = false;
     this.nodePoints.visible = this.s.showNodes;
     this.root.add(this.nodePoints);
-
-    // beams
-    const bg = new LineSegmentsGeometry();
-    const bp = new Float32Array(Math.max(1, v.beams.length) * 6);
-    bg.setPositions(bp);
-    bg.setColors(new Float32Array(Math.max(1, v.beams.length) * 6));
-    this.beamLines = new LineSegments2(bg, this.beamMat);
-    this.beamLines.frustumCulled = false;
-    this.beamLines.renderOrder = 2;
-    this.beamLines.visible = this.s.showBeams && v.beams.length > 0;
-    this.root.add(this.beamLines);
-
-    // tris
-    const tg = new THREE.BufferGeometry();
-    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v.tris.length * 9), 3));
-    tg.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(v.tris.length * 12), 4));
-    this.triMesh = new THREE.Mesh(tg, this.triMat);
-    this.triMesh.frustumCulled = false;
-    this.triMesh.renderOrder = 1;
-    this.triMesh.visible = this.s.showTris;
-    this.root.add(this.triMesh);
-
+    this.computeScope();
+    this.buildBeamTriGeometry();
     this.updateGeometry();
     this.buildTriNormals();
     this.buildWheels();
     this.dirtyColors = true;
     this.projCacheValid = false;
-    if (first) this.frameNodes(null);
+    if (first || frame) this.frameNodes(null);
     this.requestRender();
+  }
+
+  /** Restricts the view to some parts (null = whole vehicle). */
+  setScope(parts: Set<string> | null, frame = true) {
+    this.scopeParts = parts;
+    if (!this.vehicle) return;
+    this.computeScope();
+    this.buildBeamTriGeometry();
+    this.updateGeometry();
+    this.buildTriNormals();
+    this.buildWheels();
+    this.dirtyColors = true;
+    if (frame) this.frameNodes(null);
+    this.requestRender();
+  }
+
+  inScope(part: string): boolean {
+    return !this.scopeParts || this.scopeParts.has(part);
+  }
+
+  private computeScope() {
+    const v = this.vehicle!;
+    const sp = this.scopeParts;
+    this.nodeVis = new Uint8Array(v.nodes.length);
+    if (!sp) {
+      this.nodeVis.fill(2);
+      this.drawBeams = v.beams.map((_, i) => i);
+      this.drawTris = v.tris.map((_, i) => i);
+      return;
+    }
+    v.nodes.forEach((n, i) => {
+      if (sp.has(n.row.part.def.name)) this.nodeVis[i] = 2;
+    });
+    const ctx = (i: number) => {
+      if (this.nodeVis[i] === 0) this.nodeVis[i] = 1;
+    };
+    this.drawBeams = [];
+    v.beams.forEach((b, i) => {
+      if (!sp.has(b.row.part.def.name)) return;
+      this.drawBeams.push(i);
+      ctx(b.a);
+      ctx(b.b);
+    });
+    this.drawTris = [];
+    v.tris.forEach((t, i) => {
+      if (!sp.has(t.row.part.def.name)) return;
+      this.drawTris.push(i);
+      ctx(t.a);
+      ctx(t.b);
+      ctx(t.c);
+    });
+    for (const w of v.wheels) if (sp.has(w.row.part.def.name)) {
+      ctx(w.n1);
+      ctx(w.n2);
+    }
+    for (const pr of v.props) if (sp.has(pr.row.part.def.name)) for (const k of [pr.idRef, pr.idX, pr.idY]) if (k >= 0) ctx(k);
+  }
+
+  private buildBeamTriGeometry() {
+    for (const o of [this.beamLines, this.triMesh]) {
+      if (!o) continue;
+      this.root.remove(o);
+      o.geometry.dispose();
+    }
+    const nb = this.drawBeams.length;
+    const bg = new LineSegmentsGeometry();
+    bg.setPositions(new Float32Array(Math.max(1, nb) * 6));
+    bg.setColors(new Float32Array(Math.max(1, nb) * 6));
+    this.beamLines = new LineSegments2(bg, this.beamMat);
+    this.beamLines.frustumCulled = false;
+    this.beamLines.renderOrder = 2;
+    this.beamLines.visible = this.s.showBeams && nb > 0;
+    this.root.add(this.beamLines);
+    const nt = this.drawTris.length;
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nt * 9), 3));
+    tg.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(nt * 12), 4));
+    this.triMesh = new THREE.Mesh(tg, this.triMat);
+    this.triMesh.frustumCulled = false;
+    this.triMesh.renderOrder = 1;
+    this.triMesh.visible = this.s.showTris;
+    this.root.add(this.triMesh);
   }
 
   private disposeGeometry() {
@@ -535,35 +606,35 @@ export class Viewport {
       (this.nodePoints.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
       this.nodePoints.geometry.computeBoundingSphere();
     }
-    if (this.beamLines && v.beams.length) {
+    if (this.beamLines && this.drawBeams.length) {
       const attr = this.beamLines.geometry.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute;
       const arr = attr.data.array as Float32Array;
-      for (let i = 0; i < v.beams.length; i++) {
-        const b = v.beams[i];
-        const o = i * 6;
+      this.drawBeams.forEach((bi, k) => {
+        const b = v.beams[bi];
+        const o = k * 6;
         arr[o] = p[b.a * 3];
         arr[o + 1] = p[b.a * 3 + 1];
         arr[o + 2] = p[b.a * 3 + 2];
         arr[o + 3] = p[b.b * 3];
         arr[o + 4] = p[b.b * 3 + 1];
         arr[o + 5] = p[b.b * 3 + 2];
-      }
+      });
       attr.data.needsUpdate = true;
       this.beamLines.geometry.computeBoundingSphere();
     }
     if (this.triMesh) {
       const attr = this.triMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
-      for (let i = 0; i < v.tris.length; i++) {
-        const t = v.tris[i];
-        const o = i * 9;
-        for (let k = 0; k < 3; k++) {
-          const n = k === 0 ? t.a : k === 1 ? t.b : t.c;
-          arr[o + k * 3] = p[n * 3];
-          arr[o + k * 3 + 1] = p[n * 3 + 1];
-          arr[o + k * 3 + 2] = p[n * 3 + 2];
+      this.drawTris.forEach((ti, k) => {
+        const t = v.tris[ti];
+        const o = k * 9;
+        for (let j = 0; j < 3; j++) {
+          const n = j === 0 ? t.a : j === 1 ? t.b : t.c;
+          arr[o + j * 3] = p[n * 3];
+          arr[o + j * 3 + 1] = p[n * 3 + 1];
+          arr[o + j * 3 + 2] = p[n * 3 + 2];
         }
-      }
+      });
       attr.needsUpdate = true;
       this.triMesh.geometry.computeBoundingSphere();
     }
@@ -601,11 +672,12 @@ export class Viewport {
       this.triNormals = null;
     }
     const v = this.vehicle;
-    if (!v || !this.s.showTriNormals || !v.tris.length) return;
+    if (!v || !this.s.showTriNormals || !this.drawTris.length) return;
     const p = this.pos;
-    const arr = new Float32Array(v.tris.length * 6);
+    const arr = new Float32Array(this.drawTris.length * 6);
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
-    v.tris.forEach((t, i) => {
+    this.drawTris.forEach((ti, i) => {
+      const t = v.tris[ti];
       a.fromArray(p, t.a * 3);
       b.fromArray(p, t.b * 3);
       c.fromArray(p, t.c * 3);
@@ -645,6 +717,7 @@ export class Viewport {
       }
     };
     for (const wh of v.wheels) {
+      if (!this.inScope(wh.row.part.def.name)) continue;
       a.fromArray(p, wh.n1 * 3);
       b.fromArray(p, wh.n2 * 3);
       axis.subVectors(b, a);
@@ -704,12 +777,6 @@ export class Viewport {
     this.requestRender();
   }
 
-  setFocusPart(p: string | null) {
-    this.focusPart = p;
-    this.dirtyColors = true;
-    this.requestRender();
-  }
-
   private beamBaseColor(i: number, cache: Map<string, [number, number, number]>): [number, number, number] {
     const v = this.vehicle!;
     const b = v.beams[i];
@@ -763,15 +830,13 @@ export class Viewport {
     const hl = this.highlight;
     const selC = hexToRgb(s.colorSelect);
     const hlC = hexToRgb(s.colorHighlight);
-    const bg = hexToRgb(this.colors.bg);
-    const focus = this.focusPart;
-    const dim = (s.dimOtherParts && focus) || false;
-    const dimK = s.dimOpacity;
     const hover = this.hover;
+    const vis = this.nodeVis;
 
     // nodes
     const nodeC = hexToRgb(s.colorNode);
     const fixedC = hexToRgb(s.colorNodeFixed);
+    const ctxC: [number, number, number] = [0.55, 0.58, 0.62];
     const nc = this.nodeColor;
     const ns = this.nodeSizeAttr;
     for (let i = 0; i < v.nodes.length; i++) {
@@ -781,16 +846,26 @@ export class Viewport {
       let a = 1;
       const isSel = sel?.nodes.has(i);
       const isHl = hl?.nodes.has(i);
+      if (vis[i] === 1) {
+        c = ctxC;
+        size *= 0.8;
+        a = 0.6;
+      }
       if (isHl) {
         c = hlC;
-        size *= 1.35;
+        size = s.nodeSize * 1.35;
+        a = 1;
       }
       if (isSel) {
         c = selC;
-        size *= 1.35;
+        size = s.nodeSize * 1.35;
+        a = 1;
       }
       if (hover?.kind === 'node' && hover.idx === i) size *= 1.6;
-      if (dim && nd.row.part.def.name !== focus && !isSel && !isHl) a = dimK;
+      if (vis[i] === 0 && !isSel && !isHl) {
+        size = 0;
+        a = 0;
+      }
       nc[i * 4] = c[0];
       nc[i * 4 + 1] = c[1];
       nc[i * 4 + 2] = c[2];
@@ -802,38 +877,27 @@ export class Viewport {
       (this.nodePoints.geometry.getAttribute('aSize') as THREE.BufferAttribute).needsUpdate = true;
     }
 
-    // beams (no per-vertex alpha in LineMaterial: dimming blends toward the background)
-    if (this.beamLines && v.beams.length) {
+    if (this.beamLines && this.drawBeams.length) {
       const attr = this.beamLines.geometry.getAttribute('instanceColorStart') as THREE.InterleavedBufferAttribute;
       const arr = attr.data.array as Float32Array;
-      for (let i = 0; i < v.beams.length; i++) {
+      this.drawBeams.forEach((i, k) => {
         let c = this.beamBaseColor(i, cache);
         if (hl?.beams.has(i)) c = hlC;
         if (sel?.beams.has(i)) c = selC;
         else if (hover?.kind === 'beam' && hover.idx === i) c = [Math.min(1, c[0] + 0.35), Math.min(1, c[1] + 0.35), Math.min(1, c[2] + 0.35)];
-        let r = c[0], g = c[1], b = c[2];
-        if (dim && v.beams[i].row.part.def.name !== focus && !sel?.beams.has(i) && !hl?.beams.has(i)) {
-          r = r * dimK + bg[0] * (1 - dimK);
-          g = g * dimK + bg[1] * (1 - dimK);
-          b = b * dimK + bg[2] * (1 - dimK);
-        }
-        const o = i * 6;
-        arr[o] = r;
-        arr[o + 1] = g;
-        arr[o + 2] = b;
-        arr[o + 3] = r;
-        arr[o + 4] = g;
-        arr[o + 5] = b;
-      }
+        const o = k * 6;
+        arr[o] = arr[o + 3] = c[0];
+        arr[o + 1] = arr[o + 4] = c[1];
+        arr[o + 2] = arr[o + 5] = c[2];
+      });
       attr.data.needsUpdate = true;
     }
 
-    // tris
     if (this.triMesh) {
       const attr = this.triMesh.geometry.getAttribute('aColor') as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
       const triC = hexToRgb(s.colorTri);
-      for (let i = 0; i < v.tris.length; i++) {
+      this.drawTris.forEach((i, k) => {
         let c = triC;
         let a = 1;
         if (hl?.tris.has(i)) {
@@ -844,15 +908,14 @@ export class Viewport {
           c = selC;
           a = 2.5;
         } else if (hover?.kind === 'tri' && hover.idx === i) a = 2;
-        if (dim && v.tris[i].row.part.def.name !== focus && a === 1) a = dimK;
-        for (let k = 0; k < 3; k++) {
-          const o = i * 12 + k * 4;
+        for (let j = 0; j < 3; j++) {
+          const o = k * 12 + j * 4;
           arr[o] = c[0];
           arr[o + 1] = c[1];
           arr[o + 2] = c[2];
           arr[o + 3] = a;
         }
-      }
+      });
       attr.needsUpdate = true;
     }
   }
@@ -943,11 +1006,11 @@ export class Viewport {
         return this.hover?.kind === 'node' && this.hover.idx === i;
       };
       const all = s.showLabels === 'all';
-      const focus = this.focusPart;
       for (let i = 0; i < v.nodes.length; i++) {
         if (!want(i)) continue;
         if (proj[i * 3 + 2] > 1) continue;
-        if (all && focus && s.dimOtherParts && v.nodes[i].row.part.def.name !== focus && !this.sel?.nodes.has(i)) continue;
+        if (this.nodeVis[i] === 0 && !this.sel?.nodes.has(i)) continue;
+        if (all && this.nodeVis[i] === 1 && !this.sel?.nodes.has(i)) continue;
         const strong = !!(this.sel?.nodes.has(i) || (this.hover?.kind === 'node' && this.hover.idx === i));
         items.push({ x: proj[i * 3], y: proj[i * 3 + 1], text: v.nodes[i].name, color: strong ? s.colorSelect : this.colors.text, strong });
       }
@@ -999,22 +1062,23 @@ export class Viewport {
     if (!v) return null;
     const s = this.s;
     const proj = this.projectAll();
-    const focus = this.focusPart && s.dimOtherParts ? this.focusPart : null;
+    const vis = this.nodeVis;
     if ((mode === 'nodes' || mode === 'all') && s.showNodes) {
       let best = -1;
       let bestD = radius * radius;
       let bestZ = 2;
       for (let i = 0; i < v.nodes.length; i++) {
+        if (!vis[i]) continue;
         const z = proj[i * 3 + 2];
         if (z > 1) continue;
-        if (focus && v.nodes[i].row.part.def.name !== focus) continue;
         const dx = proj[i * 3] - px, dy = proj[i * 3 + 1] - py;
         const d = dx * dx + dy * dy;
         if (d > radius * radius) continue;
-        // nearest on screen; among near-ties, the one closest to the camera
-        if (best < 0 || d < bestD - 9 || (d < bestD + 9 && z < bestZ)) {
+        // in-scope nodes win over context nodes; then nearest; near-ties go to the closest to the camera
+        const pref = vis[i] === 2 ? 0 : 30;
+        if (best < 0 || d + pref < bestD - 9 || (d + pref < bestD + 9 && z < bestZ)) {
           best = i;
-          bestD = d;
+          bestD = d + pref;
           bestZ = z;
         }
       }
@@ -1024,9 +1088,8 @@ export class Viewport {
       let best = -1;
       let bestD = (radius * 0.7) ** 2;
       let bestZ = 2;
-      for (let i = 0; i < v.beams.length; i++) {
+      for (const i of this.drawBeams) {
         const b = v.beams[i];
-        if (focus && b.row.part.def.name !== focus) continue;
         const za = proj[b.a * 3 + 2], zb = proj[b.b * 3 + 2];
         if (za > 1 || zb > 1) continue;
         const ax = proj[b.a * 3], ay = proj[b.a * 3 + 1], bx = proj[b.b * 3], by = proj[b.b * 3 + 1];
@@ -1045,14 +1108,13 @@ export class Viewport {
       }
       if (best >= 0) return { kind: 'beam', idx: best };
     }
-    if ((mode === 'tris' || mode === 'all') && s.showTris && this.triMesh && v.tris.length) {
+    if ((mode === 'tris' || mode === 'all') && s.showTris && this.triMesh && this.drawTris.length) {
       const r = this.ray(px, py);
       const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), hit = new THREE.Vector3();
       let best = -1;
       let bestT = Infinity;
-      for (let i = 0; i < v.tris.length; i++) {
+      for (const i of this.drawTris) {
         const t = v.tris[i];
-        if (focus && t.row.part.def.name !== focus) continue;
         a.fromArray(this.pos, t.a * 3);
         b.fromArray(this.pos, t.b * 3);
         c.fromArray(this.pos, t.c * 3);
@@ -1069,28 +1131,25 @@ export class Viewport {
     return null;
   }
 
-  /** Element indices inside a screen rectangle. */
+  /** Element indices inside a screen rectangle (in-scope elements only). */
   boxSelect(x0: number, y0: number, x1: number, y1: number, mode: PickMode): { nodes: number[]; beams: number[]; tris: number[] } {
     const v = this.vehicle;
     const out = { nodes: [] as number[], beams: [] as number[], tris: [] as number[] };
     if (!v) return out;
     const minX = Math.min(x0, x1), maxX = Math.max(x0, x1), minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
     const proj = this.projectAll();
-    const focus = this.focusPart && this.s.dimOtherParts ? this.focusPart : null;
     const inside = new Uint8Array(v.nodes.length);
     for (let i = 0; i < v.nodes.length; i++) {
+      if (!this.nodeVis[i]) continue;
       if (proj[i * 3 + 2] > 1) continue;
-      if (focus && v.nodes[i].row.part.def.name !== focus) continue;
       const x = proj[i * 3], y = proj[i * 3 + 1];
       if (x >= minX && x <= maxX && y >= minY && y <= maxY) inside[i] = 1;
     }
-    if (mode === 'nodes' || mode === 'all') for (let i = 0; i < inside.length; i++) if (inside[i]) out.nodes.push(i);
-    if (mode === 'beams' || mode === 'all') v.beams.forEach((b, i) => inside[b.a] && inside[b.b] && (!focus || b.row.part.def.name === focus) && out.beams.push(i));
-    if (mode === 'tris' || mode === 'all') v.tris.forEach((t, i) => inside[t.a] && inside[t.b] && inside[t.c] && (!focus || t.row.part.def.name === focus) && out.tris.push(i));
-    if (mode === 'all') {
-      // in mixed mode a box selects nodes; beams/tris are implied by their nodes
-      out.beams = [];
-      out.tris = [];
+    if (mode === 'nodes' || mode === 'all') for (let i = 0; i < inside.length; i++) if (inside[i] && this.nodeVis[i] === 2) out.nodes.push(i);
+    if (mode === 'beams') for (const i of this.drawBeams) if (inside[v.beams[i].a] && inside[v.beams[i].b]) out.beams.push(i);
+    if (mode === 'tris') for (const i of this.drawTris) {
+      const t = v.tris[i];
+      if (inside[t.a] && inside[t.b] && inside[t.c]) out.tris.push(i);
     }
     return out;
   }

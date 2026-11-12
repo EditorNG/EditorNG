@@ -103,7 +103,19 @@ export function ExplorerPanel() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<null | { x: number; y: number; doc: Doc }>(null);
   const [showCommon, setShowCommon] = useState(false);
+  const [jbeamOnly, setJbeamOnly] = useState(true);
   const vehicle = useWs((x) => x.vehicle);
+  const scope = useSel((x) => x.scope);
+  const [openFiles, setOpenFiles] = useState<Set<string>>(new Set());
+  // the file being viewed is always expanded
+  const scopeFile = scope.mode === 'vehicle' ? null : scope.file;
+  const isOpen = (k: string) => openFiles.has(k) || k === scopeFile || !!q;
+  const toggleFile = (k: string) => {
+    const n = new Set(openFiles);
+    if (n.has(k)) n.delete(k);
+    else n.add(k);
+    setOpenFiles(n);
+  };
 
   const activeCommon = useMemo(() => {
     const s = new Set<string>();
@@ -115,7 +127,8 @@ export function ExplorerPanel() {
     const root: TreeNode = { name: '', path: '', children: new Map() };
     for (const d of docs) {
       if (d.isCommon && !(showCommon && activeCommon.has(d.key))) continue;
-      if (q && !d.vpath.toLowerCase().includes(q.toLowerCase())) continue;
+      if (jbeamOnly && d.lang !== 'jbeam') continue;
+      if (q && !d.vpath.toLowerCase().includes(q.toLowerCase()) && !(d.jfile?.parts.some((p) => p.name.toLowerCase().includes(q.toLowerCase())))) continue;
       let rel = d.vpath;
       if (model && rel.toLowerCase().startsWith(`vehicles/${model.toLowerCase()}/`)) rel = rel.slice(`vehicles/${model}/`.length);
       const parts = rel.split('/');
@@ -129,7 +142,7 @@ export function ExplorerPanel() {
       });
     }
     return root;
-  }, [docs, q, model, showCommon, activeCommon]);
+  }, [docs, q, model, showCommon, activeCommon, jbeamOnly]);
 
   const render = (n: TreeNode, depth: number): React.ReactNode[] => {
     const out: React.ReactNode[] = [];
@@ -139,24 +152,58 @@ export function ExplorerPanel() {
         const d = c.doc;
         const dirty = ws.isDirty(d);
         const textual = d.lang !== 'text' || /\.(txt|md|ini)$/i.test(d.name);
+        const parts = d.jfile?.parts ?? [];
+        const hasParts = d.lang === 'jbeam' && parts.length > 0;
+        const open = hasParts && isOpen(d.key);
+        const viewing = scope.mode === 'file' && scope.file === d.key;
         out.push(
-          <button
+          <div
             key={c.path}
-            className={'tree-item' + (activeTab === d.key ? ' active' : '') + (textual ? '' : ' muted')}
-            style={{ paddingLeft: 10 + depth * 12 }}
-            onClick={() => textual && openTab(d.key)}
+            className={'tree-item file' + (activeTab === d.key ? ' active' : '') + (viewing ? ' viewing' : '') + (textual ? '' : ' muted')}
+            style={{ paddingLeft: 4 + depth * 12 }}
             onContextMenu={(e) => {
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, doc: d });
             }}
             title={`${d.vpath}\n${d.source}${d.writable ? '' : ' — read-only'}`}
           >
-            {fileIcon(d)}
-            <span className="ellipsis grow">{c.name}</span>
+            {hasParts ? (
+              <button className="icon-btn small tiny" onClick={() => toggleFile(d.key)} aria-label={open ? 'Collapse' : 'Expand'}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</button>
+            ) : <span style={{ width: 18, flex: 'none' }} />}
+            <button className="tree-label" onClick={() => {
+              if (!textual) return;
+              openTab(d.key);
+              if (hasParts && vehicle?.parts.some((ap) => ap.def.file === d.key)) ws.setScope({ mode: 'file', file: d.key });
+            }}>
+              {fileIcon(d)}
+              <span className="ellipsis grow">{c.name}</span>
+            </button>
             {!d.writable && <Lock size={11} className="faint" />}
             {dirty && <span className="dirty-dot" />}
-          </button>,
+          </div>,
         );
+        if (open) {
+          for (const part of parts) {
+            const active = !!vehicle?.partsByName.get(part.name);
+            const viewingPart = scope.mode === 'part' && scope.part === part.name;
+            out.push(
+              <button
+                key={c.path + '#' + part.name}
+                className={'tree-item part' + (viewingPart ? ' viewing' : '') + (active ? '' : ' inactive')}
+                style={{ paddingLeft: 26 + depth * 12 }}
+                onClick={() => {
+                  if (ws.focusPart(part.name)) revealRange(d.key, part.key.s, part.key.e);
+                  else revealRange(d.key, part.key.s, part.key.e);
+                }}
+                title={`${part.name}\nslotType: ${part.slotTypes.join(', ')}${active ? '' : '\nnot used by the current configuration — click to show it'}`}
+              >
+                <Puzzle size={12} className={active ? 'accent-text' : 'faint'} />
+                <span className="mono ellipsis grow">{part.name}</span>
+                {part.info.name && <span className="faint ellipsis small-text" style={{ maxWidth: '45%' }}>{part.info.name}</span>}
+              </button>,
+            );
+          }
+        }
       } else {
         const isCol = collapsed.has(c.path) && !q;
         out.push(
@@ -181,7 +228,16 @@ export function ExplorerPanel() {
       <PanelHeader title={model ? `Files — ${model}` : 'Files'}>
         <button className={'icon-btn small' + (showCommon ? ' active' : '')} data-tip="Show active common/ files" data-tip-pos="bottom-left" onClick={() => setShowCommon(!showCommon)} aria-label="Show common"><Package size={14} /></button>
       </PanelHeader>
-      <SearchBox value={q} onChange={setQ} placeholder="Filter files" />
+      <div className="row" style={{ margin: '0 8px 6px', gap: 6 }}>
+        <div className="search-box grow" style={{ margin: 0 }}>
+          <Search size={13} className="faint" />
+          <input className="input small" value={q} placeholder="Filter files & parts" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+        </div>
+        <div className="segmented small">
+          <button className={'seg' + (jbeamOnly ? ' active' : '')} onClick={() => setJbeamOnly(true)}>JBeam</button>
+          <button className={'seg' + (!jbeamOnly ? ' active' : '')} onClick={() => setJbeamOnly(false)}>All</button>
+        </div>
+      </div>
       <div className="panel-scroll">
         {render(tree, 0)}
         {!docs.length && <div className="empty-hint">Open a vehicle to see its files.</div>}
@@ -220,7 +276,8 @@ export function PartsPanel() {
   const active = useWs((x) => x.activeConfig);
   const mode = useWs((x) => x.mode);
   const target = useWs((x) => x.target);
-  const focusPart = useSel((x) => x.focusPart);
+  const scope = useSel((x) => x.scope);
+  const focusPart = scope.mode === 'part' ? scope.part : null;
   const [q, setQ] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showEmpty, setShowEmpty] = useState(false);
@@ -264,7 +321,7 @@ export function PartsPanel() {
           <span className={'mono ellipsis' + (doc?.isCommon ? ' faint' : '')}>{p.def.name}</span>
         </button>
         {!doc?.writable && <Lock size={10} className="faint" />}
-        <button className={'icon-btn small tiny' + (focusPart === p.def.name ? ' active' : '')} data-tip="Isolate in 3D" data-tip-pos="left" onClick={() => useSel.setState({ focusPart: focusPart === p.def.name ? null : p.def.name })} aria-label="Isolate"><Eye size={12} /></button>
+        <button className={'icon-btn small tiny' + (focusPart === p.def.name ? ' active' : '')} data-tip="Isolate in 3D" data-tip-pos="left" onClick={() => (focusPart === p.def.name ? ws.setScope({ mode: 'file', file: p.def.file }) : ws.focusPart(p.def.name))} aria-label="Show only this part"><Eye size={12} /></button>
         {doc?.writable && !doc.isCommon && (
           <button className={'icon-btn small tiny' + (isTarget ? ' active' : '')} data-tip="New elements go here" data-tip-pos="left" onClick={() => ws.setTarget(doc.key, p.def.name)} aria-label="Set target"><Target size={12} /></button>
         )}
@@ -326,8 +383,8 @@ export function PartsPanel() {
       </div>
       {focusPart && (
         <div className="panel-foot">
-          <Crosshair size={12} /> Isolated: <span className="mono ellipsis">{focusPart}</span>
-          <button className="btn small ghost" onClick={() => useSel.setState({ focusPart: null })}>Clear</button>
+          <Crosshair size={12} /> Showing: <span className="mono ellipsis">{focusPart}</span>
+          <button className="btn small ghost" onClick={() => ws.setScope({ mode: 'vehicle' })}>Whole vehicle</button>
         </div>
       )}
     </div>

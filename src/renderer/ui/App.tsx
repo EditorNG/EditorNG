@@ -14,6 +14,7 @@ import { ToolsPanel } from './ToolsPanel';
 import { Palette } from './Palette';
 import { Toasts } from './Toasts';
 import { Dialogs } from './Dialogs';
+import { MirrorButton } from './MirrorPart';
 import { COMMANDS, command, commandKey } from './commands';
 import { api } from '../lib/api';
 import { monaco } from '../lib/monaco';
@@ -205,6 +206,7 @@ function StatusBar() {
       </button>
       <div className="grow" />
       {v && <span className="status-item">{v.parts.length} parts</span>}
+      <MirrorButton />
       <span className="status-item faint">EditorNG</span>
     </div>
   );

@@ -12,6 +12,7 @@ import { beamKey, triKey } from '../state/selection';
 import { openFolder } from './commands';
 import type { BlenderExtract } from '@shared/ipc';
 import type { AArr } from '@core/sjson';
+import { MirrorPartDialog } from './MirrorPart';
 
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; width?: number }) {
   useEffect(() => {
@@ -67,6 +68,8 @@ export function Dialogs() {
       return <MakeEditable close={close} docKey={d.data} />;
     case 'import':
       return <ImportDialog close={close} initial={d.data} />;
+    case 'mirrorPart':
+      return <MirrorPartDialog part={d.data} close={close} />;
     case 'shortcuts':
       return <Shortcuts close={close} />;
     case 'blenderAddon':
@@ -457,7 +460,7 @@ function BlenderAddon({ close }: { close: () => void }) {
 // ------------------------------------------------------------------------------------------
 
 const SHORTCUT_GROUPS: Array<[string, string[]]> = [
-  ['Tools', ['tool.select', 'tool.addNode', 'tool.beam', 'tool.tri', 'tool.name']],
+  ['Tools', ['add.menu', 'tool.select', 'tool.addNode', 'tool.beam', 'tool.tri', 'tool.name']],
   ['Transform', ['transform.grab', 'transform.scale', 'transform.rotate']],
   ['Edit', ['edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
   ['Select', ['select.all', 'select.none', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
@@ -466,6 +469,7 @@ const SHORTCUT_GROUPS: Array<[string, string[]]> = [
 ];
 
 export const ACTION_LABELS: Record<string, string> = {
+  'add.menu': 'Add menu (node, beam, trigger, bulb, wheel…)',
   'select.all': 'Select all', 'select.none': 'Select none', 'select.invert': 'Invert selection', 'select.linked': 'Select linked (same part)', 'select.mirror': 'Add mirror twins to selection',
   'transform.grab': 'Move (X/Y/Z lock, type value)', 'transform.scale': 'Scale (S then X then -1 mirrors)', 'transform.rotate': 'Rotate',
   'tool.select': 'Select tool', 'tool.addNode': 'Add node tool', 'tool.beam': 'Beam chain tool', 'tool.tri': 'Triangle tool', 'tool.name': 'Quick naming tool',
@@ -493,8 +497,9 @@ function Shortcuts({ close }: { close: () => void }) {
         ))}
         <div>
           <div className="group-label">Mouse</div>
-          <div className="shortcut-row"><span>Orbit</span><span className="kbd">{settings().orbitButton === 'middle' ? 'MMB' : 'RMB'}</span></div>
-          <div className="shortcut-row"><span>Pan</span><span className="kbd">Shift+MMB / RMB</span></div>
+          <div className="shortcut-row"><span>Orbit</span><span className="kbd">{settings().orbitButton === 'middle' ? 'MMB drag' : 'RMB drag'}</span></div>
+          <div className="shortcut-row"><span>Pan</span><span className="kbd">{settings().orbitButton === 'middle' ? 'Shift+MMB drag' : 'MMB drag'}</span></div>
+          <div className="shortcut-row"><span>Context menu</span><span className="kbd">RMB click</span></div>
           <div className="shortcut-row"><span>Zoom</span><span className="kbd">Wheel</span></div>
           <div className="shortcut-row"><span>Box select</span><span className="kbd">LMB drag</span></div>
           <div className="shortcut-row"><span>Rename node</span><span className="kbd">Double-click</span></div>

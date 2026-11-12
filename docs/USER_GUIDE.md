@@ -31,14 +31,43 @@ unpacked mods → zipped mods → game). What you see is what the game builds.
 **Read-only files.** Files from the game or from zipped mods are read-only. Right-click one in
 **Files → Make editable copy…** to copy it into an unpacked mod, where it overrides the original.
 
-## 2. The 3D view
+## 2. Working part by part
 
-- **Orbit** middle mouse (or right mouse — Settings), **pan** Shift+middle / right, **zoom** wheel.
+The sidebar opens on **Files**: every `.jbeam` file of the vehicle, each one expandable to the
+parts it defines (switch to **All** to see textures, configs and Lua too).
+
+- Click a **file** → the 3D view shows only that file's parts.
+- Click a **part** → the view shows only that part, its code is revealed, and it becomes the
+  target for new elements. Nodes of other parts that it attaches to stay visible, greyed out, so
+  you can still connect beams to them.
+- The bar at the bottom of the view switches between **Part**, **File** and **Vehicle** (the whole
+  assembled vehicle). In File view, switching code tabs switches the 3D view too.
+- Parts that the current configuration doesn't use are greyed out in the list; clicking one installs
+  it in a compatible slot for viewing (not saved, nothing is written).
+
+**Auto-mirror.** When the part you're on has a side in its name (`_R`, `_L`, `_FR`, `_RL`…) and the
+other side does not exist yet, a green **Mirror to …** button appears in the status bar. It creates
+the other part right after this one in the same file: node names l↔r with X mirrored, links to other
+parts' nodes mirrored, triangle winding flipped, slot types / slots / groups / deform and break
+groups / trigger ids / display name swapped, flexbody meshes switched when a mirrored mesh exists,
+global positions and bulb positions mirrored. It lists everything it could not decide (kept meshes,
+links without a mirror node, triggers and props to check) before you confirm. Tested against
+vanilla: mirroring BeamNG's right-hand parts reproduces their left-hand parts' nodes and triangles.
+
+## 3. The 3D view
+
+- Blender mouse layout: **middle-drag** orbits, **Shift+middle-drag** pans, **wheel** zooms,
+  **left-click / left-drag** selects (box select), **right-click** opens the context menu.
+  (Settings → Camera & mouse has an alternative right-mouse-orbit layout.)
 - **Select** click; **Shift** adds, **Ctrl** toggles; **drag** on empty space for a box select.
+- **Shift+A** (or right-click → **Add…**) opens the Add menu: node here, beam / triangle from the
+  selection, trigger here, light bulb here, occupant seat, pressure wheel here, subdivide, import
+  from Blender. Placers open pre-filled with the point under the cursor and the selected (or
+  nearest) nodes.
 - **Alt+click** picks flexbodies, props and triggers instead of nodes/beams.
 - Pick filter (top bar): All / Nodes (1) / Beams (2) / Tris (3).
 - Views: Numpad 1 / 3 / 7 (Ctrl for the opposite side), Numpad 5 ortho, **F** frame selection,
-  **Home** frame all. **Shift+I** isolates the selected element's part (others are dimmed).
+  **Home** frame all. **Shift+I** shows only the part of the selected element.
 - Bottom-right sliders: **node size, beam width, flexbody opacity, triangle opacity**. They are
   remembered between sessions, like every display toggle.
 - Triangles: front faces use the triangle colour, back faces are tinted red, so flipped collision
@@ -47,7 +76,7 @@ unpacked mods → zipped mods → game). What you see is what the game builds.
   node name inside a row) highlights it in 3D. Putting the cursor on a section name highlights the
   whole section.
 
-## 3. Editing
+## 4. Editing
 
 All tools write into the **target part** shown in the status bar ("target: …"). It follows the
 part you last clicked in 3D or the part your code cursor is in; pin it with the ◎ button in
@@ -76,7 +105,7 @@ the inspector shows final positions and writes back the raw value that produces 
 version is kept (Settings → Editing). Files changed by another program are reloaded automatically
 unless you have unsaved edits there.
 
-## 4. The code editor
+## 5. The code editor
 
 A full code editor (the one inside VS Code) with JBeam support:
 
@@ -93,7 +122,7 @@ A full code editor (the one inside VS Code) with JBeam support:
   would silently discard, duplicate definitions, failed expressions, wrong slot types,
   missing commas — with a quick fix).
 
-## 5. Importing from Blender
+## 6. Importing from Blender
 
 Model the node/beam layout in Blender with **vertices (nodes), edges (beams) and faces (collision
 triangles)**, in vehicle coordinates (BeamNG: +X = left, −Y = front, +Z = up — the same as Blender's
@@ -111,7 +140,7 @@ the number; centre-line nodes get no suffix; or use the vertex group name as pre
 is safe**: vertices at an existing node's position keep that node's name, and beams/triangles that
 already exist are skipped — so you can keep modelling in Blender and re-send.
 
-## 6. Create & place (hammer icon)
+## 7. Create & place (hammer icon)
 
 - **Trigger (triggers2)** — box or sphere, three reference nodes, position in vehicle coordinates
   (`baseTranslationGlobal`), colour or highlight mesh, action wiring (`common:` actions, generic door/hood/trunk
@@ -131,7 +160,7 @@ next to a node field lets you click the node in 3D.
 **Props & triggers editor**: Alt+click a prop or trigger; the inspector edits its translation,
 rotation and size with live feedback in 3D.
 
-## 7. Checks, weight and tuning (bottom panel)
+## 8. Checks, weight and tuning (bottom panel)
 
 - **Problems** — everything the loader found, click to jump.
 - **Checks** — duplicate beams (with one-click removal), zero/short beams, nodes without beams,
@@ -145,7 +174,7 @@ rotation and size with live feedback in 3D.
 The **Parts** panel shows the slot tree: swap parts in any slot, switch `.pc` configurations,
 isolate a part in 3D, set the target part.
 
-## 8. Suspension analysis (wave icon)
+## 9. Suspension analysis (wave icon)
 
 The suspension is solved from the beams themselves, so it works for any design (double wishbone,
 strut, multi-link, solid axle, leaf spring, trailing arm, home-made or procedural):
@@ -165,7 +194,7 @@ strut, multi-link, solid axle, leaf spring, trailing arm, home-made or procedura
 If the solver reports a large residual or a part moves that should not (or the other way round),
 open **Moving parts → edit** and tick/untick parts, or change the rigid-beam threshold.
 
-## 9. Settings
+## 10. Settings
 
 Everything is in **Settings** (gear icon, Ctrl+,): theme (dark/light/system) and accent colour, UI
 scale, every 3D colour, node/beam sizes, label behaviour, camera controls, code editor font and
@@ -173,7 +202,7 @@ features, number precision, backups, l/r suffixes and naming defaults, game/user
 Blender path and import defaults, check thresholds, suspension model, and a full **keymap** editor.
 Settings can be exported/imported as a JSON file.
 
-## 10. Good to know
+## 11. Good to know
 
 - Nothing is written to disk until you save. The title bar shows how many files are unsaved, and
   closing the app asks before discarding.

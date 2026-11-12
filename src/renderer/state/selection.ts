@@ -21,14 +21,25 @@ export interface Hover {
   idx: number;
 }
 
+export type ViewScope = { mode: 'vehicle' } | { mode: 'file'; file: string } | { mode: 'part'; part: string; file: string };
+
+/** Part names visible for a scope (null = everything). */
+export function scopeParts(v: Vehicle | null, scope: ViewScope): Set<string> | null {
+  if (!v || scope.mode === 'vehicle') return null;
+  if (scope.mode === 'part') return new Set([scope.part]);
+  const set = new Set<string>();
+  for (const p of v.parts) if (p.def.file === scope.file) set.add(p.def.name);
+  return set;
+}
+
 export interface SelState {
   sel: Sel;
   hover: Hover | null;
   /** highlighted from the code editor cursor */
   highlight: Sel;
   mode: PickMode;
-  /** isolate a part: other parts are dimmed */
-  focusPart: string | null;
+  /** what the 3D view shows: one part, one file, or the whole vehicle */
+  scope: ViewScope;
   /** last element clicked (for "active" display) */
   active: Hover | null;
 }
@@ -40,7 +51,7 @@ export const useSel = create<SelState>(() => ({
   hover: null,
   highlight: emptySel(),
   mode: 'all',
-  focusPart: null,
+  scope: { mode: 'vehicle' },
   active: null,
 }));
 

@@ -119,6 +119,17 @@ export class Layers {
   private loadToken = 0;
   vehicle: Vehicle | null = null;
   shapes: TriggerShape[] = [];
+  private scope: Set<string> | null = null;
+
+  private inScope(part: string) {
+    return !this.scope || this.scope.has(part);
+  }
+
+  setScope(scope: Set<string> | null) {
+    this.scope = scope;
+    this.buildMeshes();
+    this.rebuildTriggers();
+  }
 
   constructor(private vp: Viewport, private s: Settings) {
     vp.meshRoot.add(this.flexGroup, this.propGroup);
@@ -205,7 +216,7 @@ export class Layers {
     const grey = new THREE.Color(0x9aa1ab);
     v.flexbodies.forEach((f, i) => {
       const g = meshes.get(f.mesh);
-      if (!g) {
+      if (!g || !this.inScope(f.row.part.def.name)) {
         this.flexObjs.push(new THREE.Object3D());
         return;
       }
@@ -232,7 +243,7 @@ export class Layers {
     const byIdx = new Map(places.map((p) => [p.idx, p]));
     v.props.forEach((p, i) => {
       const pl = byIdx.get(i);
-      if (!pl) {
+      if (!pl || !this.inScope(p.row.part.def.name)) {
         this.propObjs.push(new THREE.Object3D());
         return;
       }
@@ -279,6 +290,7 @@ export class Layers {
         const px = get('$posX'), py = get('$posY'), pz = get('$posZ');
         if (px === undefined || py === undefined || pz === undefined || !sn.part) continue;
         if (!/bulb|light|lamp/i.test(sn.id + ' ' + sn.chosen)) continue;
+        if (!this.inScope(p.def.name) && !this.inScope(sn.chosen)) continue;
         const rx = get('$rotX') ?? 0, rz = get('$rotZ') ?? 0;
         const d = bulbDirection(rx, rz);
         const color = /red/i.test(sn.chosen) ? 0xff4040 : /amber/i.test(sn.chosen) ? 0xffa520 : 0xfff2b0;
@@ -301,6 +313,10 @@ export class Layers {
     if (!v) return;
     this.shapes = triggerShapes(v, this.vp.pos);
     for (const sh of this.shapes) {
+      if (!this.inScope(sh.row.part.def.name)) {
+        this.trigObjs.push(new THREE.Object3D());
+        continue;
+      }
       const color = new THREE.Color(1, 0.5, 0);
       const c = sh.row.v.color;
       if (Array.isArray(c) && c.length >= 3) color.setRGB(num(c[0], 1), num(c[1], 0.5), num(c[2], 0));

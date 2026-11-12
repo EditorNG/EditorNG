@@ -193,6 +193,9 @@ export function CodeEditor() {
     m.updateOptions({ tabSize: settings().editorTabSize, insertSpaces: !/\n\t/.test(d.text) });
     editor.updateOptions({ readOnly: !d.writable, readOnlyMessage: { value: `${d.name} is read-only (${d.source}). Use "Make editable copy" in the explorer.` } });
     updateMarkers(d);
+    // in file scope, the 3D view follows the code tab
+    const sc = useSel.getState().scope;
+    if (sc.mode === 'file' && sc.file !== d.key && ws.vehicle?.parts.some((p) => p.def.file === d.key)) ws.setScope({ mode: 'file', file: d.key });
   }, [active]);
 
   // drop tabs whose documents vanished (vehicle switch)

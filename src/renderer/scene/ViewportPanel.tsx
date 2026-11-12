@@ -8,8 +8,9 @@ import { Viewport } from './viewport';
 import { Layers } from './layers';
 import { ws, useWs } from '../project/workspace';
 import { useSettings, settings, matches } from '../state/settings';
+import { scopeParts } from '../state/selection';
 import { useSel, resolveSel, addToSel, cloneSel, emptySel, setSel, selNodeIdx, selCount, type Hover, type PickMode } from '../state/selection';
-import { useUi, type Tool } from '../state/ui';
+import { useUi, requestTool, type Tool } from '../state/ui';
 import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
 import { toast } from '../state/toast';
@@ -54,7 +55,7 @@ export function ViewportPanel() {
   const highlight = useSel((x) => x.highlight);
   const hover = useSel((x) => x.hover);
   const mode = useSel((x) => x.mode);
-  const focusPart = useSel((x) => x.focusPart);
+  const scope = useSel((x) => x.scope);
   const tool = useUi((x) => x.tool);
   const meshStatus = useMeshStatus();
   const [box, setBox] = useState<null | { x0: number; y0: number; x1: number; y1: number }>(null);
@@ -63,6 +64,7 @@ export function ViewportPanel() {
   const [nameInput, setNameInput] = useState<null | { x: number; y: number; value: string; node?: string; create?: [number, number, number]; queue?: string[] }>(null);
   const [chain, setChain] = useState<string[]>([]);
   const [ctxMenu, setCtxMenu] = useState<null | { x: number; y: number; hit: Hover | null }>(null);
+  const [addMenu, setAddMenu] = useState<null | { x: number; y: number; world: [number, number, number] }>(null);
   const mouse = useRef({ x: 0, y: 0, inside: false });
   const down = useRef<null | { x: number; y: number; button: number; shift: boolean; ctrl: boolean; alt: boolean; moved: boolean }>(null);
 
@@ -113,9 +115,17 @@ export function ViewportPanel() {
     vpInstance?.setHover(hover);
   }, [hover]);
 
+  // view scope: rebuild the visible set when the scope changes (frame it), or silently after re-assembly
+  const lastScope = useRef<string>('');
   useEffect(() => {
-    vpInstance?.setFocusPart(focusPart);
-  }, [focusPart]);
+    const v = ws.vehicle;
+    const set = scopeParts(v, scope);
+    const key = JSON.stringify(scope);
+    const changed = key !== lastScope.current;
+    lastScope.current = key;
+    vpInstance?.setScope(set, changed && settings().frameOnScope);
+    layersInstance?.setScope(set);
+  }, [scope, vehicle]);
 
   useEffect(() => {
     if (s.showMeshes && vehicle) layersInstance?.setVehicle(vehicle);
@@ -155,6 +165,23 @@ export function ViewportPanel() {
     revealRange(row.src.file, row.src.node.s, row.src.node.e);
     const d = ws.doc(row.src.file);
     if (d?.writable && !d.isCommon) ws.setTarget(d.key, row.src.part);
+  };
+
+  /** 3D point under the cursor: a hovered node, else the view plane through the orbit centre. */
+  const worldAt = (x: number, y: number): [number, number, number] => {
+    const vp = vpInstance!;
+    const v = ws.vehicle;
+    const hit = vp.pick(x, y, 'nodes');
+    if (v && hit?.kind === 'node') {
+      const n = v.nodes[hit.idx];
+      return [n.x, n.y, n.z];
+    }
+    const w = vp.pointOnViewPlane(x, y, vp.controls.target.clone());
+    return [w.x, w.y, w.z];
+  };
+  const openAddMenu = (x: number, y: number) => {
+    setCtxMenu(null);
+    setAddMenu({ x, y, world: worldAt(x, y) });
   };
 
   const selectionNodeIdx = (): number[] => {
@@ -345,6 +372,7 @@ export function ViewportPanel() {
     const p = local(e);
     host.current?.focus();
     setCtxMenu(null);
+    setAddMenu(null);
     if (modalRef.current) {
       e.preventDefault();
       if (e.button === 0) confirmModal();
@@ -549,6 +577,7 @@ export function ViewportPanel() {
         if (useUi.getState().tool !== 'select') return setTool('select');
         return run(() => setSel(emptySel()));
       }
+      if (matches('add.menu', e)) return run(() => openAddMenu(mouse.current.x, mouse.current.y));
       if (matches('transform.grab', e)) return run(() => startModal('move'));
       if (matches('transform.scale', e)) return run(() => startModal('scale'));
       if (matches('transform.rotate', e)) return run(() => startModal('rotate'));
@@ -596,10 +625,9 @@ export function ViewportPanel() {
       if (matches('select.all', e)) return run(() => {
         const s = emptySel();
         const pm = useSel.getState().mode;
-        const fp = useSel.getState().focusPart;
-        v.nodes.forEach((n, i) => (pm === 'all' || pm === 'nodes') && (!fp || n.row.part.def.name === fp) && addToSel(v, s, 'node', i));
-        if (pm === 'beams') v.beams.forEach((b, i) => (!fp || b.row.part.def.name === fp) && addToSel(v, s, 'beam', i));
-        if (pm === 'tris') v.tris.forEach((t, i) => (!fp || t.row.part.def.name === fp) && addToSel(v, s, 'tri', i));
+        v.nodes.forEach((_, i) => (pm === 'all' || pm === 'nodes') && vp.nodeVis[i] === 2 && addToSel(v, s, 'node', i));
+        if (pm === 'beams') for (const i of vp.drawBeams) addToSel(v, s, 'beam', i);
+        if (pm === 'tris') for (const i of vp.drawTris) addToSel(v, s, 'tri', i);
         setSel(s);
       });
       if (matches('select.none', e)) return run(() => setSel(emptySel()));
@@ -648,8 +676,8 @@ export function ViewportPanel() {
   const toggleIsolate = () => {
     const v = ws.vehicle;
     if (!v) return;
-    const fp = useSel.getState().focusPart;
-    if (fp) return useSel.setState({ focusPart: null });
+    const sc = useSel.getState().scope;
+    if (sc.mode === 'part') return useSel.setState({ scope: { mode: 'file', file: sc.file } });
     const t = useWs.getState().target;
     const act = useSel.getState().active;
     let part: string | null = null;
@@ -657,7 +685,7 @@ export function ViewportPanel() {
     else if (act?.kind === 'beam') part = v.beams[act.idx]?.row.part.def.name ?? null;
     else if (act?.kind === 'tri') part = v.tris[act.idx]?.row.part.def.name ?? null;
     if (!part && t) part = t.part;
-    if (part) useSel.setState({ focusPart: part });
+    if (part) ws.focusPart(part);
   };
 
   const selectLinked = () => {
@@ -731,6 +759,8 @@ export function ViewportPanel() {
         {toolBtn('name', <Tag size={16} />, 'Quick naming (E)')}
       </div>
 
+      <ScopeBar />
+
       <div className="vp-toolbar top" onPointerDown={(e) => e.stopPropagation()}>
         <div className="segmented">
           {modeBtn('all', 'All', 'Pick anything')}
@@ -756,7 +786,7 @@ export function ViewportPanel() {
       <div className="vp-toolbar right" onPointerDown={(e) => e.stopPropagation()}>
         <button className="icon-btn small" data-tip="Frame all (Home)" data-tip-pos="left" onClick={() => vpInstance?.frameNodes(null)} aria-label="Frame all"><Maximize size={14} /></button>
         <button className="icon-btn small" data-tip="Frame selection (F)" data-tip-pos="left" onClick={() => { const i = selectionNodeIdx(); vpInstance?.frameNodes(i.length ? i : null); }} aria-label="Frame selection"><Focus size={14} /></button>
-        <button className={'icon-btn small' + (focusPart ? ' active' : '')} data-tip={focusPart ? `Isolated: ${focusPart} (Shift+I)` : 'Isolate part of the selection (Shift+I)'} data-tip-pos="left" onClick={toggleIsolate} aria-label="Isolate part"><Scan size={14} /></button>
+        <button className="icon-btn small" data-tip="Show only the part of the selection (Shift+I)" data-tip-pos="left" onClick={toggleIsolate} aria-label="Part of selection"><Scan size={14} /></button>
         <div className="view-cube">
           {([['front', 'F', 'Front (Numpad 1)'], ['back', 'B', 'Back (Ctrl+Numpad 1)'], ['left', 'L', 'Left side (Ctrl+Numpad 3)'], ['right', 'R', 'Right side (Numpad 3)'], ['top', 'T', 'Top (Numpad 7)'], ['bottom', 'U', 'Under (Ctrl+Numpad 7)']] as const).map(([vw, l, tip]) => (
             <button key={vw} className="view-btn" data-tip={tip} data-tip-pos="left" onClick={() => vpInstance?.setView(vw)}>{l}</button>
@@ -804,6 +834,25 @@ export function ViewportPanel() {
         />
       )}
 
+      {addMenu && (
+        <AddMenu
+          x={addMenu.x}
+          y={addMenu.y}
+          world={addMenu.world}
+          close={() => setAddMenu(null)}
+          addNode={() => {
+            const v = ws.vehicle;
+            if (!v) return;
+            const nm = useUi.getState().naming;
+            const taken = new Set(v.nodeIndex.keys());
+            let num = nm.next;
+            let name = ops.sidedName(nm.prefix, num, addMenu.world[0]);
+            while (taken.has(name)) name = ops.sidedName(nm.prefix, ++num, addMenu.world[0]);
+            setNameInput({ x: addMenu.x, y: addMenu.y, value: name, create: addMenu.world });
+          }}
+        />
+      )}
+
       {ctxMenu && (
         <ContextMenu
           x={ctxMenu.x}
@@ -815,6 +864,7 @@ export function ViewportPanel() {
             grab: () => startModal('move'),
             isolate: toggleIsolate,
             linked: selectLinked,
+            add: () => openAddMenu(ctxMenu.x, ctxMenu.y),
           }}
         />
       )}
@@ -857,6 +907,35 @@ export function ViewportPanel() {
   );
 }
 
+/** Part / file / whole-vehicle switch shown at the top centre of the view. */
+function ScopeBar() {
+  const scope = useSel((x) => x.scope);
+  const v = useWs((x) => x.vehicle);
+  const target = useWs((x) => x.target);
+  if (!v) return null;
+  const fileName = (f: string) => f.slice(f.lastIndexOf('/') + 1);
+  const curFile = scope.mode === 'vehicle' ? target?.doc ?? v.root?.def.file ?? '' : scope.file;
+  const curPart = scope.mode === 'part' ? scope.part : target?.part ?? '';
+  const partsInFile = v.parts.filter((p) => p.def.file === curFile);
+  return (
+    <div className="scope-bar" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="segmented small">
+        <button className={'seg' + (scope.mode === 'part' ? ' active' : '')} disabled={!curPart} onClick={() => curPart && ws.focusPart(curPart)} data-tip="Only one part (Shift+I)">Part</button>
+        <button className={'seg' + (scope.mode === 'file' ? ' active' : '')} disabled={!curFile} onClick={() => curFile && ws.setScope({ mode: 'file', file: curFile })} data-tip="All parts of one file">File</button>
+        <button className={'seg' + (scope.mode === 'vehicle' ? ' active' : '')} onClick={() => ws.setScope({ mode: 'vehicle' })} data-tip="Whole assembled vehicle">Vehicle</button>
+      </div>
+      {scope.mode === 'part' && (
+        <select className="select small mono scope-select" value={scope.part} onChange={(e) => ws.focusPart(e.target.value)} onKeyDown={(e) => e.stopPropagation()}>
+          {partsInFile.map((p) => <option key={p.def.name} value={p.def.name}>{p.def.name}</option>)}
+          {!partsInFile.some((p) => p.def.name === scope.part) && <option value={scope.part}>{scope.part}</option>}
+        </select>
+      )}
+      {scope.mode === 'file' && <span className="mono scope-name">{fileName(scope.file)}<span className="faint"> · {partsInFile.length} part{partsInFile.length === 1 ? '' : 's'}</span></span>}
+      {scope.mode === 'vehicle' && <span className="scope-name">{v.parts.length} parts</span>}
+    </div>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="vp-empty">
@@ -873,10 +952,55 @@ function EmptyState() {
   );
 }
 
-function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: () => void; actions: { rename: (i: number) => void; grab: () => void; isolate: () => void; linked: () => void } }) {
+function AddMenu(props: { x: number; y: number; world: [number, number, number]; close: () => void; addNode: () => void }) {
+  const v = ws.vehicle;
+  const sel = [...useSel.getState().sel.nodes];
+  const vp = getViewport();
+  // node set for placers: the selection, else the 3 nearest visible nodes
+  const nearNodes = (): string[] => {
+    if (sel.length >= 3 || !v || !vp) return sel;
+    const [x, y, z] = props.world;
+    return v.nodes
+      .map((n, i) => ({ n, i, d: (n.x - x) ** 2 + (n.y - y) ** 2 + (n.z - z) ** 2 }))
+      .filter((o) => vp.nodeVis[o.i] === 2)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 3)
+      .map((o) => o.n.name);
+  };
+  const go = (fn: () => void) => () => {
+    props.close();
+    fn();
+  };
+  const item = (label: string, hint: string, fn: () => void, enabled = true) => (
+    <button className="ctx-item" disabled={!enabled} onClick={go(fn)}>
+      <span>{label}</span>
+      <span className="faint small-text">{hint}</span>
+    </button>
+  );
+  return (
+    <div className="ctx-menu add-menu" style={{ left: props.x, top: props.y }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="ctx-title">Add</div>
+      {item('Node here', 'name it right away', props.addNode)}
+      {item('Beam', sel.length >= 2 ? `${sel.length} selected nodes` : 'select 2+ nodes', () => ops.addBeams(sel.slice(1).map((n, i) => [sel[i], n] as [string, string]), undefined, sel.length > 2 ? 'Connect chain' : 'Add beam'), sel.length >= 2)}
+      {item('Triangle', sel.length === 3 ? 'from selection' : 'select 3 nodes', () => ops.addTris([[sel[0], sel[1], sel[2]]]), sel.length === 3)}
+      <div className="ctx-sep" />
+      {item('Trigger here', 'triggers2', () => requestTool('trigger', props.world, nearNodes()))}
+      {item('Light bulb here', 'slots2 bulb', () => requestTool('bulb', props.world, nearNodes()))}
+      {item('Occupant seat', 'from 6 selected nodes', () => requestTool('occupant', props.world, sel))}
+      {item('Pressure wheel here', 'axle nodes + wheel', () => requestTool('wheel', props.world))}
+      {item('Nodes between 2 nodes', 'subdivide', () => requestTool('subdivide'), sel.length === 2)}
+      <div className="ctx-sep" />
+      {item('Import from Blender / OBJ…', '', () => useUi.setState({ dialog: { kind: 'import' } }))}
+    </div>
+  );
+}
+
+function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: () => void; actions: { rename: (i: number) => void; grab: () => void; isolate: () => void; linked: () => void; add: () => void } }) {
   const v = ws.vehicle;
   const items: Array<[string, () => void, string?] | null> = [];
   const hit = props.hit;
+  items.push(['Add…', props.actions.add, 'Shift+A']);
+  items.push(null);
   if (v && hit?.kind === 'node') items.push(['Rename…', () => props.actions.rename(hit.idx), 'F2']);
   const row = v && hit ? (hit.kind === 'node' ? v.nodes[hit.idx].row : hit.kind === 'beam' ? v.beams[hit.idx].row : hit.kind === 'tri' ? v.tris[hit.idx].row : hit.kind === 'flex' ? v.flexbodies[hit.idx].row : hit.kind === 'prop' ? v.props[hit.idx].row : (v.tables.get('triggers2') ?? [])[hit.idx]) : null;
   if (row) items.push(['Show in code', () => revealRange(row.src.file, row.src.node.s, row.src.node.e, true)]);
@@ -885,7 +1009,7 @@ function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: ()
   items.push(['Move', props.actions.grab, 'G']);
   items.push(['Mirror to other side', () => ops.mirrorSelection(), 'Ctrl+M']);
   items.push(['Select linked', props.actions.linked, 'L']);
-  items.push(['Isolate part', props.actions.isolate, 'Shift+I']);
+  items.push(['Show only this part', props.actions.isolate, 'Shift+I']);
   items.push(null);
   items.push(['Delete', () => ops.deleteSelection(), 'X']);
   return (

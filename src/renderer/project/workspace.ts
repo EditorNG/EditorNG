@@ -17,6 +17,8 @@ import type { JFile, PartDef, Vehicle, VehicleConfig } from '@core/jbeam/types';
 import type { FileRef, VFile, VehicleInfo } from '@shared/ipc';
 import { settings } from '../state/settings';
 import { toast } from '../state/toast';
+import { useSel, type ViewScope } from '../state/selection';
+import { useUi, openTab } from '../state/ui';
 
 export type DocLang = 'jbeam' | 'json' | 'lua' | 'text' | 'csv';
 
@@ -216,6 +218,10 @@ class Workspace {
       this.loadConfig();
       this.assemble();
       this.watch();
+      const main = this.vehicle?.root?.def.file;
+      useUi.setState({ activity: 'explorer', sidebar: true });
+      if (main && this.doc(main)) openTab(main);
+      useSel.setState({ scope: main ? { mode: 'file', file: main } : { mode: 'vehicle' }, sel: { nodes: new Set(), beams: new Set(), tris: new Set(), flex: new Set(), props: new Set(), triggers: new Set() } });
     } catch (e: any) {
       toast('error', `Could not open ${model}: ${e?.message ?? e}`);
     } finally {
@@ -340,6 +346,51 @@ class Workspace {
       delete (cfg as any).partsTree;
     }
     return cfg;
+  }
+
+  /**
+   * Makes a part visible: if the current configuration does not use it, install it (view only)
+   * in the first compatible slot of the active tree. Returns false when no slot accepts it.
+   */
+  ensurePartActive(name: string): boolean {
+    const v = this.vehicle;
+    if (!v || this.mode !== 'vehicle') return !!v?.partsByName.has(name);
+    if (v.partsByName.has(name)) return true;
+    const def = this.lib?.get(name);
+    if (!def) return false;
+    const walk = (slots: Vehicle['root']['slots']): string | null => {
+      for (const sn of slots) {
+        if (this.lib!.compatible(sn.def).some((p) => p.name === name)) return sn.id;
+        if (sn.part) {
+          const r = walk(sn.part.slots);
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    const slot = v.root ? walk(v.root.slots) : null;
+    if (!slot) return false;
+    this.setSlotPart(slot, name);
+    toast('info', `Showing ${name} in slot "${slot}" (view only — change it in Parts or save a .pc)`, undefined, 4000);
+    return !!this.vehicle?.partsByName.has(name);
+  }
+
+  /** Scopes the 3D view to a part (installing it if needed). */
+  focusPart(name: string): boolean {
+    const def = this.vehicle?.partsByName.get(name)?.def ?? this.lib?.get(name);
+    if (!def) return false;
+    if (!this.ensurePartActive(name)) {
+      toast('warn', `${name} fits no slot of the current configuration — pick a config that uses its parent, or open the file alone`);
+      return false;
+    }
+    useSel.setState({ scope: { mode: 'part', part: name, file: def.file } });
+    const d = this.doc(def.file);
+    if (d?.writable && !d.isCommon) this.setTarget(d.key, name);
+    return true;
+  }
+
+  setScope(scope: ViewScope) {
+    useSel.setState({ scope });
   }
 
   setSlotPart(slotId: string, part: string) {

@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { toast } from '../state/toast';
 import { getViewport } from '../scene/ViewportPanel';
 import { meshes } from '../scene/meshes';
+import { useSel } from '../state/selection';
 
 export interface Command {
   id: string;
@@ -59,6 +60,11 @@ export const COMMANDS: Command[] = [
     const l = ws.redo();
     if (l) toast('info', `Redo: ${l}`, undefined, 1000);
   } },
+  { id: 'part.mirror', title: 'Mirror current part to the other side…', group: 'Tools', run: () => {
+    const sc = useSel.getState().scope;
+    const name = sc.mode === 'part' ? sc.part : useWs.getState().target?.part;
+    if (name) useUi.setState({ dialog: { kind: 'mirrorPart', data: name } });
+  }, enabled: hasVehicle },
   { id: 'tools.importMesh', title: 'Import from Blender / OBJ…', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'import' } }) },
   { id: 'tools.blenderAddon', title: 'Install Blender live-link add-on', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'blenderAddon' } }) },
   { id: 'tools.debug', title: 'Run JBeam checks', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'debug' }), enabled: hasVehicle },
