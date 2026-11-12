@@ -21,8 +21,9 @@ const keep = args.includes('--keep-profile');
 const profile = keep ? path.join(root, '.cache', 'profile') : fs.mkdtempSync(path.join(os.tmpdir(), 'editorng-shot-'));
 
 fs.mkdirSync(path.join(root, 'shots'), { recursive: true });
+const exe = opt('--exe');
 const app = await electron.launch({
-  args: ['.'],
+  ...(exe ? { executablePath: exe, args: [] } : { args: ['.'] }),
   cwd: root,
   env: (() => {
     const env = { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1' };
@@ -42,6 +43,8 @@ await page
   .waitForFunction(() => window.__app?.ready === true, null, { timeout: 30000 })
   .catch(() => logs.push('[shot] app never became ready'));
 let result;
+// optional: POST a JSON file to the Blender live-link port (tests the main-process HTTP server)
+const post = opt('--post');
 const code = jsFile ? fs.readFileSync(jsFile, 'utf8') : js;
 if (code) {
   try {
@@ -52,6 +55,11 @@ if (code) {
   } catch (e) {
     logs.push('[shot] script error: ' + e.message);
   }
+}
+if (post) {
+  const body = fs.readFileSync(post);
+  const res = await fetch('http://127.0.0.1:' + (opt('--port', '46790')) + '/import', { method: 'POST', body, headers: { 'Content-Type': 'application/json' } }).catch((e) => ({ status: 'ERR ' + e.message }));
+  console.log('POST', res.status);
 }
 await page.waitForTimeout(wait);
 const file = path.join(root, 'shots', name + '.png');

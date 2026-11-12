@@ -14,6 +14,7 @@ import * as ops from './project/ops';
 import { getViewport } from './scene/ViewportPanel';
 import { command } from './ui/commands';
 import { meshes, useMeshStatus } from './scene/meshes';
+import { revealRange, getEditor } from './editor/CodeEditor';
 
 function defineThemes() {
   const accent = 'ff7a1a';
@@ -107,7 +108,7 @@ async function boot() {
   log(`EditorNG ${env.appVersion} · game: ${roots.gameDir ?? 'not found'} · user: ${roots.userDir ?? 'not found'}`);
   if (state.lastVehicle && !(window as any).__noRestore) await ws.openVehicle(state.lastVehicle, state.lastConfig ?? undefined);
   // automation hooks (used by scripts/shot.mjs and handy in devtools)
-  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, monaco, meshes, useMeshStatus };
+  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, monaco, meshes, useMeshStatus, revealRange, getEditor };
 }
 
 boot().catch((e) => {

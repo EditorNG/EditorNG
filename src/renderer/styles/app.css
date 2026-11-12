@@ -570,6 +570,9 @@
   position: absolute;
   left: 8px;
   bottom: 8px;
+  max-width: calc(100% - 430px);
+  overflow: hidden;
+  white-space: nowrap;
   display: flex;
   gap: 12px;
   color: var(--text-faint);

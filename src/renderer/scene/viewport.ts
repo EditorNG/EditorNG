@@ -273,10 +273,11 @@ export class Viewport {
     this.colors = c;
     this.renderer.setClearColor(new THREE.Color(c.bg));
     const light = new THREE.Color(c.bg).getHSL({ h: 0, s: 0, l: 0 }).l > 0.5;
-    for (const ch of this.grid.children) {
+    this.grid.children.forEach((ch, i) => {
       const m = (ch as THREE.LineSegments).material as THREE.LineBasicMaterial;
       m.color.set(light ? 0x000000 : 0xffffff);
-    }
+      m.opacity = light ? (i === 0 ? 0.035 : 0.09) : i === 0 ? 0.05 : 0.14;
+    });
     (this.ground.material as THREE.MeshBasicMaterial).color.set(light ? 0x000000 : 0xffffff);
     this.dirtyColors = true;
     this.requestRender();
