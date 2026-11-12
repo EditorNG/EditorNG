@@ -43,3 +43,7 @@ It's used for visual checks.
 Design rules: the JBeam text is the source of truth (every tool emits minimal text edits);
 assembly follows the game's rules so the view matches what spawns; anything read-only (game
 zips) stays read-only until copied into a mod.
+
+Note for Git Bash on Windows: run vitest from a path with an uppercase drive letter
+(`cd /C/Users/...`); a lowercase `c:` path makes vitest fail with "Cannot read properties of
+undefined (reading 'config')".
