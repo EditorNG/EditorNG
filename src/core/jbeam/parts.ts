@@ -118,12 +118,20 @@ export function buildParts(path: string, root: ANode | null): PartDef[] {
       key,
       slotTypes,
       slots,
-      info: { name: info?.name, authors: info?.authors, value: info?.value },
+      // names can be localisation objects ({"txt": "...", "ctx": "..."})
+      info: { name: textOf(info?.name), authors: textOf(info?.authors), value: typeof info?.value === 'number' ? info.value : undefined },
       sections,
       sectionKeys,
     });
   }
   return parts;
+}
+
+function textOf(v: any): string | undefined {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (v && typeof v === 'object' && typeof v.txt === 'string') return v.txt;
+  return undefined;
 }
 
 export function parseJbeamFile(path: string, text: string): JFile {

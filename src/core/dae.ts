@@ -252,7 +252,8 @@ function readGeometry(geo: XEl): Geo | null {
 export interface DaeFile {
   /** node / geometry names -> builder */
   names: string[];
-  build(name: string): DaeMesh | null;
+  /** local = geometry relative to the node pivot (unit/up-axis still applied), as props use it */
+  build(name: string, local?: boolean): DaeMesh | null;
 }
 
 export function readDae(text: string): DaeFile {
@@ -304,13 +305,13 @@ export function readDae(text: string): DaeFile {
     if (nm && !nodes.has(nm)) geoByName.set(nm, id);
   }
 
-  const build = (name: string): DaeMesh | null => {
+  const build = (name: string, local = false): DaeMesh | null => {
     const entries = nodes.get(name);
     const parts: Array<{ m: Mat4; g: Geo }> = [];
     if (entries) {
       for (const e of entries) for (const gid of e.geos) {
         const g = geo(gid);
-        if (g) parts.push({ m: e.m, g });
+        if (g) parts.push({ m: local ? root : e.m, g });
       }
     }
     if (!parts.length) {

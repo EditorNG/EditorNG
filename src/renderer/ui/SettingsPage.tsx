@@ -44,6 +44,7 @@ const GROUPS: Group[] = [
       { key: 'meshOpacity', label: 'Flexbody opacity', type: 'range', min: 0, max: 1, step: 0.02 },
       { key: 'meshWireframe', label: 'Flexbody wireframe overlay', type: 'bool' },
       { key: 'meshColorByPart', label: 'Colour flexbodies by part', type: 'bool' },
+      { key: 'showOccupants', label: 'Show occupants (0.40 seat occupants)', type: 'bool', hint: 'Torso and head placed like in game: seat nodeMove / nodeRotate applied.' },
       { key: 'showLabels', label: 'Node labels', type: 'select', options: [['off', 'Off'], ['hover', 'Hovered & selected'], ['selected', 'Selected only'], ['all', 'All']] },
       { key: 'labelSize', label: 'Label size', type: 'range', min: 8, max: 18, step: 1 },
       { key: 'beamColorMode', label: 'Beam colours', type: 'select', options: [['type', 'By beam type'], ['part', 'By part'], ['stiffness', 'By stiffness (heat map)'], ['deformGroup', 'By deform group'], ['uniform', 'Uniform']] },

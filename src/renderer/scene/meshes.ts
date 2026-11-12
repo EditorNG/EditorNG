@@ -120,13 +120,15 @@ class MeshManager {
     return this.index.get(name.toLowerCase());
   }
 
-  get(name: string): THREE.BufferGeometry | null | undefined {
-    return this.geo.get(name.toLowerCase());
+  /** local = geometry relative to the mesh pivot (how props with a global position are placed) */
+  get(name: string, local = false): THREE.BufferGeometry | null | undefined {
+    return this.geo.get(name.toLowerCase() + (local ? '|local' : ''));
   }
 
   /** Loads geometry for the given mesh names. Resolves when all are loaded (or known missing). */
-  async load(names: string[]): Promise<void> {
-    const want = [...new Set(names.map((n) => n.trim()).filter((n) => n && !this.geo.has(n.toLowerCase())))];
+  async load(names: string[], local = false): Promise<void> {
+    const suffix = local ? '|local' : '';
+    const want = [...new Set(names.map((n) => n.trim()).filter((n) => n && !this.geo.has(n.toLowerCase() + suffix)))];
     if (!want.length) return;
     useMeshStatus.setState((s) => ({ loading: s.loading + 1 }));
     try {
@@ -137,7 +139,7 @@ class MeshManager {
         const f = this.index.get(n.toLowerCase());
         if (!f) {
           missing.push(n);
-          this.geo.set(n.toLowerCase(), null);
+          this.geo.set(n.toLowerCase() + suffix, null);
           continue;
         }
         let l = byFile.get(f);
@@ -146,10 +148,10 @@ class MeshManager {
       }
       for (const [f, list] of byFile) {
         const key = fileKey(f);
-        let res = await call({ type: 'build', key, names: list });
+        let res = await call({ type: 'build', key, names: list, local });
         if (res.needText) {
           const buf = f.real ? await api.readBinaryFile(f.real) : await api.readBinary(f);
-          res = await call({ type: 'build', key, names: list, buf: buf.buffer }, [buf.buffer as ArrayBuffer]);
+          res = await call({ type: 'build', key, names: list, local, buf: buf.buffer }, [buf.buffer as ArrayBuffer]);
         }
         const got = new Map<string, DaeMesh>();
         for (const m of (res.meshes ?? []) as DaeMesh[]) got.set(m.name.toLowerCase(), m);
@@ -157,7 +159,7 @@ class MeshManager {
           const m = got.get(n.toLowerCase());
           if (!m) {
             missing.push(n);
-            this.geo.set(n.toLowerCase(), null);
+            this.geo.set(n.toLowerCase() + suffix, null);
             continue;
           }
           const g = new THREE.BufferGeometry();
@@ -165,7 +167,7 @@ class MeshManager {
           g.setAttribute('normal', new THREE.BufferAttribute(m.nrm, 3));
           g.computeBoundingBox();
           g.computeBoundingSphere();
-          this.geo.set(n.toLowerCase(), g);
+          this.geo.set(n.toLowerCase() + suffix, g);
         }
       }
       if (missing.length) useMeshStatus.setState((s) => ({ missing: [...new Set([...s.missing, ...missing])] }));

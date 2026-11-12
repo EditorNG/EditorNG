@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import {
   MousePointer2, CirclePlus, Spline, Triangle, Tag, Box, Eye, Layers as LayersIcon, Grid3x3, Maximize, Focus, Tags, Shapes, Scan, Ghost, Cuboid, Lightbulb,
-  CircleDot, Minus, Waves,
+  CircleDot, Minus, Waves, Armchair,
 } from 'lucide-react';
 import { Viewport } from './viewport';
 import { Layers } from './layers';
@@ -129,7 +129,7 @@ export function ViewportPanel() {
 
   useEffect(() => {
     if (s.showMeshes && vehicle) layersInstance?.setVehicle(vehicle);
-  }, [s.showMeshes, s.meshColorByPart, s.meshWireframe]);
+  }, [s.showMeshes, s.meshColorByPart, s.meshWireframe, s.showOccupants]);
 
   // chain preview labels
   useEffect(() => {
@@ -776,6 +776,7 @@ export function ViewportPanel() {
         {toggle('showWheels', <Waves size={14} />, 'Wheels')}
         {toggle('showProps', <Lightbulb size={14} />, 'Props & lights')}
         {toggle('showTriggers', <Cuboid size={14} />, 'Triggers')}
+        {toggle('showOccupants', <Armchair size={14} />, 'Occupants (0.40)')}
         {toggle('xray', <Ghost size={14} />, 'X-ray: nodes & beams through meshes (Alt+Z)')}
         <button className={'icon-btn small' + (s.showLabels === 'all' ? ' active' : '')} data-tip="Node labels (Shift+L)" onClick={() => set({ showLabels: s.showLabels === 'all' ? 'hover' : 'all' })} aria-label="Labels">
           <Tags size={14} />

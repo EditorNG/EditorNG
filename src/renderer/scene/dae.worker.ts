@@ -31,7 +31,7 @@ self.onmessage = (ev: MessageEvent) => {
       const meshes = [];
       const transfer: ArrayBuffer[] = [];
       for (const name of m.names as string[]) {
-        const mesh = f.build(name);
+        const mesh = f.build(name, !!m.local);
         if (mesh) {
           meshes.push(mesh);
           transfer.push(mesh.pos.buffer as ArrayBuffer, mesh.nrm.buffer as ArrayBuffer);

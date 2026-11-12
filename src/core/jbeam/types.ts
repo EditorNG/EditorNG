@@ -147,6 +147,8 @@ export interface VWheel {
 }
 
 export interface VFlexbody {
+  /** true for the 0.40 occupant bodies (seat_occupant parts) */
+  occupant?: boolean;
   mesh: string;
   groups: string[];
   pos: [number, number, number] | null;
@@ -158,6 +160,10 @@ export interface VFlexbody {
 export interface VProp {
   func: string;
   mesh: string;
+  /** baseTranslationGlobal(+Elastic/Rigid) with the row's nodeOffset/nodeMove/nodeRotate applied (meshs.lua) */
+  globalPos: [number, number, number] | null;
+  /** rotation of the row's node transforms (BeamNG quaternion convention), null when none */
+  xfRot: { x: number; y: number; z: number; w: number } | null;
   idRef: number;
   idX: number;
   idY: number;

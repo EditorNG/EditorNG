@@ -6,7 +6,12 @@
  */
 import type { ANode, AObj } from '../sjson';
 import { evalExpression, type Scope } from './expr';
-import { applyNodeXform, getNodeXform } from './nodeTransform';
+import { applyNodeXform, flexbodyXform, getNodeXform } from './nodeTransform';
+
+/** 0.40 occupant parts (occupant_generic & co, plugged into seat_occupant slots) */
+export function isOccupant(p: ActivePart): boolean {
+  return p.def.slotTypes.includes('seat_occupant') || /occupant/i.test(p.def.name);
+}
 import type {
   ActivePart, BeamType, Issue, JFile, PartDef, Row, SlotDef, SlotNode, SrcRef, VarDef, Vehicle,
   VehicleConfig, VBeam, VFlexbody, VNode, VProp, VTri, VWheel,
@@ -840,7 +845,14 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
   for (const row of tableRows.get('flexbodies') ?? []) {
     const v = row.v;
     if (typeof v.mesh !== 'string' || !v.mesh) continue;
-    flexbodies.push({ mesh: v.mesh.trim(), groups: groupsOf(v['[group]:']), pos: xyz(v.pos), rot: xyz(v.rot), scale: xyz(v.scale), row });
+    // meshs.lua: flexbody pos/rot get the row's nodeRotate/nodeOffset/nodeMove applied
+    let pos = xyz(v.pos), rot = xyz(v.rot);
+    const fx = flexbodyXform(getNodeXform(v), pos?.[0] ?? 0, pos?.[1] ?? 0, pos?.[2] ?? 0, rot?.[0] ?? 0, rot?.[1] ?? 0, rot?.[2] ?? 0);
+    if (fx) {
+      pos = [fx.pos.x, fx.pos.y, fx.pos.z];
+      if (fx.rot) rot = [fx.rot.x, fx.rot.y, fx.rot.z];
+    }
+    flexbodies.push({ mesh: v.mesh.trim(), groups: groupsOf(v['[group]:']), pos, rot, scale: xyz(v.scale), row, occupant: isOccupant(row.part) });
   }
 
   // --- props
@@ -848,7 +860,17 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
   for (const row of tableRows.get('props') ?? []) {
     const v = row.v;
     if (typeof v.mesh !== 'string') continue;
+    const gk = ['baseTranslationGlobal', 'baseTranslationGlobalElastic', 'baseTranslationGlobalRigid'].find((k) => isDict(v[k]));
+    const pxf = getNodeXform(v);
+    let globalPos: [number, number, number] | null = null;
+    if (gk) {
+      const g = xyz(v[gk])!;
+      const q = applyNodeXform(pxf, g[0], g[1], g[2]);
+      globalPos = [q.x, q.y, q.z];
+    }
     props.push({
+      globalPos,
+      xfRot: pxf.hasRot ? pxf.rot : null,
       func: String(v.func ?? ''), mesh: v.mesh.trim(),
       idRef: link(row, 'idRef:'), idX: link(row, 'idX:'), idY: link(row, 'idY:'), row,
     });

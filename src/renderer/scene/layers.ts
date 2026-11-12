@@ -8,6 +8,7 @@ import type { Hover, SelIdx } from '../state/selection';
 import { meshes } from './meshes';
 import { bulbDirection } from '@core/jbeam/generators';
 import { placeTriggers } from '@core/jbeam/triggers';
+import { isOccupant } from '@core/jbeam/assemble';
 import { partColor, type Viewport } from './viewport';
 
 const DEG = Math.PI / 180;
@@ -182,11 +183,14 @@ export class Layers {
       this.vp.requestRender();
       return;
     }
-    const names = [...v.flexbodies.map((f) => f.mesh), ...v.props.filter((p) => p.mesh !== 'SPOTLIGHT' && p.mesh !== 'POINTLIGHT').map((p) => p.mesh)];
+    const meshProps = v.props.filter((p) => p.mesh !== 'SPOTLIGHT' && p.mesh !== 'POINTLIGHT');
+    const names = [...v.flexbodies.map((f) => f.mesh), ...meshProps.filter((p) => !p.globalPos).map((p) => p.mesh)];
+    const localNames = meshProps.filter((p) => p.globalPos).map((p) => p.mesh);
     // build immediately with what is cached, then again once loaded
     this.buildMeshes();
     if (this.s.showMeshes) {
       await meshes.load(names);
+      if (localNames.length) await meshes.load(localNames, true);
       if (token !== this.loadToken) return;
       this.buildMeshes();
     }
@@ -201,12 +205,12 @@ export class Layers {
     const grey = new THREE.Color(0x9aa1ab);
     v.flexbodies.forEach((f, i) => {
       const g = meshes.get(f.mesh);
-      if (!g || !this.inScope(f.row.part.def.name)) {
+      if (!g || !this.inScope(f.row.part.def.name) || (f.occupant && !this.s.showOccupants)) {
         this.flexObjs.push(new THREE.Object3D());
         return;
       }
-      const key = s.meshColorByPart ? 'p:' + f.row.part.def.name : 'grey';
-      const color = s.meshColorByPart ? new THREE.Color(...partColor(f.row.part.def.name)) : grey;
+      const key = f.occupant ? 'occ' : s.meshColorByPart ? 'p:' + f.row.part.def.name : 'grey';
+      const color = f.occupant ? new THREE.Color(0xd6a77a) : s.meshColorByPart ? new THREE.Color(...partColor(f.row.part.def.name)) : grey;
       const mesh = new THREE.Mesh(g, this.mat(key, color));
       mesh.userData = { kind: 'flex', idx: i };
       const holder = new THREE.Group();
@@ -228,7 +232,7 @@ export class Layers {
     const byIdx = new Map(places.map((p) => [p.idx, p]));
     v.props.forEach((p, i) => {
       const pl = byIdx.get(i);
-      if (!pl || !this.inScope(p.row.part.def.name)) {
+      if (!pl || !this.inScope(p.row.part.def.name) || (!this.s.showOccupants && isOccupant(p.row.part))) {
         this.propObjs.push(new THREE.Object3D());
         return;
       }
@@ -243,13 +247,21 @@ export class Layers {
           obj.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-num(br.x, 0) * DEG, -num(br.z, 0) * DEG, -num(br.y, 0) * DEG, 'XZY')));
         }
       } else {
-        const g = meshes.get(p.mesh);
+        const g = meshes.get(p.mesh, !!p.globalPos);
         if (!g) {
           this.propObjs.push(new THREE.Object3D());
           return;
         }
-        obj = new THREE.Mesh(g, this.mat('prop', new THREE.Color(0xb8a98f)));
-        obj.position.copy(pl.offset);
+        const occ = isOccupant(p.row.part);
+        obj = new THREE.Mesh(g, occ ? this.mat('occ', new THREE.Color(0xd6a77a)) : this.mat('prop', new THREE.Color(0xb8a98f)));
+        if (p.globalPos) {
+          // pivot at baseTranslationGlobal (with node transforms), oriented by the slot's nodeRotate.
+          // BeamNG rotates vectors by the conjugate, so flip the vector part for three.js.
+          obj.position.set(p.globalPos[0], p.globalPos[1], p.globalPos[2]);
+          if (p.xfRot) obj.quaternion.set(-p.xfRot.x, -p.xfRot.y, -p.xfRot.z, p.xfRot.w);
+        } else {
+          obj.position.copy(pl.offset);
+        }
       }
       obj.userData = { kind: 'prop', idx: i };
       obj.traverse((o) => (o.userData = { kind: 'prop', idx: i }));
@@ -340,7 +352,8 @@ export class Layers {
     this.flexObjs.forEach((o, i) => {
       const mesh = o.children[0] as THREE.Mesh | undefined;
       if (!mesh || !(mesh instanceof THREE.Mesh)) return;
-      const key = this.s.meshColorByPart ? 'p:' + this.vehicle?.flexbodies[i]?.row.part.def.name : 'grey';
+      const fb = this.vehicle?.flexbodies[i];
+      const key = fb?.occupant ? 'occ' : this.s.meshColorByPart ? 'p:' + fb?.row.part.def.name : 'grey';
       if (sel?.flex.has(i) || (hover?.kind === 'flex' && hover.idx === i)) mesh.material = this.selMat;
       else if (hl?.flex.has(i)) mesh.material = this.hlMat;
       else mesh.material = this.flexMats.get(key) ?? mesh.material;
@@ -349,7 +362,7 @@ export class Layers {
       if (!(o instanceof THREE.Mesh)) return;
       if (sel?.props.has(i) || (hover?.kind === 'prop' && hover.idx === i)) o.material = this.selMat;
       else if (hl?.props.has(i)) o.material = this.hlMat;
-      else o.material = this.flexMats.get('prop') ?? o.material;
+      else o.material = this.flexMats.get(this.vehicle && isOccupant(this.vehicle.props[i].row.part) ? 'occ' : 'prop') ?? o.material;
     });
     this.trigObjs.forEach((o, i) => {
       const on = sel?.triggers.has(this.shapes[i]?.idx) || hl?.triggers.has(this.shapes[i]?.idx) || (hover?.kind === 'trigger' && hover.idx === this.shapes[i]?.idx);

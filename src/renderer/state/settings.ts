@@ -79,6 +79,7 @@ export interface Settings {
   showTriNormals: boolean;
   showWheels: boolean;
   showProps: boolean;
+  showOccupants: boolean;
   showTriggers: boolean;
   showGrid: boolean;
   showAxes: boolean;
@@ -200,6 +201,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showTriNormals: false,
   showWheels: true,
   showProps: true,
+  showOccupants: true,
   showTriggers: true,
   showGrid: true,
   showAxes: true,
