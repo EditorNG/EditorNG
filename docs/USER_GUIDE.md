@@ -116,7 +116,7 @@ A full code editor (the one inside VS Code) with JBeam support:
   option keys, part names in slots and `.pc` files, mesh names, groups, `$variables`, actions;
 - **F12** go to a node/part/variable definition, **Shift+F12** find all references,
   **F2** rename a node everywhere;
-- **beam lengths** shown at the end of every beam row;
+- optional **beam lengths** at the end of beam rows (off by default; Settings → Code editor), and always in the hover;
 - **Shift+Alt+F** aligns the columns of every table (or just the selection);
 - errors and warnings from the game's loading rules are underlined (missing nodes that the game
   would silently discard, duplicate definitions, failed expressions, wrong slot types,

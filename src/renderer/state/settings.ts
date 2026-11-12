@@ -242,7 +242,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorMinimap: true,
   editorWordWrap: false,
   editorStickyScroll: true,
-  editorInlayLengths: true,
+  editorInlayLengths: false,
   editorSyncCursor: true,
   revealOnSelect: true,
   editorTabSize: 4,
