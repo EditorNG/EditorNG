@@ -84,6 +84,7 @@ export const COMMANDS: Command[] = [
   } },
   { id: 'app.palette', title: 'Command palette', group: 'Go', key: 'app.palette', run: () => useUi.setState({ palette: 'commands' }) },
   { id: 'app.quickOpen', title: 'Go to file…', group: 'Go', key: 'app.quickOpen', run: () => useUi.setState({ palette: 'files' }) },
+  { id: 'app.openVehicle', title: 'Open vehicle…', group: 'File', run: () => { ws.refreshVehicleList(); useUi.setState({ palette: 'vehicles' }); } },
   { id: 'app.gotoNode', title: 'Go to node…', group: 'Go', key: 'app.gotoNode', run: () => useUi.setState({ palette: 'nodes' }), enabled: hasVehicle },
   { id: 'help.shortcuts', title: 'Keyboard shortcuts', group: 'Help', key: 'F1', run: () => useUi.setState({ dialog: { kind: 'shortcuts' } }) },
   { id: 'help.devtools', title: 'Toggle developer tools', group: 'Help', run: () => api.windowAction('devtools') },

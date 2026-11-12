@@ -17,6 +17,7 @@ import { suggestName } from '../editor/jbeamLang';
 import { Inspector } from './Inspector';
 import { meshes, useMeshStatus } from './meshes';
 import { meshFiles } from '../project/workspace';
+import { command } from '../ui/commands';
 
 let vpInstance: Viewport | null = null;
 let layersInstance: Layers | null = null;
@@ -864,8 +865,8 @@ function EmptyState() {
         <div className="dim">Pick a vehicle on the left, open a .jbeam file, or start a new vehicle.</div>
         <div className="row" style={{ justifyContent: 'center', marginTop: 12, gap: 8 }}>
           <button className="btn primary" onClick={() => useUi.setState({ dialog: { kind: 'newVehicle' } })}>New vehicle…</button>
-          <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent('editorng:command', { detail: 'file.openFile' }))}>Open file…</button>
-          <button className="btn" onClick={() => useUi.setState({ activity: 'vehicles', sidebar: true })}>Browse vehicles</button>
+          <button className="btn" onClick={() => command('file.openFile')}>Open file…</button>
+          <button className="btn" onClick={() => { ws.refreshVehicleList(); useUi.setState({ activity: 'vehicles', sidebar: true, page: 'workbench', palette: 'vehicles' }); }}>Browse vehicles…</button>
         </div>
       </div>
     </div>

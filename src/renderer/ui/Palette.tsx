@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUi, openTab } from '../state/ui';
-import { ws } from '../project/workspace';
+import { ws, useWs } from '../project/workspace';
 import { COMMANDS, command, commandKey } from './commands';
 import { emptySel, setSel } from '../state/selection';
 import { getViewport } from '../scene/ViewportPanel';
@@ -33,6 +33,7 @@ export function fuzzy(q: string, s: string): number {
 
 export function Palette() {
   const mode = useUi((x) => x.palette);
+  const vehicleList = useWs((x) => x.vehicles);
   const [q, setQ] = useState('');
   const [sel, setSelIdx] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -45,6 +46,12 @@ export function Palette() {
     if (!mode) return [];
     if (mode === 'commands') {
       return COMMANDS.filter((c) => !c.enabled || c.enabled()).map((c) => ({ id: c.id, label: `${c.group}: ${c.title}`, key: commandKey(c), run: () => command(c.id) }));
+    }
+    if (mode === 'vehicles') {
+      return useWs.getState().vehicles.map((v) => {
+        const mod = v.sources.find((x) => x.kind !== 'game');
+        return { id: v.model, label: v.model, detail: mod ? mod.label : 'BeamNG', run: () => ws.openVehicle(v.model) };
+      });
     }
     if (mode === 'files') {
       return [...ws.docs.values()]
@@ -65,7 +72,7 @@ export function Palette() {
         revealRange(n.row.src.file, n.row.src.node.s, n.row.src.node.e);
       },
     }));
-  }, [mode]);
+  }, [mode, vehicleList]);
 
   const filtered = useMemo(() => {
     const scored = items.map((it) => ({ it, s: Math.max(fuzzy(q, it.label), fuzzy(q, it.detail ?? '') - 200) })).filter((x) => x.s >= 0);
@@ -84,7 +91,7 @@ export function Palette() {
     close();
     it.run();
   };
-  const placeholder = mode === 'commands' ? 'Type a command' : mode === 'files' ? 'Go to file' : 'Go to node';
+  const placeholder = mode === 'commands' ? 'Type a command' : mode === 'files' ? 'Go to file' : mode === 'vehicles' ? 'Open a vehicle (mods listed first)' : 'Go to node';
   return (
     <div className="overlay" onPointerDown={close}>
       <div className="palette" onPointerDown={(e) => e.stopPropagation()}>

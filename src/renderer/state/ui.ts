@@ -14,7 +14,7 @@ export interface UiState {
   bottomTab: BottomTab;
   tabs: string[];
   activeTab: string | null;
-  palette: null | 'commands' | 'files' | 'nodes';
+  palette: null | 'commands' | 'files' | 'nodes' | 'vehicles';
   dialog: null | { kind: string; data?: any };
   sideWidth: number;
   editorWidth: number;
