@@ -11,7 +11,8 @@ const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 run('node scripts/make-icon.mjs');
 run('node scripts/build.mjs');
 
-const out = path.join(root, 'release');
+// one folder per version, so a running copy of an older build never blocks packaging
+const out = path.join(root, 'release', pkg.version);
 fs.rmSync(out, { recursive: true, force: true });
 const keep = [/^\/package\.json$/, /^\/out(\/|$)/];
 const [appDir] = await packager({
