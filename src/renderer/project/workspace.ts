@@ -574,7 +574,9 @@ class Workspace {
         const merged: TextEdit[] = [];
         for (const ed of sorted) {
           const last = merged[merged.length - 1];
-          if (last && last.s === ed.s && last.e === ed.s && ed.e === ed.s) last.text += ed.text;
+          if (last && last.s === ed.s && last.e === ed.s && ed.e === ed.s) {
+            if (!(ed.text === ',' && last.text.endsWith(','))) last.text += ed.text;
+          }
           else if (last && ed.s < last.e) continue;
           else merged.push({ ...ed });
         }

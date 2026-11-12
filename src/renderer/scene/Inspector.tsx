@@ -4,7 +4,7 @@ import { ws, useWs } from '../project/workspace';
 import { useSel, resolveSel, selNodeIdx } from '../state/selection';
 import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
-import { getViewport } from './ViewportPanel';
+import { getViewport, getLayers } from './ViewportPanel';
 import type { Row } from '@core/jbeam/types';
 
 function NumField(props: { label: string; value: number; onCommit: (v: number) => void; disabled?: boolean; step?: number; color?: string }) {
@@ -137,6 +137,78 @@ export function Inspector() {
         <div className="insp-line"><span className="dim">nodes bound</span><span>{v.nodes.filter((n) => n.groups.some((g) => f.groups.includes(g))).length}</span></div>
         {f.pos && <div className="insp-line"><span className="dim">pos</span><span className="mono">{f.pos.map((x) => x.toFixed(3)).join(', ')}</span></div>}
         <div className="insp-line"><span className="dim">part</span><span className="ellipsis">{f.row.part.def.name}</span></div>
+      </>
+    );
+  } else if (total === 1 && si.triggers.size === 1) {
+    const r = (v.tables.get('triggers2') ?? [])[[...si.triggers][0]];
+    row = r;
+    title = String(r.v.id ?? 'trigger');
+    const g = r.v.baseTranslationGlobal;
+    const hasGlobal = g && typeof g === 'object';
+    const bt = hasGlobal ? g : r.v.baseTranslation ?? { x: 0, y: 0, z: 0 };
+    const key = hasGlobal ? 'baseTranslationGlobal' : 'baseTranslation';
+    const setPos = (k: 'x' | 'y' | 'z', val: number) => {
+      const nv = { x: +(bt.x ?? 0), y: +(bt.y ?? 0), z: +(bt.z ?? 0), [k]: val };
+      if (hasGlobal) ops.setRowOptionFor(r, key, nv);
+      else ops.setRowCell(r, key, nv);
+    };
+    const isSphere = r.v.type === 'sphere';
+    const sz = r.v.size;
+    const setSize = (k: 'x' | 'y' | 'z', val: number) => {
+      if (isSphere || typeof sz === 'number') ops.setRowCell(r, 'size', val);
+      else ops.setRowCell(r, 'size', { x: +(sz?.x ?? 0), y: +(sz?.y ?? 0), z: +(sz?.z ?? 0), [k]: val });
+    };
+    body = (
+      <>
+        <div className="faint small-text">{key} {hasGlobal ? '(vehicle coords)' : '(node frame)'} · ↑/↓ nudges 1 mm, Shift 1 cm</div>
+        <div className="insp-xyz">
+          <NumField label="X" color="#e5484d" value={+(bt.x ?? 0)} onCommit={(x) => setPos('x', x)} />
+          <NumField label="Y" color="#46a758" value={+(bt.y ?? 0)} onCommit={(x) => setPos('y', x)} />
+          <NumField label="Z" color="#3e8ef7" value={+(bt.z ?? 0)} onCommit={(x) => setPos('z', x)} />
+        </div>
+        <div className="faint small-text">{isSphere ? 'radius' : 'size (x, height, z)'}</div>
+        {isSphere || typeof sz === 'number' ? (
+          <div className="insp-xyz"><NumField label="r" value={+sz || 0} onCommit={(x) => setSize('x', x)} /></div>
+        ) : (
+          <div className="insp-xyz">
+            <NumField label="X" value={+(sz?.x ?? 0)} onCommit={(x) => setSize('x', x)} />
+            <NumField label="Y" value={+(sz?.y ?? 0)} onCommit={(x) => setSize('y', x)} />
+            <NumField label="Z" value={+(sz?.z ?? 0)} onCommit={(x) => setSize('z', x)} />
+          </div>
+        )}
+        <div className="insp-line"><span className="dim">nodes</span><span className="mono">{String(r.v['idRef:'])}, {String(r.v['idX:'])}, {String(r.v['idY:'])}</span></div>
+        {!hasGlobal && <button className="btn small" onClick={() => {
+          const shapes = getLayers()?.shapes ?? [];
+          const sh = shapes.find((x) => x.row === r);
+          if (sh) ops.setRowOptionFor(r, 'baseTranslationGlobal', { x: +sh.corner.x.toFixed(4), y: +sh.corner.y.toFixed(4), z: +sh.corner.z.toFixed(4) });
+        }}>Convert to global position</button>}
+      </>
+    );
+  } else if (total === 1 && si.props.size === 1) {
+    const p = v.props[[...si.props][0]];
+    row = p.row;
+    title = `${p.func || 'prop'} · ${p.mesh}`;
+    const vec = (k: string) => {
+      const o = p.row.v[k];
+      return o && typeof o === 'object' ? { x: +(o.x ?? 0), y: +(o.y ?? 0), z: +(o.z ?? 0) } : { x: 0, y: 0, z: 0 };
+    };
+    const edit = (k: string, axis: 'x' | 'y' | 'z', val: number) => ops.setRowCell(p.row, k, { ...vec(k), [axis]: val });
+    const fields = (k: string, step = 0.001) => (
+      <div className="insp-xyz">
+        {(['x', 'y', 'z'] as const).map((a, i) => (
+          <NumField key={a} label={a.toUpperCase()} color={['#e5484d', '#46a758', '#3e8ef7'][i]} step={step} value={vec(k)[a]} onCommit={(x) => edit(k, a, x)} />
+        ))}
+      </div>
+    );
+    body = (
+      <>
+        <div className="faint small-text">baseTranslation (node frame, m)</div>
+        {fields('baseTranslation')}
+        <div className="faint small-text">baseRotation (°)</div>
+        {fields('baseRotation', 1)}
+        <div className="insp-line"><span className="dim">func</span><span className="mono">{p.func}</span></div>
+        <div className="insp-line"><span className="dim">nodes</span><span className="mono ellipsis">{[p.idRef, p.idX, p.idY].map((i) => (i >= 0 ? v.nodes[i].name : '?')).join(', ')}</span></div>
+        <div className="insp-line"><span className="dim">part</span><span className="ellipsis">{p.row.part.def.name}</span></div>
       </>
     );
   } else {

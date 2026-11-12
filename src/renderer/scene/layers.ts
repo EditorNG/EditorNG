@@ -6,6 +6,7 @@ import type { Vehicle, Row } from '@core/jbeam/types';
 import type { Settings } from '../state/settings';
 import type { Hover, SelIdx } from '../state/selection';
 import { meshes } from './meshes';
+import { bulbDirection } from '@core/jbeam/generators';
 import { partColor, type Viewport } from './viewport';
 
 const DEG = Math.PI / 180;
@@ -107,6 +108,7 @@ export class Layers {
   private flexGroup = new THREE.Group();
   private propGroup = new THREE.Group();
   private trigGroup = new THREE.Group();
+  private bulbGroup = new THREE.Group();
   private flexMats = new Map<string, THREE.MeshLambertMaterial>();
   private selMat: THREE.MeshLambertMaterial;
   private hlMat: THREE.MeshLambertMaterial;
@@ -120,7 +122,7 @@ export class Layers {
 
   constructor(private vp: Viewport, private s: Settings) {
     vp.meshRoot.add(this.flexGroup, this.propGroup);
-    vp.extraRoot.add(this.trigGroup);
+    vp.extraRoot.add(this.trigGroup, this.bulbGroup);
     this.selMat = new THREE.MeshLambertMaterial({ color: s.colorSelect, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
     this.hlMat = new THREE.MeshLambertMaterial({ color: s.colorHighlight, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
     this.wireMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.12 });
@@ -139,6 +141,7 @@ export class Layers {
     this.hlMat.color.set(s.colorHighlight);
     this.propGroup.visible = s.showProps;
     this.trigGroup.visible = s.showTriggers;
+    this.bulbGroup.visible = s.showProps;
     for (const o of this.flexObjs) {
       const w = o.getObjectByName('wire');
       if (w) w.visible = s.meshWireframe;
@@ -261,7 +264,38 @@ export class Layers {
     this.vp.requestRender();
   }
 
+  /** Modular light bulbs (slots2 with $posX/$rotZ variables) as markers with a direction arrow. */
+  rebuildBulbs() {
+    for (const c of [...this.bulbGroup.children]) this.bulbGroup.remove(c);
+    const v = this.vehicle;
+    if (!v) return;
+    for (const p of v.parts) {
+      for (const sn of p.slots) {
+        const vars = sn.part?.scope ?? {};
+        const get = (k: string) => {
+          const x = vars[k];
+          return typeof x === 'number' ? x : typeof x === 'object' && x && typeof x.val === 'number' ? x.val : undefined;
+        };
+        const px = get('$posX'), py = get('$posY'), pz = get('$posZ');
+        if (px === undefined || py === undefined || pz === undefined || !sn.part) continue;
+        if (!/bulb|light|lamp/i.test(sn.id + ' ' + sn.chosen)) continue;
+        const rx = get('$rotX') ?? 0, rz = get('$rotZ') ?? 0;
+        const d = bulbDirection(rx, rz);
+        const color = /red/i.test(sn.chosen) ? 0xff4040 : /amber/i.test(sn.chosen) ? 0xffa520 : 0xfff2b0;
+        const g = new THREE.Group();
+        g.position.set(px, py, pz);
+        g.add(new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 8), new THREE.MeshBasicMaterial({ color })));
+        const arrow = new THREE.ArrowHelper(new THREE.Vector3(d.x, d.y, d.z), new THREE.Vector3(), 0.12, color, 0.03, 0.015);
+        g.add(arrow);
+        g.userData = { kind: 'bulb', slot: sn.id };
+        this.bulbGroup.add(g);
+      }
+    }
+    this.vp.requestRender();
+  }
+
   rebuildTriggers() {
+    this.rebuildBulbs();
     this.clear(this.trigGroup, this.trigObjs);
     const v = this.vehicle;
     if (!v) return;
@@ -335,7 +369,7 @@ export class Layers {
     const hits = rc.intersectObjects(targets, true);
     for (const h of hits) {
       const ud = h.object.userData;
-      if (ud && ud.kind) return { kind: ud.kind, idx: ud.idx };
+      if (ud && (ud.kind === 'flex' || ud.kind === 'prop' || ud.kind === 'trigger')) return { kind: ud.kind, idx: ud.idx };
     }
     return null;
   }

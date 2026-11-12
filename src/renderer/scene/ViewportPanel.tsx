@@ -426,6 +426,11 @@ export function ViewportPanel() {
     }
     if (d.moved) return;
     const hit = pickAt(p.x, p.y, d.alt);
+    const pr = useUi.getState().pick;
+    if (pr) {
+      if (hit?.kind === 'node') pr.cb(v.nodes[hit.idx].name);
+      return;
+    }
     if (t === 'select') {
       const s = d.shift || d.ctrl ? cloneSel(useSel.getState().sel) : emptySel();
       if (hit) {
@@ -537,6 +542,8 @@ export function ViewportPanel() {
       });
       const setMode = (pm: PickMode) => run(() => useSel.setState({ mode: useSel.getState().mode === pm ? 'all' : pm }));
       if (e.key === 'Escape') {
+        const pr = useUi.getState().pick;
+        if (pr) return run(() => pr.cb(''));
         if (chain.length) return run(() => setChain([]));
         if (useUi.getState().tool !== 'select') return setTool('select');
         return run(() => setSel(emptySel()));
@@ -698,6 +705,7 @@ export function ViewportPanel() {
   );
 
   const nm = useUi((x) => x.naming);
+  const pickReq = useUi((x) => x.pick);
   const toolHint: Record<Tool, string> = {
     select: '',
     addNode: 'Click to place a node on the view plane (through the selection or orbit centre). Ctrl snaps to grid.',
@@ -770,7 +778,8 @@ export function ViewportPanel() {
         </div>
       )}
 
-      {toolHint[tool] && !modal && <div className="vp-hint">{toolHint[tool]}</div>}
+      {pickReq && <div className="vp-hint modal">Click a node for: <b>{pickReq.label}</b> <span className="dim">· Esc cancels</span></div>}
+      {!pickReq && toolHint[tool] && !modal && <div className="vp-hint">{toolHint[tool]}</div>}
       {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">· X/Y/Z axis · type a value · Ctrl snap · Enter/LMB confirm · Esc/RMB cancel</span></div>}
       {box && <div className="box-select" style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }} />}
 

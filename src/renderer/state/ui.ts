@@ -22,6 +22,8 @@ export interface UiState {
   /** sequential naming tool state */
   naming: { prefix: string; next: number; mirror: boolean };
   output: string[];
+  /** a form is waiting for a node to be clicked in 3D */
+  pick: null | { label: string; cb: (node: string) => void };
 }
 
 export const useUi = create<UiState>(() => ({
@@ -40,7 +42,16 @@ export const useUi = create<UiState>(() => ({
   bottomHeight: 210,
   naming: { prefix: 'n', next: 1, mirror: true },
   output: [],
+  pick: null,
 }));
+
+export function requestPick(label: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const prev = useUi.getState().pick;
+    if (prev) prev.cb('');
+    useUi.setState({ pick: { label, cb: (n) => { useUi.setState({ pick: null }); resolve(n || null); } } });
+  });
+}
 
 export function openTab(key: string) {
   const k = key.toLowerCase();

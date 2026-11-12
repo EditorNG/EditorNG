@@ -81,7 +81,7 @@ export function parseSjson(text: string): ParseResult {
           const start = i;
           const end = text.indexOf('*/', i + 2);
           if (end < 0) {
-            issues.push({ s: start, e: len, msg: 'Unterminated block comment', sev: 'error' });
+            issues.push({ s: start, e: len, msg: 'Unterminated block comment (everything after it is ignored)', sev: 'warning', code: 'open-comment' });
             i = len;
           } else {
             i = end + 2;

@@ -152,6 +152,8 @@ export function insertRows(text: string, part: PartDef, section: string, header:
   if (rows.length === 0) return [];
   const eol = eolOf(text);
   const unit = indentUnitOf(text);
+  // multi-line rows: continuation lines get the row indentation; tabs inside a row become indent units
+  const ml = (ind: string) => (r: string) => r.replace(/\r?\n/g, eol + ind).replace(/\t/g, unit);
   const sec = part.sections.get(section);
   if (sec && sec.k === 'arr') {
     const items = sec.items;
@@ -159,11 +161,12 @@ export function insertRows(text: string, part: PartDef, section: string, header:
     if (items.length === 0) {
       const keyIndent = indentAt(text, sec.s);
       const ind = keyIndent + unit;
-      const body = [fmtRow(header), ...rows].map((r) => ind + r + ',').join(eol);
+      const body = [fmtRow(header), ...rows.map(ml(ind))].map((r) => ind + r + ',').join(eol);
       return [{ s: sec.s + 1, e: closeOff, text: eol + body + eol + keyIndent }];
     }
     const last = items[items.length - 1];
     const ind = onlyWsBefore(text, last.s) ? indentAt(text, last.s) : indentAt(text, sec.s) + unit;
+    rows = rows.map(ml(ind));
     const lastLineEnd = lineEndOff(text, last.e);
     const between = text.slice(last.e, Math.min(lastLineEnd, closeOff));
     const hasComma = /^\s*,/.test(between);
@@ -189,7 +192,7 @@ export function insertRows(text: string, part: PartDef, section: string, header:
   // create the section at the end of the part
   return insertKey(text, part.node, section, (ind) => {
     const inner = ind + unit;
-    return '[' + eol + [fmtRow(header), ...rows].map((r) => inner + r + ',').join(eol) + eol + ind + ']';
+    return '[' + eol + [fmtRow(header), ...rows.map(ml(inner))].map((r) => inner + r + ',').join(eol) + eol + ind + ']';
   });
 }
 
