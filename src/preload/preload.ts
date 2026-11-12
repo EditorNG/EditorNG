@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 const invokeNames = [
   'env', 'settingsLoad', 'settingsSave', 'stateLoad', 'stateSave', 'configureRoots', 'listVehicles', 'listTree',
-  'readTexts', 'readBinary', 'findFile', 'readTextFile', 'readBinaryFile', 'writeTextFile', 'stat', 'listDir',
+  'readTexts', 'readBinary', 'findFile', 'readTextFile', 'readBinaryFile', 'writeTextFile', 'writeBinaryFile', 'stat', 'listDir',
   'walkDir', 'mkdirp', 'copyFromVfs', 'pickFolder', 'pickFile', 'saveDialog', 'reveal', 'openExternal', 'cacheRead',
   'cacheWrite', 'cacheClear', 'blenderFind', 'blenderExtract', 'installBlenderAddon', 'watch', 'blenderLinkPort',
   'windowAction', 'setTitleBarColors',

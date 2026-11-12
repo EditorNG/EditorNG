@@ -24,7 +24,11 @@ fs.mkdirSync(path.join(root, 'shots'), { recursive: true });
 const app = await electron.launch({
   args: ['.'],
   cwd: root,
-  env: { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1' },
+  env: (() => {
+    const env = { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1' };
+    delete env.ELECTRON_RUN_AS_NODE; // set by VS Code terminals; would make Electron behave like plain Node
+    return env;
+  })(),
 });
 const page = await app.firstWindow();
 const logs = [];

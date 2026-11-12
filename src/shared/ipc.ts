@@ -62,6 +62,7 @@ export interface Api {
   readTextFile(real: string): Promise<string>;
   readBinaryFile(real: string): Promise<Uint8Array>;
   writeTextFile(real: string, text: string, opts?: { backup?: boolean; backupDir?: string; keepBackups?: number }): Promise<{ mtime: number }>;
+  writeBinaryFile(real: string, data: Uint8Array): Promise<void>;
   stat(real: string): Promise<{ mtime: number; size: number; dir: boolean } | null>;
   listDir(real: string): Promise<DirEntry[]>;
   walkDir(real: string): Promise<DirEntry[]>;
@@ -87,6 +88,7 @@ export interface Api {
   onMenu(cb: (cmd: string) => void): () => void;
   onBlenderLink(cb: (data: BlenderExtract) => void): () => void;
 
+  blenderLinkPort(port: number): Promise<void>;
   windowAction(action: 'minimize' | 'maximize' | 'close' | 'devtools' | 'reload' | 'fullscreen'): Promise<void>;
   setTitleBarColors(colors: { color: string; symbolColor: string }): Promise<void>;
   confirmClose(ok: boolean): void;

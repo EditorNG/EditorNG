@@ -277,6 +277,11 @@ function registerIpc(): void {
     await fsp.writeFile(real, text, 'utf8');
     return { mtime: (await fsp.stat(real)).mtimeMs };
   });
+  h('writeBinaryFile', async (real: string, data: Uint8Array) => {
+    ownWrites.set(real.toLowerCase(), Date.now());
+    await fsp.mkdir(path.dirname(real), { recursive: true });
+    await fsp.writeFile(real, Buffer.from(data));
+  });
   h('stat', async (real: string) => {
     try {
       const st = await fsp.stat(real);

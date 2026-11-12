@@ -6,3 +6,6 @@ release/
 .cache/
 shots/
 .vite/
+.cache/
+.cache_open.js
+shots/

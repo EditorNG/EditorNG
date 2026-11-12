@@ -14,11 +14,11 @@
     "isolatedModules": true,
     "noEmit": true,
     "types": ["node", "vite/client"],
-    "baseUrl": ".",
     "paths": {
-      "@core/*": ["src/core/*"],
-      "@shared/*": ["src/shared/*"],
-      "@/*": ["src/renderer/*"]
+      "@core/*": ["./src/core/*"],
+      "monaco-esm/*": ["./node_modules/monaco-editor/esm/vs/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@/*": ["./src/renderer/*"]
     }
   },
   "include": ["src", "tests", "scripts", "vite.config.ts"]

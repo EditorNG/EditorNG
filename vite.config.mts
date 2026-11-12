@@ -10,6 +10,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      'monaco-esm': path.resolve(root, 'node_modules/monaco-editor/esm/vs'),
       '@core': path.resolve(root, 'src/core'),
       '@shared': path.resolve(root, 'src/shared'),
       '@': path.resolve(root, 'src/renderer'),
