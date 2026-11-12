@@ -440,3 +440,27 @@ input[type='color']::-webkit-color-swatch {
     visibility: visible;
   }
 }
+
+/* Monaco renders context menus outside the editor element, where its own theme variables are not
+   defined. Provide them globally from our tokens (inside the editor Monaco's values still win). */
+:root {
+  --vscode-menu-background: var(--bg-2);
+  --vscode-menu-foreground: var(--text);
+  --vscode-menu-border: var(--border-strong);
+  --vscode-menu-separatorBackground: var(--border);
+  --vscode-menu-selectionBorder: transparent;
+  --vscode-list-hoverBackground: var(--accent-soft);
+  --vscode-list-hoverForeground: var(--text);
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.35);
+  --vscode-shadow-lg: var(--shadow);
+  --vscode-cornerRadius-large: 6px;
+  --vscode-strokeThickness: 1px;
+  --vscode-scrollbarSlider-background: var(--scroll);
+  --vscode-scrollbarSlider-hoverBackground: var(--scroll-hover);
+  --vscode-scrollbarSlider-activeBackground: var(--scroll-hover);
+}
+.monaco-menu-container,
+.context-view .monaco-menu {
+  background: var(--bg-2);
+  color: var(--text);
+}
