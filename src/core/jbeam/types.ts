@@ -208,6 +208,8 @@ export interface Vehicle {
   props: VProp[];
   variables: VarDef[];
   vars: Scope;
+  /** triggers2 + legacy triggers, merged like the game's sectionMerger */
+  triggers: Row[];
   issues: Issue[];
   refNodes: Record<string, string>;
 }

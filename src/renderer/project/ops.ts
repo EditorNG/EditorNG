@@ -318,7 +318,7 @@ export function deleteSelection(): boolean {
   for (const i of si.tris) add(v.tris[i].row);
   for (const i of si.flex) add(v.flexbodies[i].row);
   for (const i of si.props) add(v.props[i].row);
-  const trig = v.tables.get('triggers2') ?? [];
+  const trig = v.triggers;
   for (const i of si.triggers) if (trig[i]) add(trig[i]);
   if (!rows.size) return false;
   const es = new EditSet();

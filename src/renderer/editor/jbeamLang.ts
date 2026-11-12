@@ -368,7 +368,7 @@ export function registerJbeam(): void {
         return { suggestions: out };
       }
       if (colName === 'triggerId:triggers2' && v) {
-        for (const r of v.tables.get('triggers2') ?? []) if (typeof r.v.id === 'string') out.push({ label: r.v.id, kind: K.Event, insertText: q(r.v.id), range });
+        for (const r of v.triggers) if (typeof r.v.id === 'string') out.push({ label: r.v.id, kind: K.Event, insertText: q(r.v.id), range });
         return { suggestions: out };
       }
       if (ctx?.section === 'nodes' && colName === 'id' && v) {

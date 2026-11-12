@@ -146,6 +146,8 @@ export class Viewport {
   private projCacheValid = false;
   /** extra labels (e.g. inline naming preview) */
   extraLabels: Array<{ x: number; y: number; z: number; text: string; color?: string }> = [];
+  /** trigger names (drawn at the box/sphere centre) */
+  triggerLabels: Array<{ x: number; y: number; z: number; text: string; color?: string }> = [];
   cb: ViewportCallbacks = {};
 
   constructor(readonly container: HTMLElement, s: Settings) {
@@ -1019,6 +1021,13 @@ export class Viewport {
       const p = this.project(l.x, l.y, l.z);
       if (p.z > 1) continue;
       items.push({ x: p.x, y: p.y, text: l.text, color: l.color ?? s.colorSelect, strong: true });
+    }
+    if (s.showTriggers && s.showLabels !== 'off') {
+      for (const l of this.triggerLabels) {
+        const p = this.project(l.x, l.y, l.z);
+        if (p.z > 1) continue;
+        items.push({ x: p.x, y: p.y, text: l.text, color: l.color ?? s.colorSelect, strong: false });
+      }
     }
     if (!items.length) return;
     ctx.font = `${s.labelSize}px 'Inter','Segoe UI',sans-serif`;

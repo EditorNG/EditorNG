@@ -80,7 +80,7 @@ function highlightFromCursor() {
         hl.props.add(rowKey(p.row.src.file, p.row.src.node.s));
         for (const k of [p.idRef, p.idX, p.idY]) if (k >= 0) hl.nodes.add(v.nodes[k].name);
       } else if (r.kind === 'trigger') {
-        const row = (v.tables.get('triggers2') ?? [])[r.idx];
+        const row = v.triggers[r.idx];
         if (row) {
           hl.triggers.add(rowKey(row.src.file, row.src.node.s));
           for (const k of ['idRef:', 'idX:', 'idY:']) if (typeof row.v[k] === 'string') hl.nodes.add(row.v[k]);

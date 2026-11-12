@@ -7,6 +7,7 @@ import type { Settings } from '../state/settings';
 import type { Hover, SelIdx } from '../state/selection';
 import { meshes } from './meshes';
 import { bulbDirection } from '@core/jbeam/generators';
+import { placeTriggers } from '@core/jbeam/triggers';
 import { partColor, type Viewport } from './viewport';
 
 const DEG = Math.PI / 180;
@@ -18,7 +19,7 @@ function num(x: any, d: number): number {
   return typeof x === 'number' && Number.isFinite(x) ? x : d;
 }
 
-/** Orthonormal trigger/prop frame from 3 nodes (see triggers2 notes: X = ref->idX, Z ~ ref->idY, Y = Z x X). */
+/** Orthonormal prop frame from 3 nodes: X = ref->idX, Y = cross(ref->idY, X), Z = X x Y. */
 export function nodeFrame(ref: THREE.Vector3, px: THREE.Vector3, py: THREE.Vector3) {
   const X = px.clone().sub(ref).normalize();
   const Zr = py.clone().sub(ref);
@@ -30,48 +31,32 @@ export function nodeFrame(ref: THREE.Vector3, px: THREE.Vector3, py: THREE.Vecto
 export interface TriggerShape {
   idx: number;
   row: Row;
+  name: string;
   type: string;
-  /** box: corner + axes * size; sphere: center + radius */
+  /** box: corner + axes * size; sphere: centre + radius */
   corner: THREE.Vector3;
+  center: THREE.Vector3;
   axes: { X: THREE.Vector3; Y: THREE.Vector3; Z: THREE.Vector3 };
   size: THREE.Vector3;
   radius: number;
   usesGlobal: boolean;
 }
 
+/** Trigger boxes/spheres placed exactly like the game does (see core/jbeam/triggers.ts). */
 export function triggerShapes(v: Vehicle, pos: Float32Array): TriggerShape[] {
-  const out: TriggerShape[] = [];
-  const rows = v.tables.get('triggers2') ?? [];
-  rows.forEach((row, idx) => {
-    const r = row.v;
-    const ri = v.nodeIndex.get(String(r['idRef:'])), xi = v.nodeIndex.get(String(r['idX:'])), yi = v.nodeIndex.get(String(r['idY:']));
-    if (ri === undefined || xi === undefined || yi === undefined) return;
-    const P = (i: number) => new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
-    const ref = P(ri);
-    let axes = nodeFrame(ref, P(xi), P(yi));
-    const br = r.baseRotation;
-    if (br && typeof br === 'object') {
-      const e = new THREE.Euler(num(br.x, 0) * DEG, num(br.y, 0) * DEG, num(br.z, 0) * DEG, 'XYZ');
-      const q = new THREE.Quaternion().setFromEuler(e);
-      const basis = new THREE.Matrix4().makeBasis(axes.X, axes.Y, axes.Z);
-      const rot = new THREE.Matrix4().makeRotationFromQuaternion(q);
-      const m = basis.multiply(rot);
-      const X = new THREE.Vector3(), Y = new THREE.Vector3(), Z = new THREE.Vector3();
-      m.extractBasis(X, Y, Z);
-      axes = { X, Y, Z };
-    }
-    const type = String(r.type ?? 'box');
-    let corner: THREE.Vector3;
-    const usesGlobal = !!(r.baseTranslationGlobal && typeof r.baseTranslationGlobal === 'object');
-    if (usesGlobal) corner = v3(r.baseTranslationGlobal);
-    else {
-      const bt = v3(r.baseTranslation);
-      corner = ref.clone().addScaledVector(axes.X, bt.x).addScaledVector(axes.Y, bt.y).addScaledVector(axes.Z, bt.z);
-    }
-    const size = typeof r.size === 'number' ? new THREE.Vector3(r.size, r.size, r.size) : v3(r.size, 0.05);
-    out.push({ idx, row, type, corner, axes, size, radius: typeof r.size === 'number' ? r.size : size.x, usesGlobal });
-  });
-  return out;
+  const V = (a: number[]) => new THREE.Vector3(a[0], a[1], a[2]);
+  return placeTriggers(v, pos).map((t) => ({
+    idx: t.idx,
+    row: t.row,
+    name: t.name,
+    type: t.type,
+    corner: V(t.origin),
+    center: V(t.center),
+    axes: { X: V(t.frame.X), Y: V(t.frame.Y), Z: V(t.frame.Z) },
+    size: V(t.size),
+    radius: t.radius,
+    usesGlobal: t.usesGlobal,
+  }));
 }
 
 export interface PropPlacement {
@@ -310,8 +295,12 @@ export class Layers {
     this.rebuildBulbs();
     this.clear(this.trigGroup, this.trigObjs);
     const v = this.vehicle;
+    this.vp.triggerLabels = [];
     if (!v) return;
     this.shapes = triggerShapes(v, this.vp.pos);
+    this.vp.triggerLabels = this.s.showTriggers
+      ? this.shapes.filter((sh) => this.inScope(sh.row.part.def.name) && sh.name).map((sh) => ({ x: sh.center.x, y: sh.center.y, z: sh.center.z, text: sh.name, color: '#ff9a3c' }))
+      : [];
     for (const sh of this.shapes) {
       if (!this.inScope(sh.row.part.def.name)) {
         this.trigObjs.push(new THREE.Object3D());

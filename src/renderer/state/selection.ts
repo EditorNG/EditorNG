@@ -106,7 +106,7 @@ export function resolveSel(v: Vehicle | null, s: Sel): SelIdx {
   }
   if (s.flex.size) v.flexbodies.forEach((f, i) => s.flex.has(rowKey(f.row.src.file, f.row.src.node.s)) && out.flex.add(i));
   if (s.props.size) v.props.forEach((p, i) => s.props.has(rowKey(p.row.src.file, p.row.src.node.s)) && out.props.add(i));
-  if (s.triggers.size) (v.tables.get('triggers2') ?? []).forEach((r, i) => s.triggers.has(rowKey(r.src.file, r.src.node.s)) && out.triggers.add(i));
+  if (s.triggers.size) v.triggers.forEach((r, i) => s.triggers.has(rowKey(r.src.file, r.src.node.s)) && out.triggers.add(i));
   return out;
 }
 
@@ -130,7 +130,7 @@ export function addToSel(v: Vehicle, s: Sel, kind: Hover['kind'], idx: number, t
     const p = v.props[idx];
     flip(s.props, rowKey(p.row.src.file, p.row.src.node.s));
   } else if (kind === 'trigger') {
-    const r = (v.tables.get('triggers2') ?? [])[idx];
+    const r = v.triggers[idx];
     if (r) flip(s.triggers, rowKey(r.src.file, r.src.node.s));
   } else if (kind === 'wheel') {
     const w = v.wheels[idx];

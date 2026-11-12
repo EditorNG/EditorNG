@@ -13,6 +13,7 @@ import {
 } from '@core/jbeam/generators';
 import { DEFAULT_HEADERS, fmtRow, insertKey, insertRows, rowFromRecord } from '@core/jbeam/edit';
 import type { AArr } from '@core/sjson';
+import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import { PanelHeader } from './SidePanels';
 import { command } from './commands';
 
@@ -165,8 +166,10 @@ function TriggerTool() {
     const t = targetPart();
     if (!t) return toast('warn', 'No writable target part');
     if (![ref, nx, ny].every((n) => ws.vehicle?.nodeIndex.has(n))) return toast('warn', 'Reference nodes not found');
-    if ((ws.vehicle?.tables.get('triggers2') ?? []).some((r) => r.v.id === id)) return toast('warn', `Trigger id "${id}" already exists on this vehicle`);
-    const spec = { id, idRef: ref, idX: nx, idY: ny, type, size, pos, mesh: mesh || undefined, action: action || undefined, action2: action2 || undefined };
+    if ((ws.vehicle?.triggers ?? []).some((r) => r.v.id === id)) return toast('warn', `Trigger id "${id}" already exists on this vehicle`);
+    // the game applies the part's nodeOffset/nodeMove/nodeRotate to baseTranslationGlobal: write the raw value
+    const raw = invertNodeXform(getNodeXform(t.active?.slotOptions ?? {}), pos.x, pos.y, pos.z);
+    const spec = { id, idRef: ref, idX: nx, idY: ny, type, size, pos: { x: raw.x, y: raw.y, z: raw.z }, mesh: mesh || undefined, action: action || undefined, action2: action2 || undefined };
     const es = new EditSet();
     const text = t.doc.text;
     es.add(t.doc.key, insertRows(text, t.part, 'triggers2', headerOf(t, 'triggers2'), [triggerRow(spec)]));

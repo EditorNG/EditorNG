@@ -160,7 +160,7 @@ export function ViewportPanel() {
     const row =
       hit.kind === 'node' ? v.nodes[hit.idx]?.row : hit.kind === 'beam' ? v.beams[hit.idx]?.row : hit.kind === 'tri' ? v.tris[hit.idx]?.row
         : hit.kind === 'flex' ? v.flexbodies[hit.idx]?.row : hit.kind === 'prop' ? v.props[hit.idx]?.row : hit.kind === 'wheel' ? v.wheels[hit.idx]?.row
-        : (v.tables.get('triggers2') ?? [])[hit.idx];
+        : v.triggers[hit.idx];
     if (!row) return;
     revealRange(row.src.file, row.src.node.s, row.src.node.e);
     const d = ws.doc(row.src.file);
@@ -1002,7 +1002,7 @@ function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: ()
   items.push(['Add…', props.actions.add, 'Shift+A']);
   items.push(null);
   if (v && hit?.kind === 'node') items.push(['Rename…', () => props.actions.rename(hit.idx), 'F2']);
-  const row = v && hit ? (hit.kind === 'node' ? v.nodes[hit.idx].row : hit.kind === 'beam' ? v.beams[hit.idx].row : hit.kind === 'tri' ? v.tris[hit.idx].row : hit.kind === 'flex' ? v.flexbodies[hit.idx].row : hit.kind === 'prop' ? v.props[hit.idx].row : (v.tables.get('triggers2') ?? [])[hit.idx]) : null;
+  const row = v && hit ? (hit.kind === 'node' ? v.nodes[hit.idx].row : hit.kind === 'beam' ? v.beams[hit.idx].row : hit.kind === 'tri' ? v.tris[hit.idx].row : hit.kind === 'flex' ? v.flexbodies[hit.idx].row : hit.kind === 'prop' ? v.props[hit.idx].row : v.triggers[hit.idx]) : null;
   if (row) items.push(['Show in code', () => revealRange(row.src.file, row.src.node.s, row.src.node.e, true)]);
   if (row) items.push([`Set "${row.src.part}" as target part`, () => ws.setTarget(row.src.file, row.src.part)]);
   items.push(null);

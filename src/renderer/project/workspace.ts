@@ -483,7 +483,7 @@ class Workspace {
       v.wheels.forEach((w, i) => add(w.row, { kind: 'wheel', idx: i }));
       v.flexbodies.forEach((f, i) => add(f.row, { kind: 'flex', idx: i }));
       v.props.forEach((p, i) => add(p.row, { kind: 'prop', idx: i }));
-      (v.tables.get('triggers2') ?? []).forEach((r, i) => add(r, { kind: 'trigger', idx: i }));
+      v.triggers.forEach((r, i) => add(r, { kind: 'trigger', idx: i }));
     }
     for (const l of byFile.values()) l.sort((a, b) => a.node.s - b.node.s);
     this.rowIndex = idx;

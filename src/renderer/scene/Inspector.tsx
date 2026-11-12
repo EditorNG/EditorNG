@@ -6,6 +6,8 @@ import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
 import { getViewport, getLayers } from './ViewportPanel';
 import type { Row } from '@core/jbeam/types';
+import { triggerName, triggerActions } from '@core/jbeam/triggers';
+import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 
 function NumField(props: { label: string; value: number; onCommit: (v: number) => void; disabled?: boolean; step?: number; color?: string }) {
   const [text, setText] = useState(props.value.toFixed(4));
@@ -140,9 +142,10 @@ export function Inspector() {
       </>
     );
   } else if (total === 1 && si.triggers.size === 1) {
-    const r = (v.tables.get('triggers2') ?? [])[[...si.triggers][0]];
+    const r = v.triggers[[...si.triggers][0]];
     row = r;
-    title = String(r.v.id ?? 'trigger');
+    title = triggerName(r) || 'trigger';
+    const acts = triggerActions(v).get(String(r.v.id ?? '')) ?? [];
     const g = r.v.baseTranslationGlobal;
     const hasGlobal = g && typeof g === 'object';
     const bt = hasGlobal ? g : r.v.baseTranslation ?? { x: 0, y: 0, z: 0 };
@@ -177,10 +180,17 @@ export function Inspector() {
           </div>
         )}
         <div className="insp-line"><span className="dim">nodes</span><span className="mono">{String(r.v['idRef:'])}, {String(r.v['idX:'])}, {String(r.v['idY:'])}</span></div>
+        <div className="insp-line"><span className="dim">actions</span><span className="mono ellipsis" title={acts.join('\n')}>{acts.length ? acts.join(', ') : '— not linked —'}</span></div>
+        {typeof r.v.label === 'string' && r.v.label && <div className="insp-line"><span className="dim">label</span><span className="ellipsis">{r.v.label}</span></div>}
+        <div className="insp-line"><span className="dim">part</span><span className="ellipsis">{r.part.def.name}</span></div>
         {!hasGlobal && <button className="btn small" onClick={() => {
           const shapes = getLayers()?.shapes ?? [];
           const sh = shapes.find((x) => x.row === r);
-          if (sh) ops.setRowOptionFor(r, 'baseTranslationGlobal', { x: +sh.corner.x.toFixed(4), y: +sh.corner.y.toFixed(4), z: +sh.corner.z.toFixed(4) });
+          // baseTranslationGlobal gets the row's nodeOffset/nodeMove/nodeRotate applied in game: write the raw value
+          if (sh) {
+            const raw = invertNodeXform(getNodeXform(r.v), sh.corner.x, sh.corner.y, sh.corner.z);
+            ops.setRowOptionFor(r, 'baseTranslationGlobal', { x: +raw.x.toFixed(4), y: +raw.y.toFixed(4), z: +raw.z.toFixed(4) });
+          }
         }}>Convert to global position</button>}
       </>
     );

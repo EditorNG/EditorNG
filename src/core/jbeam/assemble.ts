@@ -869,6 +869,7 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
   return {
     mainPart: root?.def.name ?? '', root, parts, partsByName, options, tables: tableRows, headers, dicts,
     nodes, nodeIndex, beams, tris, wheels, flexbodies, props, variables, vars, issues, refNodes,
+    triggers: [...(tableRows.get('triggers2') ?? []), ...(tableRows.get('triggers') ?? [])],
   };
 }
 
