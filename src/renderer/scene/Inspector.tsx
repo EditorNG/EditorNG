@@ -4,7 +4,8 @@ import { ws, useWs } from '../project/workspace';
 import { useSel, resolveSel, selNodeIdx } from '../state/selection';
 import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
-import { getViewport, getLayers } from './ViewportPanel';
+import { getViewport, getLayers, startRailSlide } from './ViewportPanel';
+import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
 import type { Row } from '@core/jbeam/types';
 import { triggerName, triggerActions } from '@core/jbeam/triggers';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
@@ -81,7 +82,7 @@ export function Inspector() {
     const move = (k: 0 | 1 | 2, val: number) => {
       const p: [number, number, number] = [n.x, n.y, n.z];
       p[k] = val;
-      ops.moveNodes(new Map([[i, p]]));
+      ops.moveNodesSym(new Map([[i, p]]));
     };
     const editable = !!n.raw;
     body = (
@@ -98,6 +99,7 @@ export function Inspector() {
         <div className="insp-line"><span className="dim">part</span><span className="ellipsis">{n.row.part.def.name}</span></div>
         {n.groups.length > 0 && <div className="insp-line"><span className="dim">groups</span><span className="ellipsis">{n.groups.join(', ')}</span></div>}
         <div className="insp-line"><span className="dim">beams</span><span>{v.beams.filter((b) => b.a === i || b.b === i).length}</span></div>
+        <RailInfo node={i} />
         <RowOptions row={n.row} />
       </>
     );
@@ -275,6 +277,48 @@ export function Inspector() {
         </button>
       </div>
       {open && <div className="insp-body">{body}</div>}
+    </div>
+  );
+}
+
+/** Slidenode / rail membership of a node: rail, position along it, distance off it, snap & slide. */
+function RailInfo({ node }: { node: number }) {
+  const v = ws.vehicle;
+  const vp = getViewport();
+  if (!v || !vp) return null;
+  const slide = vp.slides.find((x) => x.node === node);
+  const onRails = [...vp.rails.values()].filter((r) => r.nodes.includes(node)).map((r) => r.name);
+  if (!slide && !onRails.length) return null;
+  const P = (i: number): [number, number, number] => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z];
+  const rail = slide ? vp.rails.get(slide.rail) : undefined;
+  const pts = rail ? rail.nodes.map(P) : [];
+  const c = rail && pts.length >= 2 ? closestOnRail(pts, rail.looped, P(node)) : null;
+  const len = rail ? railLength(pts, rail.looped) : 0;
+  const tol = slide && typeof slide.row.v.tolerance === 'number' ? slide.row.v.tolerance : 0;
+  return (
+    <div className="insp-rail">
+      {onRails.length > 0 && <div className="insp-line"><span className="dim">rail link of</span><span className="ellipsis mono">{onRails.join(', ')}</span></div>}
+      {slide && (
+        <>
+          <div className="insp-line"><span className="dim">slidenode on</span><span className={'ellipsis mono' + (rail ? '' : ' warn-text')}>{slide.rail}{rail ? '' : ' (missing rail)'}</span></div>
+          {c && (
+            <>
+              <div className="insp-xyz">
+                <NumField label="s" value={c.s} step={0.005} onCommit={(sv) => ops.moveNodesSym(new Map([[node, pointAtS(pts, rail!.looped, sv)]]), 'Slide along rail')} />
+                <span className="faint small-text mono" style={{ alignSelf: 'center' }}>/ {len.toFixed(3)} m</span>
+              </div>
+              <div className="insp-line">
+                <span className="dim">off rail</span>
+                <span className={'mono' + (c.dist > Math.max(tol, 0.002) ? ' warn-text' : '')}>{(c.dist * 1000).toFixed(1)} mm{tol ? ` (tolerance ${(tol * 1000).toFixed(0)} mm)` : ''}</span>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn small" disabled={c.dist < 1e-5} onClick={() => ops.snapToRails([node])} data-tip="Shift+R">Snap onto rail</button>
+                <button className="btn small" onClick={() => startRailSlide()} data-tip="G G in the viewport">Slide along rail</button>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

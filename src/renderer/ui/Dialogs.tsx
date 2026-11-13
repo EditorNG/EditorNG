@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import { toast } from '../state/toast';
 import { parseObj, planImport, type MeshData, type ImportOptions } from '@core/import/mesh';
 import { DEFAULT_HEADERS, fmtRow, insertRows, rowFromRecord } from '@core/jbeam/edit';
-import { targetPart, EditSet, selectNodesByName } from '../project/ops';
+import { targetPart, EditSet, selectNodesByName, moveNodes, setSymmetryCrossPolicy, type SymmetryResult } from '../project/ops';
 import { beamKey, triKey } from '../state/selection';
 import { openFolder } from './commands';
 import type { BlenderExtract } from '@shared/ipc';
@@ -70,6 +70,8 @@ export function Dialogs() {
       return <ImportDialog close={close} initial={d.data} />;
     case 'mirrorPart':
       return <MirrorPartDialog part={d.data} close={close} />;
+    case 'symmetryCross':
+      return <SymmetryCross close={close} data={d.data} />;
     case 'shortcuts':
       return <Shortcuts close={close} />;
     case 'blenderAddon':
@@ -461,7 +463,7 @@ function BlenderAddon({ close }: { close: () => void }) {
 
 const SHORTCUT_GROUPS: Array<[string, string[]]> = [
   ['Tools', ['add.menu', 'tool.select', 'tool.addNode', 'tool.beam', 'tool.tri', 'tool.name']],
-  ['Transform', ['transform.grab', 'transform.scale', 'transform.rotate']],
+  ['Transform', ['transform.grab', 'transform.scale', 'transform.rotate', 'edit.symmetry', 'edit.snapRail']],
   ['Edit', ['edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
   ['Select', ['select.all', 'select.none', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
   ['View', ['view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
@@ -470,6 +472,7 @@ const SHORTCUT_GROUPS: Array<[string, string[]]> = [
 
 export const ACTION_LABELS: Record<string, string> = {
   'add.menu': 'Add menu (node, beam, trigger, bulb, wheel…)',
+  'edit.symmetry': 'Toggle X symmetry (mirror twins move too)', 'edit.snapRail': 'Snap slidenodes onto their rail',
   'select.all': 'Select all', 'select.none': 'Select none', 'select.invert': 'Invert selection', 'select.linked': 'Select linked (same part)', 'select.mirror': 'Add mirror twins to selection',
   'transform.grab': 'Move (X/Y/Z lock, type value)', 'transform.scale': 'Scale (S then X then -1 mirrors)', 'transform.rotate': 'Rotate',
   'tool.select': 'Select tool', 'tool.addNode': 'Add node tool', 'tool.beam': 'Beam chain tool', 'tool.tri': 'Triangle tool', 'tool.name': 'Quick naming tool',
@@ -501,12 +504,55 @@ function Shortcuts({ close }: { close: () => void }) {
           <div className="shortcut-row"><span>Pan</span><span className="kbd">{settings().orbitButton === 'middle' ? 'Shift+MMB drag' : 'MMB drag'}</span></div>
           <div className="shortcut-row"><span>Context menu</span><span className="kbd">RMB click</span></div>
           <div className="shortcut-row"><span>Zoom</span><span className="kbd">Wheel</span></div>
+          <div className="shortcut-row"><span>Slide along rail</span><span className="kbd">G G</span></div>
+          <div className="shortcut-row"><span>Snap to node while moving</span><span className="kbd">hold Ctrl</span></div>
+          <div className="shortcut-row"><span>Increments while moving</span><span className="kbd">hold Alt</span></div>
           <div className="shortcut-row"><span>Box select</span><span className="kbd">LMB drag</span></div>
           <div className="shortcut-row"><span>Rename node</span><span className="kbd">Double-click</span></div>
           <div className="shortcut-row"><span>Pick meshes / props / triggers</span><span className="kbd">Alt+click</span></div>
         </div>
       </div>
       <div className="faint small-text" style={{ marginTop: 10 }}>All shortcuts can be changed in Settings → Keymap. Defaults: {Object.keys(DEFAULT_KEYMAP).length} actions.</div>
+    </Modal>
+  );
+}
+
+// ------------------------------------------------------------------------------------------
+
+/** Symmetry move that would also move nodes of another part (e.g. fender_R moving fender_L). */
+function SymmetryCross({ close, data }: { close: () => void; data: { result: SymmetryResult; own: Map<number, [number, number, number]>; label: string; onCancel?: () => void } }) {
+  const [remember, setRemember] = useState(false);
+  const { result, label } = data;
+  const parts = [...new Set(result.cross.map((c) => c.part))];
+  const finish = (mode: 'both' | 'own' | 'cancel') => {
+    close();
+    if (mode === 'cancel') {
+      data.onCancel?.();
+      return;
+    }
+    if (remember) setSymmetryCrossPolicy(mode);
+    const m = new Map(result.all);
+    if (mode === 'own') for (const c of result.cross) m.delete(c.idx);
+    if (!moveNodes(m, label + (m.size > data.own.size ? ' (symmetry)' : ''))) data.onCancel?.();
+  };
+  return (
+    <Modal title="Symmetry: also move the other side?" onClose={() => finish('cancel')} width={500} footer={<>
+      <label className="row dim" style={{ gap: 6, marginRight: 'auto' }}>
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+        Don't ask again this session
+      </label>
+      <button className="btn" onClick={() => finish('own')}>Only this side</button>
+      <button className="btn primary" autoFocus onClick={() => finish('both')}>Move both</button>
+    </>}>
+      <div style={{ marginBottom: 8 }}>
+        The mirror twin{result.cross.length === 1 ? '' : 's'} of the moved node{data.own.size === 1 ? '' : 's'} live{result.cross.length === 1 ? 's' : ''} in {parts.length === 1 ? 'another part' : 'other parts'}: <b className="mono">{parts.join(', ')}</b>.
+      </div>
+      <div className="sym-list mono">
+        {result.cross.slice(0, 12).map((c) => (
+          <div key={c.idx}>{c.from} <span className="faint">({c.fromPart})</span> → <b>{c.name}</b> <span className="faint">({c.part})</span></div>
+        ))}
+        {result.cross.length > 12 && <div className="faint">…and {result.cross.length - 12} more</div>}
+      </div>
     </Modal>
   );
 }

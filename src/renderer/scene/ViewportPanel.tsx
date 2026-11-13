@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import {
   MousePointer2, CirclePlus, Spline, Triangle, Tag, Box, Eye, Layers as LayersIcon, Grid3x3, Maximize, Focus, Tags, Shapes, Scan, Ghost, Cuboid, Lightbulb,
-  CircleDot, Minus, Waves, Armchair,
+  CircleDot, Minus, Waves, Armchair, FlipHorizontal2, Route, Move3d, Rotate3d, Scale3d,
 } from 'lucide-react';
 import { Viewport } from './viewport';
 import { Layers } from './layers';
+import { Gizmo, type GizmoDelta } from './gizmo';
 import { ws, useWs } from '../project/workspace';
 import { useSettings, settings, matches } from '../state/settings';
 import { scopeParts } from '../state/selection';
@@ -15,6 +16,9 @@ import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
 import { toast } from '../state/toast';
 import { suggestName } from '../editor/jbeamLang';
+import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
+import { placeTriggers, triggerValues, type TriggerPlacement } from '@core/jbeam/triggers';
+import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import { Inspector } from './Inspector';
 import { meshes, useMeshStatus } from './meshes';
 import { meshFiles } from '../project/workspace';
@@ -22,11 +26,30 @@ import { command } from '../ui/commands';
 
 let vpInstance: Viewport | null = null;
 let layersInstance: Layers | null = null;
+let gizmoInstance: Gizmo | null = null;
 export const getViewport = () => vpInstance;
 export const getLayers = () => layersInstance;
+export const getGizmo = () => gizmoInstance;
+let railSlideStarter: (() => void) | null = null;
+/** Starts the rail slide modal on the selected slidenodes (inspector / context menu). */
+export function startRailSlide() {
+  railSlideStarter?.();
+}
 
+type P3 = [number, number, number];
+type SlideInfo = { pts: P3[]; looped: boolean; s0: number; rail: string; len: number };
 type Modal = {
-  type: 'move' | 'scale' | 'rotate';
+  type: 'move' | 'scale' | 'rotate' | 'railSlide';
+  /** node whose position Ctrl-snaps onto the target (-1 = centroid) */
+  ref: number;
+  /** everything previewed, including symmetry twins */
+  shown: Map<number, [number, number, number]>;
+  slides?: Map<number, SlideInfo>;
+  primary?: number;
+  mouseS0?: number;
+  /** trigger transform (G/R/S with triggers selected) */
+  trig?: TriggerPlacement[];
+  trigVals?: Map<number, Record<string, any>>;
   start: { x: number; y: number };
   centroid: THREE.Vector3;
   cScreen: { x: number; y: number };
@@ -76,11 +99,13 @@ export function ViewportPanel() {
     const layers = new Layers(vp, settings());
     vpInstance = vp;
     layersInstance = layers;
+    gizmoInstance = new Gizmo(vp);
     applyThemeColors();
     const mo = new MutationObserver(applyThemeColors);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
     return () => {
       mo.disconnect();
+      gizmoInstance = null;
       vp.dispose();
       vpInstance = null;
       layersInstance = null;
@@ -191,13 +216,38 @@ export function ViewportPanel() {
   };
 
   // ------------------------------------------------------------------ modal transforms
-  const startModal = (type: Modal['type']) => {
+  const keyMods = () => ({ ctrl: (window as any).__ctrlDown === true, alt: (window as any).__altDown === true });
+
+  /** Visible node nearest to the cursor (screen space), not among the moving ones. */
+  const snapTargetAt = (x: number, y: number, exclude: Set<number>): number | null => {
+    const vp = vpInstance;
+    const v = ws.vehicle;
+    if (!vp || !v) return null;
+    const r = Math.max(14, settings().pickRadius * 1.6);
+    let best = -1, bd = r * r, bz = Infinity;
+    for (let i = 0; i < v.nodes.length; i++) {
+      if (!vp.nodeVis[i] || exclude.has(i)) continue;
+      const p = vp.project(vp.pos[i * 3], vp.pos[i * 3 + 1], vp.pos[i * 3 + 2]);
+      if (p.z > 1) continue;
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < bd - 1 || (Math.abs(d - bd) <= 1 && p.z < bz)) {
+        bd = d;
+        bz = p.z;
+        best = i;
+      }
+    }
+    return best >= 0 ? best : null;
+  };
+
+  const startModal = (type: 'move' | 'scale' | 'rotate') => {
     const vp = vpInstance;
     const v = ws.vehicle;
     if (!vp || !v) return;
     const idx = selectionNodeIdx();
     if (!idx.length) {
-      toast('info', 'Select nodes first');
+      const st = resolveSel(v, useSel.getState().sel).triggers;
+      if (st.size) return startTriggerModal(type, st);
+      toast('info', 'Select nodes or triggers first');
       return;
     }
     const initial = new Map<number, [number, number, number]>();
@@ -211,35 +261,184 @@ export function ViewportPanel() {
     }
     c.divideScalar(idx.length);
     const cs = vp.project(c.x, c.y, c.z);
-    const m: Modal = { type, start: { ...mouse.current }, centroid: c, cScreen: cs, initial, axis: null, numeric: '', current: new Map(initial), info: '' };
+    const act = useSel.getState().active;
+    const ref = act?.kind === 'node' && initial.has(act.idx) ? act.idx : idx.length === 1 ? idx[0] : -1;
+    const m: Modal = { type, start: { ...mouse.current }, centroid: c, cScreen: cs, initial, axis: null, numeric: '', current: new Map(initial), shown: new Map(initial), info: '', ref };
     setModal(m);
   };
 
+  const startTriggerModal = (type: 'move' | 'scale' | 'rotate', sel: Set<number>) => {
+    const vp = vpInstance!;
+    const v = ws.vehicle!;
+    const trig = placeTriggers(v, vp.pos).filter((t) => sel.has(t.idx));
+    if (!trig.length) {
+      toast('info', 'The selected trigger has no valid reference nodes');
+      return;
+    }
+    const c = new THREE.Vector3();
+    for (const t of trig) c.add(new THREE.Vector3(...t.center));
+    c.divideScalar(trig.length);
+    const m: Modal = { type, start: { ...mouse.current }, centroid: c, cScreen: vp.project(c.x, c.y, c.z), initial: new Map(), axis: null, numeric: '', current: new Map(), shown: new Map(), info: '', ref: -1, trig };
+    setModal(m);
+  };
+
+  /** Applies a move (d), rotation about the centroid (q) or scale (f) to the modal's triggers. */
+  const applyToTriggers = (m: Modal, op: { d?: THREE.Vector3; q?: THREE.Quaternion; f?: number | P3 }) => {
+    const vp = vpInstance!;
+    const v = ws.vehicle!;
+    const vals = new Map<number, Record<string, any>>();
+    const V = (a: number[]) => new THREE.Vector3(a[0], a[1], a[2]);
+    for (const t of m.trig!) {
+      const X = V(t.frame.X), Y = V(t.frame.Y), Z = V(t.frame.Z);
+      let size: [number, number, number] = t.type === 'sphere' ? [t.radius, t.radius, t.radius] : [...t.size];
+      let center = V(t.center);
+      let axes: { X: P3; Y: P3; Z: P3 } | undefined;
+      if (op.d) center.add(op.d);
+      if (op.q) {
+        center = center.sub(m.centroid).applyQuaternion(op.q).add(m.centroid);
+        X.applyQuaternion(op.q);
+        Y.applyQuaternion(op.q);
+        Z.applyQuaternion(op.q);
+        axes = { X: X.toArray() as P3, Y: Y.toArray() as P3, Z: Z.toArray() as P3 };
+      }
+      if (op.f !== undefined) {
+        let fv: P3;
+        if (typeof op.f === 'number') {
+          const k = m.axis && t.type === 'box' ? 'xyz'.indexOf(m.axis) : -1;
+          const f = op.f;
+          fv = [0, 1, 2].map((j) => (k < 0 || k === j ? f : 1)) as P3;
+        } else fv = op.f;
+        if (t.type === 'sphere') {
+          const g = fv.reduce((a, b) => (Math.abs(b - 1) > Math.abs(a - 1) ? b : a), 1);
+          fv = [g, g, g];
+        }
+        size = size.map((sz, j) => Math.abs(sz * fv[j])) as P3;
+      }
+      const origin = t.type === 'sphere' ? center : center.clone().addScaledVector(X, -size[0] / 2).addScaledVector(Y, -size[1] / 2).addScaledVector(Z, -size[2] / 2);
+      const toRaw = (q: P3): P3 => {
+        const r = invertNodeXform(getNodeXform(t.row.v), q[0], q[1], q[2]);
+        return [r.x, r.y, r.z];
+      };
+      vals.set(t.idx, triggerValues(v, vp.pos, t, { origin: origin.toArray() as P3, axes, size: op.f !== undefined ? size : undefined }, toRaw));
+    }
+    m.trigVals = vals;
+    layersInstance?.previewTriggers(vals);
+  };
+
+  /** Arc length on a rail of the point whose screen projection is closest to (x, y). */
+  const railParamAtScreen = (pts: P3[], looped: boolean, x: number, y: number): number => {
+    const vp = vpInstance!;
+    const sp = pts.map((p) => vp.project(p[0], p[1], p[2]));
+    const n = pts.length;
+    const segN = looped && n > 2 ? n : n - 1;
+    let acc = 0, best = 0, bd = Infinity;
+    for (let i = 0; i < segN; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      const sa = sp[i], sb = sp[(i + 1) % n];
+      const dx = sb.x - sa.x, dy = sb.y - sa.y;
+      const l2 = dx * dx + dy * dy;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - sa.x) * dx + (y - sa.y) * dy) / l2)) : 0;
+      const d = (sa.x + dx * t - x) ** 2 + (sa.y + dy * t - y) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = acc + t * L;
+      }
+      acc += L;
+    }
+    return best;
+  };
+
+  /** Blender-style edge slide for slidenodes along their rails (G twice, or from the inspector). */
+  const startRailSlide = () => {
+    const vp = vpInstance;
+    const v = ws.vehicle;
+    if (!vp || !v) return;
+    vp.resetPositions();
+    const idx = selectionNodeIdx();
+    const byNode = new Map(vp.slides.map((s) => [s.node, s]));
+    const slides = new Map<number, SlideInfo>();
+    const P = (i: number): P3 => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z];
+    let primary = -1;
+    const act = useSel.getState().active;
+    for (const i of idx) {
+      const sl = byNode.get(i);
+      const r = sl && vp.rails.get(sl.rail);
+      if (!r || r.nodes.length < 2) continue;
+      const pts = r.nodes.map(P);
+      const c = closestOnRail(pts, r.looped, P(i));
+      if (!c) continue;
+      slides.set(i, { pts, looped: r.looped, s0: c.s, rail: r.name, len: railLength(pts, r.looped) });
+      if (primary < 0 || (act?.kind === 'node' && act.idx === i)) primary = i;
+    }
+    if (!slides.size) {
+      toast('info', 'Rail slide needs selected slidenodes whose rail exists');
+      return;
+    }
+    const initial = new Map<number, [number, number, number]>();
+    for (const i of slides.keys()) initial.set(i, P(i));
+    const pr = slides.get(primary)!;
+    const m: Modal = {
+      type: 'railSlide', start: { ...mouse.current }, centroid: new THREE.Vector3(...P(primary)), cScreen: { x: 0, y: 0 }, initial, axis: null, numeric: '',
+      current: new Map(initial), shown: new Map(initial), info: '', ref: primary, slides, primary,
+      mouseS0: railParamAtScreen(pr.pts, pr.looped, mouse.current.x, mouse.current.y),
+    };
+    setModal(m);
+    updateModal(m);
+  };
+  railSlideStarter = startRailSlide;
+
   const updateModal = (m: Modal) => {
     const vp = vpInstance;
-    if (!vp) return;
+    const v = ws.vehicle;
+    if (!vp || !v) return;
     const cur = mouse.current;
     const out = new Map<number, [number, number, number]>();
     const num = m.numeric !== '' && m.numeric !== '-' ? parseFloat(m.numeric) : NaN;
     const snap = settings().snapGrid;
-    const ctrl = (window as any).__ctrlDown === true;
+    const { ctrl, alt } = keyMods();
     let info = '';
-    if (m.type === 'move') {
-      const a = vp.pointOnViewPlane(m.start.x, m.start.y, m.centroid);
-      const b = vp.pointOnViewPlane(cur.x, cur.y, m.centroid);
-      let d = b.sub(a);
-      if (m.axis) {
-        const ax = AXES[m.axis];
-        d = ax.clone().multiplyScalar(Number.isFinite(num) ? num : d.dot(ax));
-      } else if (Number.isFinite(num)) d = new THREE.Vector3(num, 0, 0);
-      if (ctrl && snap > 0) d.set(Math.round(d.x / snap) * snap, Math.round(d.y / snap) * snap, Math.round(d.z / snap) * snap);
+    // Ctrl: snap onto the node under the cursor
+    const exclude = new Set<number>([...m.initial.keys(), ...m.shown.keys()]);
+    const target = ctrl && !Number.isFinite(num) && (m.type === 'move' || m.type === 'railSlide') ? snapTargetAt(cur.x, cur.y, exclude) : null;
+    const tp = target !== null ? new THREE.Vector3(vp.pos[target * 3], vp.pos[target * 3 + 1], vp.pos[target * 3 + 2]) : null;
+    if (m.type === 'railSlide') {
+      const pr = m.slides!.get(m.primary!)!;
+      let d: number;
+      if (Number.isFinite(num)) d = num;
+      else if (tp) d = (closestOnRail(pr.pts, pr.looped, [tp.x, tp.y, tp.z])?.s ?? pr.s0) - pr.s0;
+      else {
+        d = railParamAtScreen(pr.pts, pr.looped, cur.x, cur.y) - m.mouseS0!;
+        if (pr.looped && pr.len > 0) d = ((((d + pr.len / 2) % pr.len) + pr.len) % pr.len) - pr.len / 2;
+      }
+      if (alt && snap > 0 && !Number.isFinite(num) && !tp) d = Math.round(d / snap) * snap;
+      for (const [i, sl] of m.slides!) out.set(i, pointAtS(sl.pts, sl.looped, sl.s0 + d));
+      const sNow = Math.max(0, Math.min(pr.len, pr.s0 + d));
+      info = `Rail slide  ${pr.rail}   Δ ${d.toFixed(4)} m   (${sNow.toFixed(3)} / ${pr.len.toFixed(3)} m)`;
+    } else if (m.type === 'move') {
+      let d: THREE.Vector3;
+      if (tp) {
+        const ref = m.ref >= 0 ? new THREE.Vector3(...m.initial.get(m.ref)!) : m.centroid.clone();
+        d = tp.clone().sub(ref);
+        if (m.axis) d = AXES[m.axis].clone().multiplyScalar(d.dot(AXES[m.axis]));
+      } else {
+        const a = vp.pointOnViewPlane(m.start.x, m.start.y, m.centroid);
+        const b = vp.pointOnViewPlane(cur.x, cur.y, m.centroid);
+        d = b.sub(a);
+        if (m.axis) {
+          const ax = AXES[m.axis];
+          d = ax.clone().multiplyScalar(Number.isFinite(num) ? num : d.dot(ax));
+        } else if (Number.isFinite(num)) d = new THREE.Vector3(num, 0, 0);
+        if (alt && snap > 0 && !Number.isFinite(num)) d.set(Math.round(d.x / snap) * snap, Math.round(d.y / snap) * snap, Math.round(d.z / snap) * snap);
+      }
       for (const [i, p] of m.initial) out.set(i, [p[0] + d.x, p[1] + d.y, p[2] + d.z]);
+      if (m.trig) applyToTriggers(m, { d });
       info = `Move  Δ ${d.x.toFixed(4)}, ${d.y.toFixed(4)}, ${d.z.toFixed(4)}  (${d.length().toFixed(4)} m)`;
     } else if (m.type === 'scale') {
       const d0 = Math.hypot(m.start.x - m.cScreen.x, m.start.y - m.cScreen.y) || 1;
       const d1 = Math.hypot(cur.x - m.cScreen.x, cur.y - m.cScreen.y);
       let f = Number.isFinite(num) ? num : d1 / d0;
-      if (ctrl && !Number.isFinite(num)) f = Math.round(f * 10) / 10;
+      if (alt && !Number.isFinite(num)) f = Math.round(f * 10) / 10;
       const c = m.centroid;
       for (const [i, p] of m.initial) {
         const q: [number, number, number] = [...p];
@@ -248,12 +447,13 @@ export function ViewportPanel() {
         if (!m.axis || m.axis === 'z') q[2] = c.z + (p[2] - c.z) * f;
         out.set(i, q);
       }
+      if (m.trig) applyToTriggers(m, { f });
       info = `Scale  ${f.toFixed(4)}`;
     } else {
       const a0 = Math.atan2(m.start.y - m.cScreen.y, m.start.x - m.cScreen.x);
       const a1 = Math.atan2(cur.y - m.cScreen.y, cur.x - m.cScreen.x);
       let ang = Number.isFinite(num) ? (num * Math.PI) / 180 : -(a1 - a0);
-      if (ctrl && !Number.isFinite(num)) ang = Math.round(ang / (Math.PI / 36)) * (Math.PI / 36);
+      if (alt && !Number.isFinite(num)) ang = Math.round(ang / (Math.PI / 36)) * (Math.PI / 36);
       const axis = m.axis ? AXES[m.axis].clone() : vp.viewDir().negate();
       if (m.axis) {
         // rotate in the screen direction the user expects
@@ -266,13 +466,24 @@ export function ViewportPanel() {
         t.set(p[0] - c.x, p[1] - c.y, p[2] - c.z).applyQuaternion(q);
         out.set(i, [c.x + t.x, c.y + t.y, c.z + t.z]);
       }
+      if (m.trig) applyToTriggers(m, { q });
       info = `Rotate  ${((ang * 180) / Math.PI).toFixed(2)}°`;
     }
-    if (m.axis) info += `   along ${m.axis.toUpperCase()}`;
+    if (m.trig) info = `${m.trig.length === 1 ? m.trig[0].name.split(' · ')[0] : m.trig.length + ' triggers'}  ·  ` + info;
+    if (m.axis) info += m.trig && m.type === 'scale' ? `   local ${m.axis.toUpperCase()}` : `   along ${m.axis.toUpperCase()}`;
     if (m.numeric) info += `   [${m.numeric}]`;
+    if (target !== null) info += `   → snap ${v.nodes[target].name}`;
+    if (settings().symmetryX) info += '   · symmetry';
+    // restore nodes that were previewed before but are not moved any more (twins)
+    const shown = ops.symmetryPreview(out);
+    const back = new Map<number, [number, number, number]>();
+    for (const i of m.shown.keys()) if (!shown.has(i)) back.set(i, [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z]);
+    if (back.size) vp.previewPositions(back);
     m.current = out;
+    m.shown = shown;
     m.info = info;
-    vp.previewPositions(out);
+    vp.extraLabels = target !== null ? [{ x: tp!.x, y: tp!.y, z: tp!.z, text: '⊙ ' + v.nodes[target].name, color: '#ffd23e' }] : [];
+    vp.previewPositions(shown);
     setModal({ ...m });
   };
 
@@ -280,6 +491,13 @@ export function ViewportPanel() {
     const m = modalRef.current;
     if (!m) return;
     setModal(null);
+    if (vpInstance) vpInstance.extraLabels = [];
+    if (m.trig) {
+      const vals = m.trigVals;
+      layersInstance?.previewTriggers(null);
+      if (vals?.size) ops.setTriggerValues(vals, m.type === 'move' ? 'Move trigger' : m.type === 'scale' ? 'Resize trigger' : 'Rotate trigger');
+      return;
+    }
     let changed = false;
     for (const [i, p] of m.current) {
       const q = m.initial.get(i)!;
@@ -288,17 +506,117 @@ export function ViewportPanel() {
         break;
       }
     }
+    // a rail slide that only put off-rail nodes onto the rail is still a change
     if (!changed) {
       vpInstance?.resetPositions();
       return;
     }
-    if (!ops.moveNodes(m.current, m.type === 'move' ? 'Move nodes' : m.type === 'scale' ? 'Scale nodes' : 'Rotate nodes')) vpInstance?.resetPositions();
+    const label = m.type === 'move' ? 'Move nodes' : m.type === 'scale' ? 'Scale nodes' : m.type === 'rotate' ? 'Rotate nodes' : 'Slide along rail';
+    const r = ops.moveNodesSym(m.current, label, () => vpInstance?.resetPositions());
+    if (r === false) vpInstance?.resetPositions();
   };
 
   const cancelModal = () => {
+    if (modalRef.current?.trig) layersInstance?.previewTriggers(null);
     setModal(null);
+    if (vpInstance) vpInstance.extraLabels = [];
     vpInstance?.resetPositions();
   };
+
+  // ------------------------------------------------------------------ gizmo
+  const gizmoMode = s.gizmo;
+  const gDrag = useRef<Modal | null>(null);
+  useEffect(() => {
+    const g = gizmoInstance;
+    const vp = vpInstance;
+    const v = ws.vehicle;
+    if (!g || !vp) return;
+    if (!v || gizmoMode === 'none' || modal) return g.hide();
+    const si = resolveSel(v, sel);
+    const idx = [...selNodeIdx(v, si)];
+    if (idx.length) {
+      const c = new THREE.Vector3();
+      for (const i of idx) c.add(new THREE.Vector3(vp.pos[i * 3], vp.pos[i * 3 + 1], vp.pos[i * 3 + 2]));
+      return g.show(gizmoMode, c.divideScalar(idx.length), null);
+    }
+    if (si.triggers.size) {
+      const trig = placeTriggers(v, vp.pos).filter((t) => si.triggers.has(t.idx));
+      if (trig.length) {
+        const c = new THREE.Vector3();
+        for (const t of trig) c.add(new THREE.Vector3(...t.center));
+        c.divideScalar(trig.length);
+        let orient: THREE.Quaternion | null = null;
+        if (trig.length === 1 && trig[0].type === 'box') {
+          const f = trig[0].frame;
+          orient = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...f.X), new THREE.Vector3(...f.Y), new THREE.Vector3(...f.Z)));
+        }
+        return g.show(gizmoMode, c, orient);
+      }
+    }
+    g.hide();
+  }, [sel, vehicle, gizmoMode, modal, s.showTriggers]);
+
+  useEffect(() => {
+    const g = gizmoInstance;
+    if (!g) return;
+    g.onStart = () => {
+      const vp = vpInstance!;
+      const v = ws.vehicle;
+      if (!v) return;
+      const si = resolveSel(v, useSel.getState().sel);
+      const idx = [...selNodeIdx(v, si)];
+      const initial = new Map<number, [number, number, number]>();
+      for (const i of idx) initial.set(i, [vp.pos[i * 3], vp.pos[i * 3 + 1], vp.pos[i * 3 + 2]]);
+      const trig = idx.length ? undefined : placeTriggers(v, vp.pos).filter((t) => si.triggers.has(t.idx));
+      gDrag.current = {
+        type: g.tc.mode === 'translate' ? 'move' : g.tc.mode === 'rotate' ? 'rotate' : 'scale', start: { x: 0, y: 0 }, centroid: g.proxy.position.clone(), cScreen: { x: 0, y: 0 },
+        initial, axis: null, numeric: '', current: new Map(initial), shown: new Map(initial), info: '', ref: -1, trig,
+      };
+    };
+    g.onDrag = (dl: GizmoDelta) => {
+      const m = gDrag.current;
+      const vp = vpInstance;
+      const v = ws.vehicle;
+      if (!m || !vp || !v) return;
+      const mode = g.tc.mode;
+      if (m.trig) {
+        applyToTriggers(m, mode === 'translate' ? { d: dl.d } : mode === 'rotate' ? { q: dl.q } : { f: dl.f });
+        return;
+      }
+      const out = new Map<number, [number, number, number]>();
+      const c = dl.pivot, t = new THREE.Vector3();
+      for (const [i, p] of m.initial) {
+        if (mode === 'translate') out.set(i, [p[0] + dl.d.x, p[1] + dl.d.y, p[2] + dl.d.z]);
+        else if (mode === 'rotate') {
+          t.set(p[0] - c.x, p[1] - c.y, p[2] - c.z).applyQuaternion(dl.q);
+          out.set(i, [c.x + t.x, c.y + t.y, c.z + t.z]);
+        } else out.set(i, [c.x + (p[0] - c.x) * dl.f[0], c.y + (p[1] - c.y) * dl.f[1], c.z + (p[2] - c.z) * dl.f[2]]);
+      }
+      const shown = ops.symmetryPreview(out);
+      m.current = out;
+      m.shown = shown;
+      vp.previewPositions(shown);
+    };
+    g.onEnd = () => {
+      const m = gDrag.current;
+      gDrag.current = null;
+      if (!m) return;
+      if (m.trig) {
+        const vals = m.trigVals;
+        layersInstance?.previewTriggers(null);
+        if (vals?.size) ops.setTriggerValues(vals, 'Transform trigger');
+        return;
+      }
+      let changed = false;
+      for (const [i, p] of m.current) {
+        const q = m.initial.get(i)!;
+        if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) > 1e-7) changed = true;
+      }
+      if (!changed) return vpInstance?.resetPositions();
+      const label = g.tc.mode === 'translate' ? 'Move nodes' : g.tc.mode === 'rotate' ? 'Rotate nodes' : 'Scale nodes';
+      if (ops.moveNodesSym(m.current, label, () => vpInstance?.resetPositions()) === false) vpInstance?.resetPositions();
+    };
+  });
 
   // ------------------------------------------------------------------ naming
   const openNameInput = (nodeIdx: number) => {
@@ -379,6 +697,7 @@ export function ViewportPanel() {
       else if (e.button === 2) cancelModal();
       return;
     }
+    if (e.button === 0 && gizmoInstance?.hot) return;
     if (e.button !== 0) {
       down.current = { x: p.x, y: p.y, button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, moved: false };
       return;
@@ -391,6 +710,11 @@ export function ViewportPanel() {
     const p = local(e);
     mouse.current = { x: p.x, y: p.y, inside: true };
     (window as any).__ctrlDown = e.ctrlKey;
+    (window as any).__altDown = e.altKey;
+    if (gizmoInstance?.dragging) {
+      gizmoInstance.setSnap(e.altKey, settings().snapGrid);
+      return;
+    }
     if (modalRef.current) {
       updateModal(modalRef.current);
       return;
@@ -542,9 +866,27 @@ export function ViewportPanel() {
         e.preventDefault();
         e.stopPropagation();
         const k = e.key.toLowerCase();
-        if (k === 'escape') cancelModal();
+        if (e.key === 'Control' || e.key === 'Alt') {
+          (window as any).__ctrlDown = e.ctrlKey;
+          (window as any).__altDown = e.altKey;
+          updateModal(m);
+        } else if (k === 'escape') cancelModal();
         else if (k === 'enter') confirmModal();
-        else if (k === 'x' || k === 'y' || k === 'z') {
+        else if (k === 'g' && !e.ctrlKey && !e.shiftKey && !m.trig && (m.type === 'move' || m.type === 'railSlide')) {
+          // G again: slide along the rail (Blender's edge slide); G once more goes back to a free move
+          if (m.type === 'move') {
+            setModal(null);
+            modalRef.current = null;
+            startRailSlide();
+          } else {
+            vpInstance?.resetPositions();
+            setModal(null);
+            modalRef.current = null;
+            startModal('move');
+          }
+        } else if (m.type === 'railSlide' && (k === 'x' || k === 'y' || k === 'z')) {
+          // no axis constraint on a rail
+        } else if (k === 'x' || k === 'y' || k === 'z') {
           m.axis = m.axis === k ? null : (k as 'x' | 'y' | 'z');
           updateModal(m);
         } else if (/^[0-9.]$/.test(e.key) || (e.key === '-' && m.numeric === '')) {
@@ -578,6 +920,8 @@ export function ViewportPanel() {
         return run(() => setSel(emptySel()));
       }
       if (matches('add.menu', e)) return run(() => openAddMenu(mouse.current.x, mouse.current.y));
+      if (matches('edit.symmetry', e)) return run(() => toggleSymmetry());
+      if (matches('edit.snapRail', e)) return run(() => ops.snapToRails(selectionNodeIdx()));
       if (matches('transform.grab', e)) return run(() => startModal('move'));
       if (matches('transform.scale', e)) return run(() => startModal('scale'));
       if (matches('transform.rotate', e)) return run(() => startModal('rotate'));
@@ -665,13 +1009,26 @@ export function ViewportPanel() {
       });
     };
     window.addEventListener('keydown', onKey, true);
-    const onKeyUp = (e: KeyboardEvent) => ((window as any).__ctrlDown = e.ctrlKey);
+    const onKeyUp = (e: KeyboardEvent) => {
+      (window as any).__ctrlDown = e.ctrlKey;
+      (window as any).__altDown = e.altKey;
+      if (modalRef.current && (e.key === 'Control' || e.key === 'Alt')) {
+        e.preventDefault();
+        updateModal(modalRef.current);
+      }
+    };
     window.addEventListener('keyup', onKeyUp, true);
     return () => {
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
   });
+
+  const toggleSymmetry = () => {
+    const on = !settings().symmetryX;
+    useSettings.getState().set({ symmetryX: on });
+    toast('info', on ? 'X symmetry on: moves also apply to mirror twins' : 'X symmetry off');
+  };
 
   const toggleIsolate = () => {
     const v = ws.vehicle;
@@ -722,6 +1079,11 @@ export function ViewportPanel() {
       {icon}
     </button>
   );
+  const gizmoBtn = (gm: 'translate' | 'rotate' | 'scale', icon: React.ReactNode, tip: string) => (
+    <button className={'icon-btn' + (s.gizmo === gm ? ' active' : '')} data-tip={tip} data-tip-pos="right" onClick={() => set({ gizmo: s.gizmo === gm ? 'none' : gm })} aria-label={tip}>
+      {icon}
+    </button>
+  );
   const modeBtn = (m: PickMode, label: string, tip: string) => (
     <button className={'seg' + (mode === m ? ' active' : '')} onClick={() => useSel.setState({ mode: m })} data-tip={tip}>
       {label}
@@ -757,6 +1119,10 @@ export function ViewportPanel() {
         {toolBtn('beam', <Spline size={16} />, 'Beam chain (B)')}
         {toolBtn('tri', <Triangle size={16} />, 'Collision triangles (T)')}
         {toolBtn('name', <Tag size={16} />, 'Quick naming (E)')}
+        <div className="sep-h" />
+        {gizmoBtn('translate', <Move3d size={16} />, 'Move gizmo\nDrag the arrows/planes · Alt: increments')}
+        {gizmoBtn('rotate', <Rotate3d size={16} />, 'Rotate gizmo')}
+        {gizmoBtn('scale', <Scale3d size={16} />, 'Scale / resize gizmo\n(trigger boxes resize along their own axes)')}
       </div>
 
       <ScopeBar />
@@ -777,7 +1143,12 @@ export function ViewportPanel() {
         {toggle('showProps', <Lightbulb size={14} />, 'Props & lights')}
         {toggle('showTriggers', <Cuboid size={14} />, 'Triggers')}
         {toggle('showOccupants', <Armchair size={14} />, 'Occupants (0.40)')}
+        {toggle('showRails', <Route size={14} />, 'Rails & slidenodes')}
         {toggle('xray', <Ghost size={14} />, 'X-ray: nodes & beams through meshes (Alt+Z)')}
+        <div className="sep-v" />
+        <button className={'icon-btn small' + (s.symmetryX ? ' active sym-on' : '')} data-tip={'X symmetry (Shift+X)\nMoving a node also moves its mirror twin'} onClick={toggleSymmetry} aria-label="Symmetry">
+          <FlipHorizontal2 size={14} />
+        </button>
         <button className={'icon-btn small' + (s.showLabels === 'all' ? ' active' : '')} data-tip="Node labels (Shift+L)" onClick={() => set({ showLabels: s.showLabels === 'all' ? 'hover' : 'all' })} aria-label="Labels">
           <Tags size={14} />
         </button>
@@ -812,7 +1183,7 @@ export function ViewportPanel() {
 
       {pickReq && <div className="vp-hint modal">Click a node for: <b>{pickReq.label}</b> <span className="dim">· Esc cancels</span></div>}
       {!pickReq && toolHint[tool] && !modal && <div className="vp-hint">{toolHint[tool]}</div>}
-      {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">· X/Y/Z axis · type a value · Ctrl snap · Enter/LMB confirm · Esc/RMB cancel</span></div>}
+      {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">{modal.type === 'railSlide' ? '· type metres · Ctrl snap to node · Alt increments · G free move' : `· X/Y/Z axis · type a value · Ctrl snap to node · Alt increments${modal.type === 'move' ? ' · G again: slide on rail' : ''}`} · Enter/LMB confirm · Esc/RMB cancel</span></div>}
       {box && <div className="box-select" style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }} />}
 
       {nameInput && (
@@ -863,6 +1234,9 @@ export function ViewportPanel() {
           actions={{
             rename: (i) => openNameInput(i),
             grab: () => startModal('move'),
+            rotate: () => startModal('rotate'),
+            scale: () => startModal('scale'),
+            railSlide: startRailSlide,
             isolate: toggleIsolate,
             linked: selectLinked,
             add: () => openAddMenu(ctxMenu.x, ctxMenu.y),
@@ -990,13 +1364,14 @@ function AddMenu(props: { x: number; y: number; world: [number, number, number];
       {item('Occupant seat', 'from 6 selected nodes', () => requestTool('occupant', props.world, sel))}
       {item('Pressure wheel here', 'axle nodes + wheel', () => requestTool('wheel', props.world))}
       {item('Nodes between 2 nodes', 'subdivide', () => requestTool('subdivide'), sel.length === 2)}
+      {item('Rail / slidenodes', sel.length >= 2 ? 'from selection' : 'rails tool', () => requestTool('rail'))}
       <div className="ctx-sep" />
       {item('Import from Blender / OBJ…', '', () => useUi.setState({ dialog: { kind: 'import' } }))}
     </div>
   );
 }
 
-function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: () => void; actions: { rename: (i: number) => void; grab: () => void; isolate: () => void; linked: () => void; add: () => void } }) {
+function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: () => void; actions: { rename: (i: number) => void; grab: () => void; rotate: () => void; scale: () => void; railSlide: () => void; isolate: () => void; linked: () => void; add: () => void } }) {
   const v = ws.vehicle;
   const items: Array<[string, () => void, string?] | null> = [];
   const hit = props.hit;
@@ -1008,6 +1383,16 @@ function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: ()
   if (row) items.push([`Set "${row.src.part}" as target part`, () => ws.setTarget(row.src.file, row.src.part)]);
   items.push(null);
   items.push(['Move', props.actions.grab, 'G']);
+  if (hit?.kind === 'trigger') {
+    items.push(['Rotate', props.actions.rotate, 'R']);
+    items.push(['Resize', props.actions.scale, 'S']);
+  }
+  const vp = getViewport();
+  const selIdx = v ? [...useSel.getState().sel.nodes].map((n) => v.nodeIndex.get(n)).filter((x): x is number => x !== undefined) : [];
+  if (vp && selIdx.some((i) => vp.slides.some((sl) => sl.node === i))) {
+    items.push(['Slide along rail', props.actions.railSlide, 'G G']);
+    items.push(['Snap onto rail', () => ops.snapToRails(selIdx), 'Shift+R']);
+  }
   items.push(['Mirror to other side', () => ops.mirrorSelection(), 'Ctrl+M']);
   items.push(['Select linked', props.actions.linked, 'L']);
   items.push(['Show only this part', props.actions.isolate, 'Shift+I']);

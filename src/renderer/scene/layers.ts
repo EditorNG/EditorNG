@@ -175,6 +175,7 @@ export class Layers {
   /** Rebuilds everything for a new assembly. Meshes load asynchronously. */
   async setVehicle(v: Vehicle | null) {
     this.vehicle = v;
+    this.trigOverride = null;
     const token = ++this.loadToken;
     this.rebuildTriggers();
     if (!v) {
@@ -303,12 +304,30 @@ export class Layers {
     this.vp.requestRender();
   }
 
-  rebuildTriggers() {
-    this.rebuildBulbs();
+  /** Live preview of edited trigger rows (G/R/S on triggers); null restores. */
+  previewTriggers(over: Map<number, Record<string, any>> | null) {
+    this.trigOverride = over;
+    this.rebuildTriggers(false);
+    if (over) {
+      this.trigObjs.forEach((o, i) => {
+        if (!over.has(this.shapes[i]?.idx)) return;
+        o.traverse((c) => {
+          const m = (c as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+          if (m && 'opacity' in m && c instanceof THREE.Mesh) m.opacity = 0.6;
+        });
+      });
+    }
+  }
+  private trigOverride: Map<number, Record<string, any>> | null = null;
+
+  rebuildTriggers(withBulbs = true) {
+    if (withBulbs) this.rebuildBulbs();
     this.clear(this.trigGroup, this.trigObjs);
-    const v = this.vehicle;
+    let v = this.vehicle;
     this.vp.triggerLabels = [];
     if (!v) return;
+    const ov = this.trigOverride;
+    if (ov) v = { ...v, triggers: v.triggers.map((r, i) => (ov.has(i) ? { ...r, v: { ...r.v, ...ov.get(i) } } : r)) };
     this.shapes = triggerShapes(v, this.vp.pos);
     this.vp.triggerLabels = this.s.showTriggers
       ? this.shapes.filter((sh) => this.inScope(sh.row.part.def.name) && sh.name).map((sh) => ({ x: sh.center.x, y: sh.center.y, z: sh.center.z, text: sh.name, color: '#ff9a3c' }))

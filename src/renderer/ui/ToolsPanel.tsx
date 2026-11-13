@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Crosshair, MousePointerClick, Box, Lightbulb, Armchair, CircleDot, Zap, FileUp, Link2, Target, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Crosshair, MousePointerClick, Box, Lightbulb, Armchair, CircleDot, Zap, FileUp, Link2, Target, Sparkles, Route } from 'lucide-react';
 import { ws, useWs } from '../project/workspace';
 import { useUi, requestPick } from '../state/ui';
 import { useSel, resolveSel, selNodeIdx } from '../state/selection';
 import { settings } from '../state/settings';
 import { toast } from '../state/toast';
-import { targetPart, insertRawRows, addNodes, EditSet } from '../project/ops';
+import { targetPart, insertRawRows, addNodes, EditSet, addRail, addSlidenodes, snapToRails, selectNodesByName } from '../project/ops';
+import { offRailSlides } from '@core/jbeam/rails';
+import { getViewport, startRailSlide } from '../scene/ViewportPanel';
 import { COMMON_ACTIONS, GENERIC_ACTIONS, BULB_TYPES } from '@core/jbeam/docs';
 import {
   triggerRow, triggerLinkRows, needsActionsEnabled, bulbSlotRow, BULB_ROT_PRESETS, occupantSlotRow, rigidifierPosition, rigidifierBeams, wheelNodes, wheelRow,
@@ -505,6 +507,108 @@ function NodeTool() {
   );
 }
 
+
+// ------------------------------------------------------------------------------------------
+
+/** Orders nodes along a path: start at the end farthest from the centre, then nearest neighbour. */
+function orderAlongPath(names: string[]): string[] {
+  const pts = names.map((n) => ({ n, p: nodePos(n)! })).filter((o) => o.p);
+  if (pts.length < 3) return pts.map((o) => o.n);
+  const c = pts.reduce((a, o) => ({ x: a.x + o.p.x / pts.length, y: a.y + o.p.y / pts.length, z: a.z + o.p.z / pts.length }), { x: 0, y: 0, z: 0 });
+  const d = (a: V3, b: V3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  let cur = pts.reduce((a, o) => (d(o.p, c) > d(a.p, c) ? o : a));
+  const out = [cur];
+  const left = new Set(pts.filter((o) => o !== cur));
+  while (left.size) {
+    let best: typeof cur | null = null;
+    for (const o of left) if (!best || d(o.p, cur.p) < d(best.p, cur.p)) best = o;
+    left.delete(best!);
+    out.push(best!);
+    cur = best!;
+  }
+  return out.map((o) => o.n);
+}
+
+function RailTool() {
+  useSel((x) => x.sel);
+  const vp = getViewport();
+  const v = ws.vehicle;
+  const rails = vp ? [...vp.rails.values()] : [];
+  const slides = vp?.slides ?? [];
+  const [name, setName] = useState('rail_1');
+  const [looped, setLooped] = useState(false);
+  const [capped, setCapped] = useState(true);
+  const [sortPath, setSortPath] = useState(true);
+  const [rail, setRail] = useState('');
+  const [spring, setSpring] = useState(800100);
+  const [snap, setSnap] = useState(true);
+  useToolRequest('rail', () => {});
+  const railName = rail || rails[0]?.name || '';
+  const off = v ? new Map(offRailSlides(v).map((o) => [o.slide.node, o.dist])) : new Map<number, number>();
+  const selectNodes = (idx: number[]) => v && selectNodesByName(idx.map((i) => v.nodes[i].name));
+  return (
+    <>
+      <div className="tf-sub">New rail</div>
+      <TextField label="name" value={name} onChange={setName} mono />
+      <label className="tf-row"><span className="tf-label">looped</span><button className={'switch' + (looped ? ' on' : '')} onClick={() => setLooped(!looped)} aria-label="Looped" /></label>
+      <label className="tf-row"><span className="tf-label">capped</span><button className={'switch' + (capped ? ' on' : '')} onClick={() => setCapped(!capped)} aria-label="Capped" /></label>
+      <label className="tf-row"><span className="tf-label">order by path</span><button className={'switch' + (sortPath ? ' on' : '')} onClick={() => setSortPath(!sortPath)} aria-label="Order along path" /></label>
+      <div className="tf-actions">
+        <button className="btn small primary" onClick={() => {
+          const n = selectedNames();
+          if (n.length < 2) return toast('info', 'Select 2 or more nodes (in rail order, or turn on "order by path")');
+          if (addRail(name, sortPath ? orderAlongPath(n) : n, looped, capped)) {
+            setRail(name.trim());
+            setName(name.replace(/\d+$/, (d) => String(+d + 1)));
+          }
+        }}><Route size={12} /> Rail from selection</button>
+      </div>
+      <div className="tf-sub">Slidenodes</div>
+      <label className="tf-row">
+        <span className="tf-label">rail</span>
+        <select className="select small mono grow" value={railName} onChange={(e) => setRail(e.target.value)} onKeyDown={(e) => e.stopPropagation()}>
+          {rails.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+          {!rails.length && <option value="">no rails yet</option>}
+        </select>
+      </label>
+      <label className="tf-row"><span className="tf-label">spring</span><input className="input small mono tf-num grow" type="number" value={spring} onChange={(e) => setSpring(+e.target.value || 0)} onKeyDown={(e) => e.stopPropagation()} /></label>
+      <label className="tf-row"><span className="tf-label">snap onto rail</span><button className={'switch' + (snap ? ' on' : '')} onClick={() => setSnap(!snap)} aria-label="Snap onto rail" /></label>
+      <div className="tf-actions">
+        <button className="btn small primary" disabled={!railName} onClick={() => {
+          const r = vp?.rails.get(railName);
+          const own = new Set(r ? r.nodes.map((i) => v!.nodes[i].name) : []);
+          const n = selectedNames().filter((x) => !own.has(x));
+          if (!n.length) return toast('info', 'Select the nodes that should slide (not the rail nodes)');
+          addSlidenodes(n, railName, snap, spring);
+        }}>Make selected slidenodes</button>
+        <button className="btn small" onClick={() => { if (v) snapToRails([...selNodeIdx(v, resolveSel(v, useSel.getState().sel))]); }} data-tip="Shift+R">Snap onto rail</button>
+        <button className="btn small" onClick={() => startRailSlide()} data-tip="G G in the viewport">Slide</button>
+      </div>
+      <div className="tf-note">Move a slidenode along its rail with <b>G G</b> (like Blender's edge slide): drag, type metres, Ctrl snaps to a pointed node, Alt uses increments.</div>
+      {rails.length > 0 && (
+        <>
+          <div className="tf-sub">Rails in vehicle ({rails.length})</div>
+          <div className="rail-list">
+            {rails.map((r) => {
+              const sl = slides.filter((s) => s.rail === r.name);
+              const bad = sl.filter((s) => off.has(s.node));
+              return (
+                <div key={r.name} className="rail-item">
+                  <button className="rl-btn mono ellipsis" onClick={() => selectNodes(r.nodes)} data-tip={'Select the rail nodes\n' + r.part.def.name}>{r.name}</button>
+                  <span className="faint small-text">{r.nodes.length}n{r.looped ? ' ⟲' : ''}</span>
+                  <button className="rl-btn small-text" disabled={!sl.length} onClick={() => selectNodes(sl.map((s) => s.node))} data-tip="Select its slidenodes">{sl.length} slide</button>
+                  {bad.length > 0 && <span className="warn-text small-text" data-tip={bad.map((s) => `${v!.nodes[s.node].name}: ${(off.get(s.node)! * 1000).toFixed(1)} mm off`).join('\n')}>{bad.length} off</span>}
+                  {r.missing.length > 0 && <span className="warn-text small-text" data-tip={'Unknown nodes: ' + r.missing.join(', ')}>missing</span>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 // ------------------------------------------------------------------------------------------
 
 export function ToolsPanel() {
@@ -525,6 +629,7 @@ export function ToolsPanel() {
         <Section id="bulb" icon={<Lightbulb size={14} />} title="Light bulb (slots2)"><BulbTool /></Section>
         <Section id="occupant" icon={<Armchair size={14} />} title="Occupant seat (0.40)"><OccupantTool /></Section>
         <Section id="wheel" icon={<CircleDot size={14} />} title="Pressure wheels"><WheelTool /></Section>
+        <Section id="rail" icon={<Route size={14} />} title="Rails & slidenodes"><RailTool /></Section>
         <Section id="subdivide" icon={<Box size={14} />} title="Subdivide between nodes"><NodeTool /></Section>
       </div>
     </div>

@@ -126,6 +126,11 @@ function Checks() {
   }
   const fixAll = (id: string) => {
     if (!v) return;
+    const snaps = (byCheck.get(id) ?? []).filter((f) => f.fix === 'snapRail').flatMap((f) => f.nodes ?? []);
+    if (snaps.length) {
+      if (ops.snapToRails(snaps)) setTimeout(run, 50);
+      return;
+    }
     const rows = (byCheck.get(id) ?? []).flatMap((f) => fixFinding(v, f));
     const map = new Map<string, ANode[]>();
     for (const r of rows) (map.get(r.file) ?? map.set(r.file, []).get(r.file)!).push(r.node);
@@ -161,7 +166,7 @@ function Checks() {
             <div key={c.id}>
               <div className="group-label">
                 {c.title} <span className="badge">{list.length}</span>
-                {fixable && <button className="btn small ghost" onClick={() => fixAll(c.id)}><Wrench size={12} /> Remove extras</button>}
+                {fixable && <button className="btn small ghost" onClick={() => fixAll(c.id)}><Wrench size={12} /> {c.id === 'rails' ? 'Snap onto rails' : 'Remove extras'}</button>}
               </div>
               {list.slice(0, 500).map((f, k) => (
                 <button key={k} className="problem" onClick={() => v && selectFinding(v, f)}>

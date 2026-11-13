@@ -230,3 +230,118 @@ export function placeTriggers(v: Vehicle, pos: ArrayLike<number>): TriggerPlacem
   });
   return out;
 }
+
+// ------------------------------------------------------------------------------------------
+// editing: world-space placement -> jbeam values
+// ------------------------------------------------------------------------------------------
+
+/** Euler base rotation (degrees) whose box axes best match the wanted axes (numeric Gauss-Newton). */
+export function solveBaseRotation(ref: V3, px: V3, py: V3, want: { X: V3; Y: V3 }, guess: V3): V3 {
+  const resid = (b: V3): number[] | null => {
+    const f = triggerFrame(ref, px, py, b);
+    if (!f) return null;
+    return [...sub(f.X, want.X), ...sub(f.Y, want.Y)];
+  };
+  const err = (r: number[] | null) => (r ? r.reduce((s, x) => s + x * x, 0) : Infinity);
+  const solveFrom = (start: V3): { b: V3; e: number } => {
+    let b: V3 = [...start];
+    let r = resid(b);
+    let e = err(r);
+    let lambda = 1e-3;
+    for (let it = 0; it < 60 && e > 1e-14; it++) {
+      const h = 1e-4;
+      const J: number[][] = [];
+      for (let k = 0; k < 3; k++) {
+        const bb: V3 = [...b];
+        bb[k] += h;
+        const rr = resid(bb)!;
+        J.push(rr.map((x, i) => (x - r![i]) / h));
+      }
+      // (JᵀJ + λI) δ = -Jᵀr
+      const A = [0, 1, 2].map((i) => [0, 1, 2].map((j) => J[i].reduce((s, x, n) => s + x * J[j][n], 0) + (i === j ? lambda : 0)));
+      const g = [0, 1, 2].map((i) => -J[i].reduce((s, x, n) => s + x * r![n], 0));
+      const d = solve3(A, g);
+      if (!d) break;
+      const nb: V3 = [b[0] + d[0], b[1] + d[1], b[2] + d[2]];
+      const nr = resid(nb);
+      const ne = err(nr);
+      if (ne < e) {
+        b = nb;
+        r = nr;
+        e = ne;
+        lambda = Math.max(1e-9, lambda * 0.3);
+      } else lambda *= 10;
+    }
+    return { b, e };
+  };
+  let best = solveFrom(guess);
+  if (best.e > 1e-8) {
+    for (const s of [[0, 0, 0], [90, 0, 0], [-90, 0, 0], [0, 90, 0], [0, -90, 0], [0, 0, 90], [0, 0, -90], [180, 0, 0], [0, 180, 0], [0, 0, 180]] as V3[]) {
+      const r = solveFrom(s);
+      if (r.e < best.e) best = r;
+      if (best.e < 1e-10) break;
+    }
+  }
+  // tidy: snap to clean values when that costs (almost) nothing, then wrap to (-180, 180]
+  for (const step of [1, 0.1, 0.01]) {
+    const c = best.b.map((x) => Math.round(x / step) * step) as V3;
+    const e = err(resid(c));
+    if (e < Math.max(best.e * 4, 3e-8)) {
+      best = { b: c, e };
+      break;
+    }
+  }
+  return best.b.map((a) => {
+    let x = ((a % 360) + 360) % 360;
+    if (x > 180) x -= 360;
+    return Math.abs(x) < 1e-9 ? 0 : x;
+  }) as V3;
+}
+
+function solve3(A: number[][], b: number[]): V3 | null {
+  const det = (m: number[][]) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const D = det(A);
+  if (Math.abs(D) < 1e-18) return null;
+  const col = (k: number) => A.map((row, i) => row.map((x, j) => (j === k ? b[i] : x)));
+  return [det(col(0)) / D, det(col(1)) / D, det(col(2)) / D];
+}
+
+export interface TriggerTarget {
+  /** new box corner / sphere centre (world) */
+  origin: V3;
+  /** new box axes (world); omit to keep the rotation */
+  axes?: { X: V3; Y: V3; Z: V3 };
+  /** new size (box) or radius (sphere, size[0]) */
+  size?: V3;
+}
+
+/**
+ * New jbeam values for a trigger placed at `target`: baseTranslation (node frame) or
+ * baseTranslationGlobal (node transform inverted by the caller via `toRaw`), baseRotation and size.
+ */
+export function triggerValues(v: Vehicle, pos: ArrayLike<number>, t: TriggerPlacement, target: TriggerTarget, toRaw: (p: V3) => V3): Record<string, any> {
+  const r = t.row.v;
+  const P = (n: any): V3 | null => {
+    const i = v.nodeIndex.get(String(n));
+    return i === undefined ? null : [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]];
+  };
+  const ref = P(r['idRef:'])!, px = P(r['idX:'])!, py = P(r['idY:'])!;
+  const out: Record<string, any> = {};
+  const cur = readXYZ(r.baseRotation);
+  let rot = cur;
+  if (target.axes && t.type === 'box') {
+    rot = solveBaseRotation(ref, px, py, target.axes, cur);
+    out.baseRotation = { x: rot[0], y: rot[1], z: rot[2] };
+  }
+  const frame = triggerFrame(ref, px, py, rot)!;
+  const gKey = ['baseTranslationGlobal', 'baseTranslationGlobalElastic', 'baseTranslationGlobalRigid'].find((k) => r[k] && typeof r[k] === 'object');
+  if (gKey) {
+    const g = toRaw(target.origin);
+    out[gKey] = { x: g[0], y: g[1], z: g[2] };
+  } else {
+    const d = sub(target.origin, ref);
+    out.baseTranslation = { x: dot(d, frame.nx), y: dot(d, frame.camUp), z: dot(d, frame.nz) };
+  }
+  if (target.size) out.size = t.type === 'sphere' ? target.size[0] : { x: target.size[0], y: target.size[1], z: target.size[2] };
+  return out;
+}

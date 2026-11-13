@@ -80,6 +80,7 @@ export const DEFAULT_HEADERS: Record<string, string[]> = {
   actionsEnabled: ['id'],
   slots2: ['name', 'allowTypes', 'denyTypes', 'default', 'description'],
   refNodes: ['ref:', 'back:', 'left:', 'up:'],
+  slidenodes: ['id:', 'railName', 'attached', 'fixToRail', 'tolerance', 'spring', 'strength', 'capStrength'],
   pressureWheels: ['name', 'hubGroup', 'group', 'node1:', 'node2:', 'nodeS', 'nodeArm:', 'wheelDir'],
   cameraExternal: ['distance', 'distanceMin', 'offset', 'fov'],
 };

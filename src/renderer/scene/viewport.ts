@@ -12,6 +12,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { collectRails, collectSlides, closestOnRail, pointAtS, railLength, railPoints, type VRail, type VSlide } from '@core/jbeam/rails';
 import type { Vehicle } from '@core/jbeam/types';
 import type { Settings } from '../state/settings';
 import type { Hover, PickMode, SelIdx } from '../state/selection';
@@ -115,6 +116,14 @@ export class Viewport {
   private nodeMat: THREE.ShaderMaterial;
   private triNormals: THREE.LineSegments | null = null;
   private wheelLines: THREE.LineSegments | null = null;
+  private railLines: LineSegments2 | null = null;
+  private railMat: LineMaterial;
+  private slideLines: THREE.LineSegments | null = null;
+  /** rails & slidenodes of the current vehicle (rebuilt with it) */
+  rails: Map<string, VRail> = new Map();
+  slides: VSlide[] = [];
+  /** rail names drawn at their midpoint */
+  railLabels: Array<{ x: number; y: number; z: number; text: string; color?: string }> = [];
   private grid: THREE.Group;
   private axes: THREE.Group;
   private ground: THREE.Mesh;
@@ -200,6 +209,7 @@ export class Viewport {
       transparent: true,
       depthWrite: true,
     });
+    this.railMat = new LineMaterial({ color: 0xd04dff, linewidth: 3.5, worldUnits: false, transparent: true, opacity: 0.95, depthTest: false });
     this.beamMat = new LineMaterial({ linewidth: s.beamWidth, vertexColors: true, worldUnits: false, transparent: true, depthWrite: true });
     this.triMat = new THREE.ShaderMaterial({
       vertexShader: TRI_VS,
@@ -327,6 +337,8 @@ export class Viewport {
     if (this.triNormals) this.triNormals.visible = s.showTris && s.showTriNormals;
     if (this.wheelLines) this.wheelLines.visible = s.showWheels;
     this.meshRoot.visible = s.showMeshes;
+    this.railMat.depthTest = false;
+    if (prev && prev.showRails !== s.showRails) this.buildRails();
     if (prev && (prev.showTriNormals !== s.showTriNormals) && this.vehicle) this.buildTriNormals();
     this.resize();
     this.dirtyColors = true;
@@ -350,6 +362,7 @@ export class Viewport {
     this.persp.updateProjectionMatrix();
     this.updateOrthoFrustum();
     this.beamMat.resolution.set(w, h);
+    this.railMat.resolution.set(w, h);
     this.nodeMat.uniforms.uPx.value = dpr;
     this.nodeMat.uniforms.uHeight.value = h * dpr;
     this.projCacheValid = false;
@@ -492,6 +505,8 @@ export class Viewport {
     this.nodePoints.frustumCulled = false;
     this.nodePoints.visible = this.s.showNodes;
     this.root.add(this.nodePoints);
+    this.rails = collectRails(v);
+    this.slides = collectSlides(v);
     this.computeScope();
     this.buildBeamTriGeometry();
     this.updateGeometry();
@@ -640,8 +655,61 @@ export class Viewport {
       attr.needsUpdate = true;
       this.triMesh.geometry.computeBoundingSphere();
     }
+    this.buildRails();
     this.projCacheValid = false;
     this.requestRender();
+  }
+
+  /** Rails as fat magenta polylines (scope-aware) plus slidenode → rail offset lines. */
+  buildRails() {
+    for (const o of [this.railLines, this.slideLines]) {
+      if (!o) continue;
+      this.overlayRoot.remove(o);
+      o.geometry.dispose();
+    }
+    this.railLines = null;
+    this.slideLines = null;
+    this.railLabels = [];
+    const v = this.vehicle;
+    if (!v || !this.s.showRails || !this.rails.size) return;
+    const p = this.pos;
+    const vis = this.nodeVis;
+    const segs: number[] = [];
+    const shown = new Set<string>();
+    for (const r of this.rails.values()) {
+      const inScope = !this.scopeParts || this.scopeParts.has(r.part.def.name) || r.nodes.some((i) => vis[i] === 2);
+      if (!inScope || r.nodes.length < 2) continue;
+      shown.add(r.name);
+      const pts = railPoints(r, p);
+      for (let i = 0; i + 1 < pts.length; i++) segs.push(...pts[i], ...pts[i + 1]);
+      if (r.looped && pts.length > 2) segs.push(...pts[pts.length - 1], ...pts[0]);
+      const m = pointAtS(pts, r.looped, railLength(pts, r.looped) / 2);
+      this.railLabels.push({ x: m[0], y: m[1], z: m[2], text: r.name, color: '#d04dff' });
+    }
+    if (segs.length) {
+      const g = new LineSegmentsGeometry();
+      g.setPositions(new Float32Array(segs));
+      this.railLines = new LineSegments2(g, this.railMat);
+      this.railLines.frustumCulled = false;
+      this.railLines.renderOrder = 5;
+      this.overlayRoot.add(this.railLines);
+    }
+    const off: number[] = [];
+    for (const sl of this.slides) {
+      const r = this.rails.get(sl.rail);
+      if (!r || !shown.has(r.name)) continue;
+      const q: [number, number, number] = [p[sl.node * 3], p[sl.node * 3 + 1], p[sl.node * 3 + 2]];
+      const c = closestOnRail(railPoints(r, p), r.looped, q);
+      if (c && c.dist > 0.0005) off.push(...q, ...c.point);
+    }
+    if (off.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(off), 3));
+      this.slideLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xffa040, depthTest: false, transparent: true }));
+      this.slideLines.frustumCulled = false;
+      this.slideLines.renderOrder = 6;
+      this.overlayRoot.add(this.slideLines);
+    }
   }
 
   /** Live preview of moved nodes (during a drag), without re-assembly. */
@@ -1021,6 +1089,13 @@ export class Viewport {
       const p = this.project(l.x, l.y, l.z);
       if (p.z > 1) continue;
       items.push({ x: p.x, y: p.y, text: l.text, color: l.color ?? s.colorSelect, strong: true });
+    }
+    if (s.showRails && s.showLabels !== 'off') {
+      for (const l of this.railLabels) {
+        const p = this.project(l.x, l.y, l.z);
+        if (p.z > 1) continue;
+        items.push({ x: p.x, y: p.y, text: l.text, color: l.color ?? s.colorSelect, strong: false });
+      }
     }
     if (s.showTriggers && s.showLabels !== 'off') {
       for (const l of this.triggerLabels) {

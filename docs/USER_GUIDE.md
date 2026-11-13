@@ -84,7 +84,10 @@ part you last clicked in 3D or the part your code cursor is in; pin it with the 
 
 | Key | Action |
 |---|---|
-| **G** / **S** / **R** | Move / scale / rotate selected nodes (Blender style). Then **X/Y/Z** to lock an axis, type a value (e.g. `G Z 0.05`, `S X -1` mirrors), **Ctrl** snaps, **Enter/click** confirms, **Esc/right-click** cancels. |
+| **G** / **S** / **R** | Move / scale / rotate selected nodes **or triggers** (Blender style). Then **X/Y/Z** to lock an axis, type a value (e.g. `G Z 0.05`, `S X -1` mirrors), hold **Ctrl** to snap onto the node under the cursor (only along the locked axis if one is set), hold **Alt** for grid/5°/0.1 increments, **Enter/click** confirms, **Esc/right-click** cancels. Triggers rotate about their centre; `S X` on a trigger box resizes it along its own X axis. |
+| **G G** | Slide the selected slidenodes along their rail (like Blender's edge slide). Drag, or type a distance in metres; Ctrl snaps to a pointed node, G again goes back to a free move. Off-rail slidenodes land on the rail. |
+| **Shift+R** | Snap the selected slidenodes onto the closest point of their rail. |
+| **Shift+X** | X symmetry on/off (button next to the view toggles). While on, moving/rotating/scaling a node also moves its mirror twin (by `l`/`r` name, else by mirrored position); centre-line nodes stay on x = 0. When the twin lives in another part (e.g. `fender_R` → `fender_L`) a popup asks before moving it. |
 | **N** | Add-node tool: click to place on the view plane; a name box appears with the next free name. With "name mirror twin" on, the other side is created too. |
 | **B** | Beam chain: click nodes one after another. Shift+click starts a new chain. |
 | **T** | Triangle tool: click 3 nodes; it keeps going as a strip with consistent winding. |
@@ -96,6 +99,8 @@ part you last clicked in 3D or the part your code cursor is in; pin it with the 
 | **Shift+D** | Duplicate selected nodes (and the beams between them), then move. |
 | **X** / Delete | Delete the selection (nodes also remove their beams and triangles — Settings). |
 | **Ctrl+Z / Ctrl+Y** | Undo / redo. Works across files; in the code editor it is the editor's own undo. |
+
+**Gizmo**: the three buttons under the tools on the left switch on a move / rotate / scale gizmo for the selection (nodes or triggers; a single trigger box gets its own axes). Drag an arrow, a plane or a ring; hold Alt for increments.
 
 The **inspector** (top-right card) shows the selection and lets you type exact positions (arrow
 keys nudge 1 mm, Shift 1 cm). For nodes inside a part with `nodeOffset`/`nodeMove`/`nodeRotate`
@@ -153,6 +158,11 @@ already exist are skipped — so you can keep modelling in Blender and re-send.
 - **Pressure wheels** — axle node pair + `pressureWheels` row (vanilla node order and `wheelDir`),
   mirrored pair optional. Tyre values are placeholders: copy real ones from a vanilla tyre.
 - **Subdivide** — evenly spaced nodes between two selected nodes (and mirrored).
+- **Rails & slidenodes** — create a rail from the selected nodes (in click order, or ordered along the
+  path), looped/capped; turn selected nodes into slidenodes on a rail (vanilla defaults, optional snap
+  onto the rail); list of all rails with their slidenodes and how far off they are. Rails draw as
+  magenta lines, an orange line shows how far a slidenode is off its rail. The inspector of a slidenode
+  shows its rail, its position along it (editable) and Snap / Slide buttons.
 
 Select elements first and press **From selection** to fill node fields and positions; the ⌖ button
 next to a node field lets you click the node in 3D.
@@ -165,7 +175,8 @@ rotation and size with live feedback in 3D.
 - **Problems** — everything the loader found, click to jump.
 - **Checks** — duplicate beams (with one-click removal), zero/short beams, nodes without beams,
   under-connected nodes, coincident nodes, duplicate/degenerate triangles, left/right asymmetry,
-  side suffix on the wrong side, flexbody groups without nodes, extreme node weights. Click a
+  side suffix on the wrong side, flexbody groups without nodes, extreme node weights, rails & slidenodes
+  (unknown rail nodes, missing rails, slidenodes off their rail — one-click snap). Click a
   finding to select it in 3D and in code.
 - **Weight** — total node mass, centre of gravity, front/rear and left/right split, mass per part.
 - **Tuning** — every tuning variable as a slider; the 3D view updates live. Save the result as a

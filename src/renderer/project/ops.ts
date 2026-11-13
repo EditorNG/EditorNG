@@ -3,12 +3,14 @@
  */
 import { ws, useWs, type Doc } from './workspace';
 import {
-  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, type TextEdit,
+  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, type TextEdit,
 } from '@core/jbeam/edit';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import type { ANode, AArr } from '@core/sjson';
 import type { ActivePart, PartDef, Row, Vehicle } from '@core/jbeam/types';
 import { settings } from '../state/settings';
+import { useUi } from '../state/ui';
+import { collectRails, collectSlides, closestOnRail, railPoints } from '@core/jbeam/rails';
 import { toast } from '../state/toast';
 import { useSel, emptySel, beamKey, triKey, cloneSel, resolveSel, setSel } from '../state/selection';
 
@@ -554,3 +556,193 @@ export function selectNodesByName(names: string[]) {
 }
 
 export { EditSet };
+
+// ------------------------------------------------------------------------------------------
+// symmetry (X mirror) and rails
+// ------------------------------------------------------------------------------------------
+
+function symTol(): number {
+  return Math.max(settings().mirrorTolerance, 0.002);
+}
+
+/** Mirror twin of a node: by l/r name when that node exists, else by mirrored position. Centre nodes are their own twin. */
+export function twinOf(v: Vehicle, i: number): number | null {
+  const n = v.nodes[i];
+  const tol = symTol();
+  if (Math.abs(n.x) <= tol) return i;
+  const mn = mirrorName(n.name);
+  if (mn) {
+    const j = v.nodeIndex.get(mn);
+    if (j !== undefined) return j;
+  }
+  let best = -1, bd = Math.max(tol * 3, 0.005);
+  v.nodes.forEach((m, j) => {
+    if (j === i) return;
+    const d = Math.hypot(m.x + n.x, m.y - n.y, m.z - n.z);
+    if (d < bd) {
+      bd = d;
+      best = j;
+    }
+  });
+  return best >= 0 ? best : null;
+}
+
+export interface SymmetryResult {
+  /** moved nodes + their mirrored twins */
+  all: Map<number, [number, number, number]>;
+  /** twins that live in another part than the node that moved them */
+  cross: Array<{ idx: number; name: string; part: string; from: string; fromPart: string }>;
+}
+
+/** Adds mirrored twins (−x, y, z) to a set of node moves. Centre-line nodes stay on the centre line. */
+export function withSymmetry(v: Vehicle, changes: Map<number, [number, number, number]>): SymmetryResult {
+  const all = new Map(changes);
+  const cross: SymmetryResult['cross'] = [];
+  for (const [i, p] of changes) {
+    const t = twinOf(v, i);
+    if (t === null) continue;
+    if (t === i) {
+      all.set(i, [0, p[1], p[2]]);
+      continue;
+    }
+    if (changes.has(t)) continue;
+    all.set(t, [-p[0], p[1], p[2]]);
+    const a = v.nodes[i].row.part.def.name, b = v.nodes[t].row.part.def.name;
+    if (a !== b) cross.push({ idx: t, name: v.nodes[t].name, part: b, from: v.nodes[i].name, fromPart: a });
+  }
+  return { all, cross };
+}
+
+/** session answer to "also move twins in other parts?" */
+let crossPolicy: 'ask' | 'both' | 'own' = 'ask';
+export function setSymmetryCrossPolicy(p: 'ask' | 'both' | 'own') {
+  crossPolicy = p;
+}
+
+/** Twin moves for previews (cross-part twins included unless the session said "only this side"). */
+export function symmetryPreview(changes: Map<number, [number, number, number]>): Map<number, [number, number, number]> {
+  const v = ws.vehicle;
+  if (!v || !settings().symmetryX) return changes;
+  const r = withSymmetry(v, changes);
+  if (crossPolicy === 'own') for (const c of r.cross) r.all.delete(c.idx);
+  return r.all;
+}
+
+/**
+ * Moves nodes, adding mirrored twins when symmetry is on. Twins in other parts ask first;
+ * returns 'pending' while that dialog is open (the dialog commits or cancels).
+ */
+export function moveNodesSym(changes: Map<number, [number, number, number]>, label = 'Move nodes', onCancel?: () => void): boolean | 'pending' {
+  const v = ws.vehicle;
+  if (!v) return false;
+  if (!settings().symmetryX) return moveNodes(changes, label);
+  const r = withSymmetry(v, changes);
+  if (r.cross.length && crossPolicy === 'ask') {
+    useUi.setState({ dialog: { kind: 'symmetryCross', data: { result: r, own: changes, label, onCancel } } });
+    return 'pending';
+  }
+  if (r.cross.length && crossPolicy === 'own') for (const c of r.cross) r.all.delete(c.idx);
+  return moveNodes(r.all, label + (r.all.size > changes.size ? ' (symmetry)' : ''));
+}
+
+/** Moves slidenodes onto the closest point of their rail. */
+export function snapToRails(nodes: number[]): number {
+  const v = ws.vehicle;
+  if (!v) return 0;
+  const rails = collectRails(v);
+  const slides = new Map(collectSlides(v).map((s) => [s.node, s]));
+  const pos = new Float64Array(v.nodes.length * 3);
+  v.nodes.forEach((n, i) => pos.set([n.x, n.y, n.z], i * 3));
+  const ch = new Map<number, [number, number, number]>();
+  let notSlide = 0;
+  for (const i of nodes) {
+    const sl = slides.get(i);
+    const r = sl && rails.get(sl.rail);
+    if (!r) {
+      notSlide++;
+      continue;
+    }
+    const c = closestOnRail(railPoints(r, pos), r.looped, [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]]);
+    if (c && c.dist > 1e-5) ch.set(i, c.point);
+  }
+  if (!ch.size) {
+    toast('info', notSlide === nodes.length ? 'No slidenode with a known rail selected' : 'Already on their rails');
+    return 0;
+  }
+  return moveNodes(ch, 'Snap to rail') ? ch.size : 0;
+}
+
+/** Creates a rail through nodes (in order) in the target part. */
+export function addRail(name: string, nodes: string[], looped: boolean, capped: boolean): boolean {
+  const t = requireTarget();
+  if (!t) return false;
+  name = name.trim();
+  if (!name) return false;
+  if (nodes.length < 2) {
+    toast('warn', 'A rail needs at least 2 nodes');
+    return false;
+  }
+  if (ws.vehicle && collectRails(ws.vehicle).has(name)) {
+    toast('warn', `Rail "${name}" already exists`);
+    return false;
+  }
+  const value = `{"links:":[${nodes.map((n) => JSON.stringify(n)).join(', ')}], "broken:":[], "looped":${looped}, "capped":${capped}}`;
+  const sec = t.part.sections.get('rails');
+  const es = new EditSet();
+  if (sec && sec.k === 'obj') es.add(t.doc.key, insertKey(t.doc.text, sec, name, () => value));
+  else {
+    const eol = eolOf(t.doc.text), unit = indentUnitOf(t.doc.text);
+    es.add(t.doc.key, insertKey(t.doc.text, t.part.node, 'rails', (ind) => `{${eol}${ind}${unit}${JSON.stringify(name)}: ${value},${eol}${ind}}`));
+  }
+  return es.apply(`Add rail ${name}`);
+}
+
+const SLIDE_HEADER = ['id:', 'railName', 'attached', 'fixToRail', 'tolerance', 'spring', 'strength', 'capStrength'];
+
+/** Makes nodes slidenodes on a rail (vanilla defaults), optionally snapping them on it. */
+export function addSlidenodes(nodes: string[], rail: string, snap: boolean, spring = 800100): boolean {
+  const t = requireTarget();
+  if (!t || !nodes.length) return false;
+  const v = ws.vehicle;
+  const existing = new Set(v ? collectSlides(v).map((s) => v.nodes[s.node].name) : []);
+  const fresh = nodes.filter((n) => !existing.has(n));
+  if (!fresh.length) {
+    toast('info', 'Those nodes are already slidenodes');
+    return false;
+  }
+  const sec = t.part.sections.get('slidenodes');
+  const header = sec ? headerOf(sec, 'slidenodes') : SLIDE_HEADER;
+  const rows = fresh.map((n) =>
+    fmtRow(rowFromRecord(header, { 'id:': n, railName: rail, attached: true, fixToRail: true, tolerance: 0, spring, strength: 'FLT_MAX', capStrength: 'FLT_MAX' }), dec()),
+  );
+  const es = new EditSet();
+  es.add(t.doc.key, insertRows(t.doc.text, t.part, 'slidenodes', header, rows));
+  if (!es.apply(`Add ${fresh.length} slidenode(s) on ${rail}`)) return false;
+  if (snap && ws.vehicle) {
+    const w = ws.vehicle;
+    snapToRails(fresh.map((n) => w.nodeIndex.get(n)).filter((x): x is number => x !== undefined));
+  }
+  return true;
+}
+
+/** Writes new values (header cells or options) into trigger rows, one undo step. */
+export function setTriggerValues(changes: Map<number, Record<string, any>>, label = 'Transform triggers'): boolean {
+  const v = ws.vehicle;
+  if (!v) return false;
+  const es = new EditSet();
+  for (const [idx, vals] of changes) {
+    const row = v.triggers[idx];
+    if (!row) continue;
+    const d = writableDoc(row.src.file);
+    if (!d) return false;
+    const header = headerOf(row.src.table, row.src.section);
+    const r = row.src.node as AArr;
+    for (const [k, val] of Object.entries(vals)) {
+      const i = header.indexOf(k);
+      const cell = i >= 0 ? r.items[i] : undefined;
+      if (cell) es.add(d.key, [{ s: cell.s, e: cell.e, text: fmtValue(val, dec()) }]);
+      else es.add(d.key, setRowOption(d.text, r, header.length, k, val, dec()));
+    }
+  }
+  return es.apply(label);
+}

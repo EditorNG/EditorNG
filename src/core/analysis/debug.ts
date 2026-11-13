@@ -2,6 +2,7 @@
  * Structural checks on an assembled vehicle. Pure functions, no UI.
  */
 import type { Vehicle } from '../jbeam/types';
+import { collectRails, offRailSlides } from '../jbeam/rails';
 
 export type CheckSev = 'error' | 'warning' | 'info';
 
@@ -13,7 +14,7 @@ export interface Finding {
   beams?: number[];
   tris?: number[];
   /** optional automatic fix id */
-  fix?: 'deleteBeams' | 'deleteTris';
+  fix?: 'deleteBeams' | 'deleteTris' | 'snapRail';
 }
 
 export interface CheckOptions {
@@ -37,6 +38,7 @@ export const CHECKS: Array<{ id: string; title: string; doc: string }> = [
   { id: 'wrongSide', title: 'Side suffix on wrong side', doc: 'Left-suffixed nodes at -X or right-suffixed nodes at +X (+X is the car\'s left).' },
   { id: 'flexGroups', title: 'Flexbody groups without nodes', doc: 'Flexbodies referencing node groups that no node belongs to; the mesh will not be shown.' },
   { id: 'heavyNodes', title: 'Extreme node weights', doc: 'Nodes weighing more than 50 kg or less than 0.05 kg.' },
+  { id: 'rails', title: 'Rails & slidenodes', doc: 'Rails with unknown nodes, slidenodes on rails that do not exist, and slidenodes that are not on their rail (they jump onto it when the vehicle spawns). Fix with Snap onto rail (Shift+R).' },
 ];
 
 function beamLen(v: Vehicle, i: number): number {
@@ -175,6 +177,17 @@ export function runChecks(v: Vehicle, o: CheckOptions, enabled?: Set<string>): F
       const w = nodeWeight(v, i);
       if (w > 50 || w < 0.05) out.push({ check: 'heavyNodes', sev: 'info', msg: `${n.name}: ${w.toFixed(2)} kg`, nodes: [i] });
     });
+  }
+  if (on('rails')) {
+    for (const r of collectRails(v).values()) {
+      if (r.missing.length) out.push({ check: 'rails', sev: 'error', msg: `rail ${r.name}: unknown node(s) ${r.missing.join(', ')} (${r.part.def.name})`, nodes: r.nodes });
+      else if (r.nodes.length < 2) out.push({ check: 'rails', sev: 'error', msg: `rail ${r.name}: needs at least 2 nodes (${r.part.def.name})`, nodes: r.nodes });
+    }
+    for (const o of offRailSlides(v)) {
+      const n = v.nodes[o.slide.node];
+      if (!o.rail) out.push({ check: 'rails', sev: 'error', msg: `${n.name}: slidenode on unknown rail "${o.slide.rail}"`, nodes: [o.slide.node] });
+      else out.push({ check: 'rails', sev: o.dist > 0.05 ? 'warning' : 'info', msg: `${n.name}: ${(o.dist * 1000).toFixed(1)} mm off rail ${o.rail.name} (snaps on spawn)`, nodes: [o.slide.node], fix: 'snapRail' });
+    }
   }
   return out;
 }

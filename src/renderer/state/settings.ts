@@ -25,6 +25,8 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'edit.rename': 'F2',
   'edit.mirror': 'Ctrl+M',
   'edit.duplicate': 'Shift+D',
+  'edit.symmetry': 'Shift+X',
+  'edit.snapRail': 'Shift+R',
   'edit.undo': 'Ctrl+Z',
   'edit.redo': 'Ctrl+Y',
   'edit.redoAlt': 'Ctrl+Shift+Z',
@@ -80,6 +82,9 @@ export interface Settings {
   showWheels: boolean;
   showProps: boolean;
   showOccupants: boolean;
+  showRails: boolean;
+  symmetryX: boolean;
+  gizmo: 'none' | 'translate' | 'rotate' | 'scale';
   showTriggers: boolean;
   showGrid: boolean;
   showAxes: boolean;
@@ -202,6 +207,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showWheels: true,
   showProps: true,
   showOccupants: true,
+  showRails: true,
+  symmetryX: false,
+  gizmo: 'none',
   showTriggers: true,
   showGrid: true,
   showAxes: true,

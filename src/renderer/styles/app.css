@@ -1722,3 +1722,15 @@ button.status-item:hover {
 .mirror-line.warn svg {
   color: var(--warn);
 }
+
+.sym-list { max-height: 220px; overflow: auto; font-size: 12px; line-height: 1.6; padding: 6px 8px; border-radius: 6px; background: var(--bg-2, rgba(127,127,127,.08)); }
+.icon-btn.sym-on { color: #fff; background: #3a8f5c; }
+.insp-rail { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-top: 1px solid var(--border, rgba(127,127,127,.2)); margin-top: 4px; }
+.tf-sub { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-3, #8a929c); margin: 10px 0 4px; }
+.rail-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }
+.rail-item { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.rl-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--fg-2, inherit); cursor: pointer; }
+.rl-btn:hover:not(:disabled) { text-decoration: underline; }
+.rl-btn:disabled { opacity: .45; cursor: default; }
+.rail-item > .rl-btn:first-child { flex: 1; min-width: 0; text-align: left; color: #d04dff; }
+.vp-toolbar .sep-h { height: 1px; margin: 4px 6px; background: var(--border, rgba(127,127,127,.25)); }
