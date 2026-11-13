@@ -67,29 +67,22 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
-// Collision triangles drawn like the game's debug view: each triangle is inset from its edges
-// (a transparent gap with rounded corners) behind a dark border band, so neighbouring triangles
-// read as separate shapes; back faces are purple.
+// Collision triangles: plain fill with a thin dark wireframe on the edges (1 px, anti-aliased);
+// back faces purple.
 const TRI_FS = /* glsl */ `
 uniform float uOpacity;
 uniform vec3 uBack;
-uniform float uGap;
-uniform float uBand;
 varying vec4 vColor;
 varying vec3 vBary;
 void main() {
-  // distance to each edge in screen pixels
+  // distance to the nearest edge in screen pixels
   vec3 px = vBary / max(fwidth(vBary), vec3(1e-6));
-  // soft minimum: rounds the corners like in game
-  float k = 2.5;
-  float d = -k * log(exp(-px.x / k) + exp(-px.y / k) + exp(-px.z / k));
+  float d = min(min(px.x, px.y), px.z);
+  float line = 1.0 - smoothstep(0.5, 1.5, d);
   vec3 base = gl_FrontFacing ? vColor.rgb : mix(vColor.rgb, uBack, 0.8);
-  float fill = smoothstep(uGap, uGap + 1.5, d);
-  float band = 1.0 - smoothstep(uGap + 0.5, uGap + uBand, d);
-  vec3 col = mix(base, base * 0.12, band);
+  vec3 col = mix(base, base * 0.25, line);
   float a = uOpacity * vColor.a;
-  a = max(a, 0.85 * band * min(1.0, vColor.a)) * fill;
-  if (a < 0.003) discard;
+  a = max(a, 0.9 * line * min(1.0, vColor.a));
   gl_FragColor = vec4(col, a);
 }
 `;
@@ -236,7 +229,7 @@ export class Viewport {
     this.triMat = new THREE.ShaderMaterial({
       vertexShader: TRI_VS,
       fragmentShader: TRI_FS,
-      uniforms: { uOpacity: { value: s.triOpacity }, uBack: { value: new THREE.Color(s.colorTriBack) }, uGap: { value: 2 }, uBand: { value: 7 } },
+      uniforms: { uOpacity: { value: s.triOpacity }, uBack: { value: new THREE.Color(s.colorTriBack) } },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
