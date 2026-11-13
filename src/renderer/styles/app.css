@@ -2311,3 +2311,5 @@ button.status-item:hover {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
 }
+
+@container vp (max-width: 1100px) { .bar-shading { display: none; } }

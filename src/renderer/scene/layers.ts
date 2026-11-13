@@ -2,6 +2,8 @@
  * Flexbody / prop meshes, light props and triggers2 boxes for the 3D view.
  */
 import * as THREE from 'three';
+import { shading } from './shading';
+import { ws } from '../project/workspace';
 import type { Vehicle, Row } from '@core/jbeam/types';
 import type { Settings } from '../state/settings';
 import type { Hover, SelIdx } from '../state/selection';
@@ -117,7 +119,11 @@ export class Layers {
     this.rebuildTriggers();
   }
 
+  private solidMats = new Map<string, THREE.MeshLambertMaterial>();
+
   constructor(private vp: Viewport, private s: Settings) {
+    shading.renderer = vp.renderer;
+    shading.onChange = () => vp.requestRender();
     vp.meshRoot.add(this.flexGroup, this.propGroup);
     vp.extraRoot.add(this.trigGroup, this.bulbGroup);
     this.selMat = new THREE.MeshLambertMaterial({ color: s.colorSelect, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
@@ -141,7 +147,7 @@ export class Layers {
     this.bulbGroup.visible = s.showProps;
     for (const o of this.flexObjs) {
       const w = o.getObjectByName('wire');
-      if (w) w.visible = s.meshWireframe;
+      if (w) w.visible = s.meshShading === 'wireframe';
     }
     this.vp.requestRender();
   }
@@ -167,16 +173,69 @@ export class Layers {
     return m;
   }
 
+  /** opaque grey-white for the Solid view (part colours when "colour by part" is on) */
+  private solid(key: string, color: THREE.ColorRepresentation): THREE.MeshLambertMaterial {
+    let m = this.solidMats.get(key);
+    if (!m) {
+      m = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide });
+      this.solidMats.set(key, m);
+    }
+    return m;
+  }
+
+  /** Material(s) of a mesh for the current shading mode. */
+  private meshMaterial(g: THREE.BufferGeometry, key: string, color: THREE.Color): THREE.Material | THREE.Material[] {
+    const mode = this.s.meshShading;
+    if (mode === 'shaded') {
+      const names: string[] = g.userData.materials ?? [];
+      if (!names.length) return shading.material('');
+      return names.map((n) => shading.material(n));
+    }
+    if (mode === 'solid') return this.solid(key, key === 'grey' ? new THREE.Color(0xdfe3e8) : key === 'prop' ? new THREE.Color(0xd2d6dc) : color);
+    return this.mat(key, color);
+  }
+
+  /** Scene lighting for the shading mode: the studio / HDR environment only in Shaded. */
+  private async applyEnvironment() {
+    const on = this.s.meshShading === 'shaded' && this.s.showMeshes;
+    const r = this.vp.renderer;
+    // the editor's flat lights are tuned for Wire/Solid: dim them under image-based lighting
+    this.vp.scene.traverse((o) => {
+      if (!(o instanceof THREE.Light) || o.parent !== this.vp.scene) return;
+      if (o.userData.base === undefined) o.userData.base = o.intensity;
+      o.intensity = on ? o.userData.base * 0.35 : o.userData.base;
+    });
+    r.toneMapping = on ? THREE.NeutralToneMapping : THREE.NoToneMapping;
+    r.toneMappingExposure = 1;
+    if (on) {
+      const env = await shading.environment();
+      if (this.s.meshShading !== 'shaded') return;
+      this.vp.scene.environment = env;
+    } else this.vp.scene.environment = null;
+    this.vp.requestRender();
+  }
+
   private clear(group: THREE.Group, list: THREE.Object3D[]) {
     for (const o of list) group.remove(o);
     list.length = 0;
   }
 
   /** Rebuilds everything for a new assembly. Meshes load asynchronously. */
+  private lastModel: string | null = null;
+
   async setVehicle(v: Vehicle | null) {
     this.vehicle = v;
     this.trigOverride = null;
     const token = ++this.loadToken;
+    if (ws.model !== this.lastModel) {
+      this.lastModel = ws.model;
+      shading.reset();
+    }
+    this.applyEnvironment();
+    if (v && this.s.meshShading === 'shaded') {
+      await shading.load();
+      if (token !== this.loadToken) return;
+    }
     this.rebuildTriggers();
     if (!v) {
       this.clear(this.flexGroup, this.flexObjs);
@@ -212,11 +271,12 @@ export class Layers {
       }
       const key = f.occupant ? 'occ' : s.meshColorByPart ? 'p:' + f.row.part.def.name : 'grey';
       const color = f.occupant ? new THREE.Color(0xd6a77a) : s.meshColorByPart ? new THREE.Color(...partColor(f.row.part.def.name)) : grey;
-      const mesh = new THREE.Mesh(g, this.mat(key, color));
-      mesh.userData = { kind: 'flex', idx: i };
+      const mat = this.meshMaterial(g, key, color);
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.userData = { kind: 'flex', idx: i, baseMat: mat };
       const holder = new THREE.Group();
       holder.add(mesh);
-      if (s.meshWireframe) {
+      if (s.meshShading === 'wireframe') {
         const w = new THREE.LineSegments(new THREE.WireframeGeometry(g), this.wireMat);
         w.name = 'wire';
         holder.add(w);
@@ -254,7 +314,9 @@ export class Layers {
           return;
         }
         const occ = isOccupant(p.row.part);
-        obj = new THREE.Mesh(g, occ ? this.mat('occ', new THREE.Color(0xd6a77a)) : this.mat('prop', new THREE.Color(0xb8a98f)));
+        const pm = occ ? this.meshMaterial(g, 'occ', new THREE.Color(0xd6a77a)) : this.meshMaterial(g, 'prop', new THREE.Color(0xb8a98f));
+        obj = new THREE.Mesh(g, pm);
+        (obj as THREE.Mesh).userData.baseMat = pm;
         if (p.globalPos) {
           // pivot at baseTranslationGlobal (with node transforms), oriented by the slot's nodeRotate.
           // BeamNG rotates vectors by the conjugate, so flip the vector part for three.js.
@@ -375,13 +437,13 @@ export class Layers {
       const key = fb?.occupant ? 'occ' : this.s.meshColorByPart ? 'p:' + fb?.row.part.def.name : 'grey';
       if (sel?.flex.has(i) || (hover?.kind === 'flex' && hover.idx === i)) mesh.material = this.selMat;
       else if (hl?.flex.has(i)) mesh.material = this.hlMat;
-      else mesh.material = this.flexMats.get(key) ?? mesh.material;
+      else mesh.material = mesh.userData.baseMat ?? this.flexMats.get(key) ?? mesh.material;
     });
     this.propObjs.forEach((o, i) => {
       if (!(o instanceof THREE.Mesh)) return;
       if (sel?.props.has(i) || (hover?.kind === 'prop' && hover.idx === i)) o.material = this.selMat;
       else if (hl?.props.has(i)) o.material = this.hlMat;
-      else o.material = this.flexMats.get(this.vehicle && isOccupant(this.vehicle.props[i].row.part) ? 'occ' : 'prop') ?? o.material;
+      else o.material = (o as THREE.Mesh).userData.baseMat ?? this.flexMats.get(this.vehicle && isOccupant(this.vehicle.props[i].row.part) ? 'occ' : 'prop') ?? o.material;
     });
     this.trigObjs.forEach((o, i) => {
       const on = sel?.triggers.has(this.shapes[i]?.idx) || hl?.triggers.has(this.shapes[i]?.idx) || (hover?.kind === 'trigger' && hover.idx === this.shapes[i]?.idx);

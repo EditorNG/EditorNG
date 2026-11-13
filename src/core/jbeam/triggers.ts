@@ -362,3 +362,39 @@ export function mirroredTriggerValues(v: Vehicle, pos: ArrayLike<number>, t: Tri
   const origin = sub(sub(sub(center, mul(X, t.size[0] / 2)), mul(Y, t.size[1] / 2)), mul(Z, t.size[2] / 2));
   return triggerValues(v, pos, tt, { origin, axes: { X, Y, Z } }, toRaw);
 }
+
+/**
+ * The world-aligned axes closest to a box's current axes (smallest turn): each local axis maps to
+ * the world axis it points most along, keeping a right-handed frame.
+ */
+export function worldAlignedAxes(f: { X: V3; Y: V3; Z: V3 }): { X: V3; Y: V3; Z: V3 } {
+  const W: V3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const snap = (v: V3, not: number[]): { axis: number; v: V3 } => {
+    let best = -1, bd = -1;
+    for (let i = 0; i < 3; i++) {
+      if (not.includes(i)) continue;
+      const d = Math.abs(v[i]);
+      if (d > bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    const sign = v[best] < 0 ? -1 : 1;
+    return { axis: best, v: mul(W[best], sign) };
+  };
+  // snap the axis that is already closest to a world axis first
+  const order = (['X', 'Y', 'Z'] as const).slice().sort((a, b) => Math.max(...f[b].map(Math.abs)) - Math.max(...f[a].map(Math.abs)));
+  const out: Partial<Record<'X' | 'Y' | 'Z', V3>> = {};
+  const used: number[] = [];
+  for (const k of order.slice(0, 2)) {
+    const r = snap(f[k], used);
+    used.push(r.axis);
+    out[k] = r.v;
+  }
+  // the last axis completes a right-handed frame (Z = X × Y, X = Y × Z, Y = Z × X)
+  const last = order[2];
+  if (last === 'Z') out.Z = cross(out.X!, out.Y!);
+  else if (last === 'X') out.X = cross(out.Y!, out.Z!);
+  else out.Y = cross(out.Z!, out.X!);
+  return { X: out.X!, Y: out.Y!, Z: out.Z! };
+}

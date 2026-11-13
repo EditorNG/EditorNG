@@ -69,6 +69,14 @@ status bar    problems · target part · selection · symmetry · parts
 - **Shift** adds to the selection, **Ctrl+drag** removes, **Ctrl+click** selects the shortest beam
   path from the last clicked node, **L** linked, **Ctrl+Numpad +/−** grow / shrink,
   **Ctrl+I** invert. Beams: right-click → Select similar (type, deformGroup, breakGroup).
+- **Flexbody shading** (viewport bar, or **Z** to cycle):
+  - **Wire**: see-through meshes (opacity slider in Display) with a wireframe overlay.
+  - **Solid**: opaque grey-white, easy on the eyes while building the node cage.
+  - **Shaded**: the game's own materials from every `*.materials.json` (vehicle and common
+    folders): PBR colour / normal / roughness / metallic / AO / opacity maps, read straight from the
+    game's DDS or your PNGs, the vehicle paint (from the `.pc`'s `paints` when it has one, else a
+    neutral metallic), lit by a built-in studio. Settings → 3D view → *Shaded: environment .hdr*
+    lets you use your own HDRI.
 - **H** hides the selected nodes, **Shift+H** everything else, **Alt+H** shows all again.
 - **Alt+click** picks flexbodies, props and triggers instead of nodes/beams.
 - Bottom-left: what is in view and what is selected; with 2 nodes selected the distance (and Δx,
@@ -103,7 +111,8 @@ More on right-click:
 - **Beams**: **convert to** normal / bounded / support / pressured / anisotropic / l-beam (adds the
   fields the type needs), **copy / paste properties**.
 - **Triggers**: move/rotate/resize, duplicate, **mirror to the other side** (box reflected
-  correctly), convert to global position.
+  correctly), **align to world** (the box turns to the nearest world axes, no rotation left, its
+  centre stays), convert to global position. Align to world is also a button in the inspector.
 
 **Gizmo**: the three buttons under the tools on the left switch on a move / rotate / scale gizmo
 for nodes or triggers.

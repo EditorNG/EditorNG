@@ -11,7 +11,7 @@ import type { ActivePart, PartDef, Row, Vehicle } from '@core/jbeam/types';
 import { settings } from '../state/settings';
 import { useUi } from '../state/ui';
 import { collectRails, collectSlides, closestOnRail, railPoints } from '@core/jbeam/rails';
-import { placeTriggers, mirroredTriggerValues } from '@core/jbeam/triggers';
+import { placeTriggers, mirroredTriggerValues, worldAlignedAxes, triggerValues } from '@core/jbeam/triggers';
 import { swapSideTokens } from '@core/jbeam/mirror';
 import { toast } from '../state/toast';
 import { useSel, emptySel, beamKey, triKey, cloneSel, resolveSel, setSel } from '../state/selection';
@@ -1329,4 +1329,36 @@ export function bridgeChains(nodes: number[], opts: { bracing: boolean; triangle
     if (nb || nt) toast('info', `Bridge: ${nb} beams${nt ? `, ${nt} triangles (check their normals)` : ''}`);
     return nb > 0 || nt > 0;
   });
+}
+
+/** Turns box triggers to the nearest world-aligned orientation; their centre stays where it is. */
+export function alignTriggersToWorld(indices: number[]): boolean {
+  const v = ws.vehicle;
+  if (!v) return false;
+  const pos = new Float64Array(v.nodes.length * 3);
+  v.nodes.forEach((n, i) => pos.set([n.x, n.y, n.z], i * 3));
+  const placed = placeTriggers(v, pos);
+  const vals = new Map<number, Record<string, any>>();
+  let spheres = 0;
+  for (const idx of indices) {
+    const t = placed.find((x) => x.idx === idx);
+    if (!t) continue;
+    if (t.type === 'sphere') {
+      spheres++;
+      continue;
+    }
+    const axes = worldAlignedAxes(t.frame);
+    const c = t.center;
+    const origin: [number, number, number] = [0, 1, 2].map((k) => c[k] - axes.X[k] * t.size[0] / 2 - axes.Y[k] * t.size[1] / 2 - axes.Z[k] * t.size[2] / 2) as any;
+    const toRaw = (q: [number, number, number]): [number, number, number] => {
+      const r = invertNodeXform(getNodeXform(t.row.v), q[0], q[1], q[2]);
+      return [r.x, r.y, r.z];
+    };
+    vals.set(idx, triggerValues(v, pos, t, { origin, axes }, toRaw));
+  }
+  if (!vals.size) {
+    toast('info', spheres ? 'Sphere triggers have no orientation' : 'Select a box trigger');
+    return false;
+  }
+  return setTriggerValues(vals, vals.size > 1 ? `Align ${vals.size} triggers to world` : 'Align trigger to world');
 }

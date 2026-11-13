@@ -19,6 +19,7 @@ import * as ops from './project/ops';
 import { getViewport, getGizmo } from './scene/ViewportPanel';
 import { command } from './ui/commands';
 import { meshes, useMeshStatus } from './scene/meshes';
+import { shading } from './scene/shading';
 import { revealRange, getEditor } from './editor/CodeEditor';
 import { loadRecent, addRecentFiles, restoreSession } from './ui/Tier2';
 import { setOnFilesOpened } from './project/workspace';
@@ -148,7 +149,7 @@ async function boot() {
     await restoreSession(state.lastVehicle).catch(() => {});
   }
   // automation hooks (used by scripts/shot.mjs and handy in devtools)
-  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor };
+  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading };
 }
 
 boot().catch((e) => {

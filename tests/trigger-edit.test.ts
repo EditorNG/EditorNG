@@ -37,3 +37,33 @@ it('trigger values round-trip (translation, rotation, size)', async () => {
   void triggerFrame;
   void applyNodeXform;
 });
+
+it('align to world: box axes become world axes, centre kept', async () => {
+  const { worldAlignedAxes } = await import('../src/core/jbeam/triggers');
+  const { veh } = await loadVehicle('etk800');
+  const v = veh!;
+  const pos = new Float64Array(v.nodes.length * 3);
+  v.nodes.forEach((n, i) => pos.set([n.x, n.y, n.z], i * 3));
+  let n = 0;
+  for (const t of placeTriggers(v, pos)) {
+    if (t.type !== 'box') continue;
+    const axes = worldAlignedAxes(t.frame);
+    const c = t.center;
+    const origin: V3 = [0, 1, 2].map((k) => c[k] - axes.X[k] * t.size[0] / 2 - axes.Y[k] * t.size[1] / 2 - axes.Z[k] * t.size[2] / 2) as V3;
+    const toRaw = (p: V3): V3 => {
+      const r = invertNodeXform(getNodeXform(t.row.v), p[0], p[1], p[2]);
+      return [r.x, r.y, r.z];
+    };
+    const vals = triggerValues(v, pos, t, { origin, axes }, toRaw);
+    const row = { ...t.row, v: { ...t.row.v, ...vals } };
+    const t2 = placeTriggers({ ...v, triggers: v.triggers.map((r) => (r === t.row ? row : r)) } as any, pos).find((x) => x.idx === t.idx)!;
+    for (const ax of ['X', 'Y', 'Z'] as const) {
+      // every axis lies along a world axis
+      expect(Math.max(...t2.frame[ax].map(Math.abs))).toBeCloseTo(1, 3);
+    }
+    for (let k = 0; k < 3; k++) expect(t2.center[k]).toBeCloseTo(c[k], 4);
+    expect(t2.size).toEqual(t.size);
+    n++;
+  }
+  expect(n).toBeGreaterThan(3);
+});

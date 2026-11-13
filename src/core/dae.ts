@@ -164,14 +164,16 @@ export interface DaeMesh {
   name: string;
   /** non-indexed triangle positions, document space */
   pos: Float32Array;
-  /** flat normals per vertex */
+  /** normals per vertex (the file's smooth normals when present, else flat) */
   nrm: Float32Array;
+  /** texture coordinates (first set), V already flipped for top-down textures; null when absent */
+  uv: Float32Array | null;
   /** material name per draw range */
   groups: Array<{ material: string; start: number; count: number }>;
 }
 
 interface Geo {
-  tris: Array<{ material: string; idx: Float32Array }>;
+  tris: Array<{ material: string; idx: Float32Array; nrm: Float32Array | null; uv: Float32Array | null }>;
 }
 
 function readGeometry(geo: XEl): Geo | null {
@@ -196,23 +198,51 @@ function readGeometry(geo: XEl): Geo | null {
     let stride = 0;
     let vOff = 0;
     let src = posSrc;
+    let nOff = -1, tOff = -1;
+    let nSrc: { data: Float32Array; stride: number } | undefined;
+    let tSrc: { data: Float32Array; stride: number } | undefined;
+    // normals can also hang off <vertices>
+    let vertNrm: { data: Float32Array; stride: number } | undefined;
+    if (vertices) for (const inp of childrenOf(vertices, 'input')) if (inp.attrs.semantic === 'NORMAL') vertNrm = sources.get(inp.attrs.source.slice(1));
     for (const inp of inputs) {
       const off = +inp.attrs.offset || 0;
       stride = Math.max(stride, off + 1);
-      if (inp.attrs.semantic === 'VERTEX') vOff = off;
-      else if (inp.attrs.semantic === 'POSITION') {
+      const sem = inp.attrs.semantic;
+      if (sem === 'VERTEX') vOff = off;
+      else if (sem === 'POSITION') {
         vOff = off;
         src = sources.get(inp.attrs.source.slice(1));
+      } else if (sem === 'NORMAL' && nOff < 0) {
+        nOff = off;
+        nSrc = sources.get(inp.attrs.source.slice(1));
+      } else if (sem === 'TEXCOORD' && (tOff < 0 || (inp.attrs.set ?? '0') === '0')) {
+        if (tOff >= 0 && (inp.attrs.set ?? '0') !== '0') continue;
+        tOff = off;
+        tSrc = sources.get(inp.attrs.source.slice(1));
       }
+    }
+    if (nOff < 0 && vertNrm) {
+      nOff = vOff;
+      nSrc = vertNrm;
     }
     if (!src) continue;
     const ps = prim.tag === 'polygons' ? childrenOf(prim, 'p').map((p) => parseInts(p.text)) : [parseInts(child(prim, 'p')?.text ?? '')];
     const vcount = prim.tag === 'polylist' ? parseInts(child(prim, 'vcount')?.text ?? '') : null;
     const verts: number[] = [];
+    const norms: number[] = [];
+    const uvs: number[] = [];
     const pushV = (p: Int32Array, k: number) => {
       const vi = p[k * stride + vOff];
       const o = vi * src!.stride;
       verts.push(src!.data[o], src!.data[o + 1], src!.data[o + 2]);
+      if (nSrc) {
+        const ni = p[k * stride + nOff] * nSrc.stride;
+        norms.push(nSrc.data[ni], nSrc.data[ni + 1], nSrc.data[ni + 2]);
+      }
+      if (tSrc) {
+        const ti = p[k * stride + tOff] * tSrc.stride;
+        uvs.push(tSrc.data[ti], 1 - tSrc.data[ti + 1]);
+      }
     };
     if (prim.tag === 'triangles') {
       const p = ps[0];
@@ -244,7 +274,12 @@ function readGeometry(geo: XEl): Geo | null {
         }
       }
     }
-    out.tris.push({ material: prim.attrs.material ?? '', idx: new Float32Array(verts) });
+    out.tris.push({
+      material: prim.attrs.material ?? '',
+      idx: new Float32Array(verts),
+      nrm: nSrc && norms.length === verts.length ? new Float32Array(norms) : null,
+      uv: tSrc && uvs.length === (verts.length / 3) * 2 ? new Float32Array(uvs) : null,
+    });
   }
   return out;
 }
@@ -266,6 +301,22 @@ export function readDae(text: string): DaeFile {
   if (up === 'Y_UP') root = mul(root, rotate(1, 0, 0, 90));
   const geomEls = new Map<string, XEl>();
   for (const lib of childrenOf(collada, 'library_geometries')) for (const g of childrenOf(lib, 'geometry')) geomEls.set(g.attrs.id, g);
+  // material symbols (as written on <triangles material="…">) -> material names, like the game resolves them
+  const matName = new Map<string, string>();
+  for (const lib of childrenOf(collada, 'library_materials')) for (const m of childrenOf(lib, 'material')) matName.set(m.attrs.id, (m.attrs.name ?? m.attrs.id).trim());
+  const symbolTarget = new Map<string, string>();
+  const scanBind = (el: XEl) => {
+    for (const c of el.children) {
+      if (c.tag === 'instance_material' && c.attrs.symbol && c.attrs.target) symbolTarget.set(c.attrs.symbol, c.attrs.target.replace(/^#/, ''));
+      scanBind(c);
+    }
+  };
+  for (const lib of childrenOf(collada, 'library_visual_scenes')) scanBind(lib);
+  for (const lib of childrenOf(collada, 'library_nodes')) scanBind(lib);
+  const materialOf = (symbol: string) => {
+    const id = symbolTarget.get(symbol) ?? symbol;
+    return matName.get(id) ?? id.replace(/-material$/i, '');
+  };
   const libNodes = new Map<string, XEl>();
   for (const lib of childrenOf(collada, 'library_nodes')) for (const nd of childrenOf(lib, 'node')) libNodes.set(nd.attrs.id, nd);
   const geoCache = new Map<string, Geo | null>();
@@ -324,6 +375,8 @@ export function readDae(text: string): DaeFile {
     for (const p of parts) for (const t of p.g.tris) total += t.idx.length;
     const pos = new Float32Array(total);
     const nrm = new Float32Array(total);
+    const hasUv = parts.some((p) => p.g.tris.some((t) => t.uv));
+    const uv = hasUv ? new Float32Array((total / 3) * 2) : null;
     const groups: DaeMesh['groups'] = [];
     let o = 0;
     for (const p of parts) {
@@ -336,6 +389,23 @@ export function readDae(text: string): DaeFile {
           pos[o + i] = m[0] * x + m[4] * y + m[8] * z + m[12];
           pos[o + i + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
           pos[o + i + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+        }
+        if (uv && t.uv) uv.set(t.uv, (o / 3) * 2);
+        if (t.nrm) {
+          // the file's normals, rotated with the node (uniform scale assumed)
+          const n = t.nrm;
+          for (let i = 0; i < n.length; i += 3) {
+            let nx = m[0] * n[i] + m[4] * n[i + 1] + m[8] * n[i + 2];
+            let ny = m[1] * n[i] + m[5] * n[i + 1] + m[9] * n[i + 2];
+            let nz = m[2] * n[i] + m[6] * n[i + 1] + m[10] * n[i + 2];
+            const l = Math.hypot(nx, ny, nz) || 1;
+            nrm[o + i] = nx / l;
+            nrm[o + i + 1] = ny / l;
+            nrm[o + i + 2] = nz / l;
+          }
+          groups.push({ material: materialOf(t.material), start, count: src.length / 3 });
+          o += src.length;
+          continue;
         }
         // flat normals
         for (let i = 0; i < src.length; i += 9) {
@@ -351,11 +421,11 @@ export function readDae(text: string): DaeFile {
             nrm[o + i + k * 3 + 2] = nz;
           }
         }
-        groups.push({ material: t.material, start, count: src.length / 3 });
+        groups.push({ material: materialOf(t.material), start, count: src.length / 3 });
         o += src.length;
       }
     }
-    return { name, pos, nrm, groups };
+    return { name, pos, nrm, uv, groups };
   };
 
   return { names: [...nodes.keys(), ...geoByName.keys()], build };

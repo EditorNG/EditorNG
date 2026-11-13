@@ -168,7 +168,7 @@ export function ViewportPanel() {
 
   useEffect(() => {
     if (s.showMeshes && vehicle) layersInstance?.setVehicle(vehicle);
-  }, [s.showMeshes, s.meshColorByPart, s.meshWireframe, s.showOccupants]);
+  }, [s.showMeshes, s.meshColorByPart, s.meshShading, s.shadedEnvHdr, s.showOccupants]);
 
   // chain preview labels
   useEffect(() => {
@@ -447,6 +447,7 @@ export function ViewportPanel() {
         'sep',
         { label: 'Duplicate', run: () => ops.duplicateTrigger(hit.idx) },
         { label: 'Mirror to other side', run: () => ops.mirrorTrigger(hit.idx) },
+        { label: 'Align to world', hint: 'no rotation, centre kept', run: () => ops.alignTriggersToWorld(si.triggers.size && si.triggers.has(hit.idx) ? [...si.triggers] : [hit.idx]) },
         !global && { label: 'Convert to global position', hint: 'baseTranslationGlobal', run: () => ops.triggerToGlobal(hit.idx) },
         { label: 'Select its reference nodes', run: () => ops.selectNodesByName(['idRef:', 'idX:', 'idY:'].map((k) => String(r?.v[k] ?? '')).filter((x) => v.nodeIndex.has(x))) },
         ...rowEntries(r ?? null),
@@ -1301,6 +1302,12 @@ export function ViewportPanel() {
       if (matches('edit.merge', e)) return run(() => mergeIntoActive());
       if (matches('edit.extrude', e)) return run(() => extrude());
       if (matches('view.xray', e)) return run(() => useSettings.getState().set({ xray: !settings().xray }));
+      if (matches('view.shading', e)) return run(() => {
+        const order = ['wireframe', 'solid', 'shaded'] as const;
+        const next = order[(order.indexOf(settings().meshShading) + 1) % order.length];
+        useSettings.getState().set({ meshShading: next, showMeshes: true });
+        toast('info', `Flexbodies: ${next}`, undefined, 1200);
+      });
       if (matches('view.isolatePart', e)) return run(() => toggleIsolate());
       if (matches('select.all', e)) return run(() => {
         const s = emptySel();

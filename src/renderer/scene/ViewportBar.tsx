@@ -22,7 +22,6 @@ const DISPLAY_TOGGLES: Array<[keyof Settings, string]> = [
   ['showTriggers', 'Triggers'],
   ['showWheels', 'Wheels'],
   ['showRails', 'Rails & slidenodes'],
-  ['meshWireframe', 'Flexbody wireframe'],
   ['meshColorByPart', 'Flexbodies coloured by part'],
   ['showGrid', 'Grid'],
   ['showAxes', 'Axes'],
@@ -74,6 +73,13 @@ export function ViewportBar() {
       </div>
       <div className="grow" />
       {iconToggle('showMeshes', <Box size={14} />, 'Flexbodies')}
+      <div className="segmented small bar-shading" data-tip="Flexbody shading (Z cycles)">
+        {(['wireframe', 'solid', 'shaded'] as const).map((m) => (
+          <button key={m} className={'seg' + (s.meshShading === m && s.showMeshes ? ' active' : '')} onClick={() => set({ meshShading: m, showMeshes: true })}>
+            {m === 'wireframe' ? 'Wire' : m === 'solid' ? 'Solid' : 'Shaded'}
+          </button>
+        ))}
+      </div>
       {iconToggle('xray', <Ghost size={14} />, 'X-ray: nodes & beams through meshes (Alt+Z)')}
       <div className="vp-pop-wrap" onPointerDown={(e) => e.stopPropagation()}>
         <button className={'icon-btn small' + (display ? ' active' : '')} data-tip="Display: layers, sizes, colours" data-tip-pos="bottom-left" onClick={() => setDisplay(!display)} aria-label="Display options">
@@ -120,6 +126,14 @@ function DisplayPopover() {
       {slider('meshOpacity', 'Flexbody opacity', 0, 1, 0.02)}
       {slider('triOpacity', 'Triangle opacity', 0, 1, 0.02)}
       <div className="ctx-sep" />
+      <label className="disp-row">
+        <span className="dim">Flexbodies</span>
+        <select className="select small" value={s.meshShading} onChange={(e) => set({ meshShading: e.target.value as Settings['meshShading'] })}>
+          <option value="wireframe">Wireframe (see-through)</option>
+          <option value="solid">Solid (grey-white)</option>
+          <option value="shaded">Shaded (game materials)</option>
+        </select>
+      </label>
       <label className="disp-row">
         <span className="dim">Labels</span>
         <select className="select small" value={s.showLabels} onChange={(e) => set({ showLabels: e.target.value as Settings['showLabels'] })}>

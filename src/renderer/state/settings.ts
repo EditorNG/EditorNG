@@ -51,6 +51,7 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'edit.merge': 'M',
   'view.isolatePart': 'Shift+I',
   'view.xray': 'Alt+Z',
+  'view.shading': 'Z',
   'mode.nodes': '1',
   'mode.beams': '2',
   'mode.tris': '3',
@@ -82,6 +83,10 @@ export interface Settings {
   meshOpacity: number;
   showMeshes: boolean;
   meshWireframe: boolean;
+  /** flexbody / prop look: transparent + wire overlay, plain grey-white, or game materials (PBR) */
+  meshShading: 'wireframe' | 'solid' | 'shaded';
+  /** equirectangular .hdr for the Shaded view (empty: built-in studio) */
+  shadedEnvHdr: string;
   meshColorByPart: boolean;
   showNodes: boolean;
   showBeams: boolean;
@@ -208,6 +213,8 @@ export const DEFAULT_SETTINGS: Settings = {
   meshOpacity: 0.5,
   showMeshes: true,
   meshWireframe: false,
+  meshShading: 'wireframe',
+  shadedEnvHdr: '',
   meshColorByPart: false,
   showNodes: true,
   showBeams: true,

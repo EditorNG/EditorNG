@@ -165,6 +165,10 @@ class MeshManager {
           const g = new THREE.BufferGeometry();
           g.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
           g.setAttribute('normal', new THREE.BufferAttribute(m.nrm, 3));
+          if (m.uv) g.setAttribute('uv', new THREE.BufferAttribute(m.uv, 2));
+          // draw ranges per material (used by the Shaded mode; single-material draws ignore them)
+          for (let k = 0; k < m.groups.length; k++) g.addGroup(m.groups[k].start, m.groups[k].count, k);
+          g.userData.materials = m.groups.map((x) => x.material);
           g.computeBoundingBox();
           g.computeBoundingSphere();
           this.geo.set(n.toLowerCase() + suffix, g);

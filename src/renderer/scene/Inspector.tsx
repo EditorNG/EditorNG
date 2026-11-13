@@ -207,6 +207,7 @@ export function Inspector() {
         <div className="insp-line"><span className="dim">actions</span><span className="mono ellipsis" title={acts.join('\n')}>{acts.length ? acts.join(', ') : '— not linked —'}</span></div>
         {typeof r.v.label === 'string' && r.v.label && <div className="insp-line"><span className="dim">label</span><span className="ellipsis">{r.v.label}</span></div>}
         <div className="insp-line"><span className="dim">part</span><span className="ellipsis">{r.part.def.name}</span></div>
+        {r.v.type !== 'sphere' && <button className="btn small" data-tip="Turn the box to the nearest world axes (no rotation); its centre stays" onClick={() => ops.alignTriggersToWorld([[...si.triggers][0]])}>Align to world</button>}
         {!hasGlobal && <button className="btn small" onClick={() => {
           const shapes = getLayers()?.shapes ?? [];
           const sh = shapes.find((x) => x.row === r);

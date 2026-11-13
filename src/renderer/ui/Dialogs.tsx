@@ -476,7 +476,7 @@ const SHORTCUT_GROUPS: Array<[string, string[]]> = [
   ['Transform', ['transform.grab', 'transform.scale', 'transform.rotate', 'edit.symmetry', 'edit.snapRail']],
   ['Edit', ['edit.extrude', 'edit.merge', 'edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
   ['Select', ['select.all', 'select.none', 'select.invert', 'select.grow', 'select.shrink', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
-  ['View', ['view.hide', 'view.hideOthers', 'view.unhide', 'view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
+  ['View', ['view.shading', 'view.hide', 'view.hideOthers', 'view.unhide', 'view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
   ['Game', ['game.reload']],
   ['App', ['app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload']],
 ];
@@ -484,7 +484,7 @@ const SHORTCUT_GROUPS: Array<[string, string[]]> = [
 export const ACTION_LABELS: Record<string, string> = {
   'add.menu': 'Add menu (node, beam, trigger, bulb, wheel…)',
   'game.reload': 'Save all and reload the vehicle in BeamNG',
-  'view.hide': 'Hide selected nodes', 'view.hideOthers': 'Hide everything else', 'view.unhide': 'Unhide all',
+  'view.shading': 'Cycle flexbody shading (wire / solid / shaded)', 'view.hide': 'Hide selected nodes', 'view.hideOthers': 'Hide everything else', 'view.unhide': 'Unhide all',
   'edit.extrude': 'Extrude nodes (then move)', 'select.grow': 'Grow selection', 'select.shrink': 'Shrink selection', 'edit.merge': 'Merge nodes into the active one',
   'edit.symmetry': 'Toggle X symmetry (mirror twins move too)', 'edit.snapRail': 'Snap slidenodes onto their rail',
   'select.all': 'Select all', 'select.none': 'Select none', 'select.invert': 'Invert selection', 'select.linked': 'Select linked (same part)', 'select.mirror': 'Add mirror twins to selection',
