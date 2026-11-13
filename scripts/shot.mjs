@@ -26,47 +26,59 @@ const app = await electron.launch({
   ...(exe ? { executablePath: exe, args: [] } : { args: ['.'] }),
   cwd: root,
   env: (() => {
-    const env = { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1' };
+    const env = { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1', EDITORNG_AUTOMATION: '1' };
     delete env.ELECTRON_RUN_AS_NODE; // set by VS Code terminals; would make Electron behave like plain Node
     return env;
   })(),
 });
-const page = await app.firstWindow();
-const logs = [];
-page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
-page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack ?? ''}`));
-await app.evaluate(({ BrowserWindow }, size) => {
-  const win = BrowserWindow.getAllWindows()[0];
-  win.setContentSize(size.w, size.h);
-}, { w, h });
-await page
-  .waitForFunction(() => window.__app?.ready === true, null, { timeout: 30000 })
-  .catch(() => logs.push('[shot] app never became ready'));
-let result;
-// optional: POST a JSON file to the Blender live-link port (tests the main-process HTTP server)
-const post = opt('--post');
-const code = jsFile ? fs.readFileSync(jsFile, 'utf8') : js;
-if (code) {
-  try {
-    result = await page.evaluate(async (src) => {
-      const fn = new Function('app', `return (async () => { ${src} })()`);
-      return await fn(window.__app);
-    }, code);
-  } catch (e) {
-    logs.push('[shot] script error: ' + e.message);
+try {
+  const page = await app.firstWindow();
+  const logs = [];
+  page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
+  page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack ?? ''}`));
+  await app.evaluate(({ BrowserWindow }, size) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win.setContentSize(size.w, size.h);
+  }, { w, h });
+  await page
+    .waitForFunction(() => window.__app?.ready === true, null, { timeout: 30000 })
+    .catch(() => logs.push('[shot] app never became ready'));
+  let result;
+  // optional: POST a JSON file to the Blender live-link port (tests the main-process HTTP server)
+  const post = opt('--post');
+  const code = jsFile ? fs.readFileSync(jsFile, 'utf8') : js;
+  if (code) {
+    try {
+      result = await page.evaluate(async (src) => {
+        const fn = new Function('app', `return (async () => { ${src} })()`);
+        return await fn(window.__app);
+      }, code);
+    } catch (e) {
+      logs.push('[shot] script error: ' + e.message);
+    }
+  }
+  if (post) {
+    const body = fs.readFileSync(post);
+    const res = await fetch('http://127.0.0.1:' + (opt('--port', '46790')) + '/import', { method: 'POST', body, headers: { 'Content-Type': 'application/json' } }).catch((e) => ({ status: 'ERR ' + e.message }));
+    console.log('POST', res.status);
+  }
+  await page.waitForTimeout(wait);
+  const file = path.join(root, 'shots', name + '.png');
+  await page.screenshot({ path: file });
+  if (result !== undefined) console.log('RESULT', typeof result === 'string' ? result : JSON.stringify(result, null, 1));
+  const shown = logs.filter((l) => !/Download the React DevTools|\[vite\]|Electron Security Warning/.test(l));
+  if (shown.length) console.log(shown.slice(0, 60).join('\n'));
+  console.log('saved', file);
+} catch (e) {
+  console.log('[shot] error: ' + (e?.message ?? e));
+  process.exitCode = 1;
+} finally {
+  // never leave a window behind (the app may hold a close for unsaved changes)
+  const proc = app.process();
+  await Promise.race([app.evaluate(({ app }) => app.exit(0)).catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
+  await new Promise((r) => setTimeout(r, 500));
+  if (proc.exitCode === null) {
+    try { proc.kill(); } catch {}
   }
 }
-if (post) {
-  const body = fs.readFileSync(post);
-  const res = await fetch('http://127.0.0.1:' + (opt('--port', '46790')) + '/import', { method: 'POST', body, headers: { 'Content-Type': 'application/json' } }).catch((e) => ({ status: 'ERR ' + e.message }));
-  console.log('POST', res.status);
-}
-await page.waitForTimeout(wait);
-const file = path.join(root, 'shots', name + '.png');
-await page.screenshot({ path: file });
-if (result !== undefined) console.log('RESULT', typeof result === 'string' ? result : JSON.stringify(result, null, 1));
-const shown = logs.filter((l) => !/Download the React DevTools|\[vite\]|Electron Security Warning/.test(l));
-if (shown.length) console.log(shown.slice(0, 60).join('\n'));
-console.log('saved', file);
-await app.close().catch(() => {});
 if (!keep) fs.rmSync(profile, { recursive: true, force: true });

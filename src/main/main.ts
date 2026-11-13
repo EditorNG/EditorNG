@@ -12,7 +12,7 @@ const isDev = !!process.env.EDITORNG_DEV_URL;
 let win: BrowserWindow | null = null;
 let vfs: Vfs = new Vfs({});
 let detected: { gameDir?: string; userDir?: string; version?: string } = {};
-let allowClose = false;
+let allowClose = process.env.EDITORNG_AUTOMATION === '1';
 
 // Allow tests to run with an isolated profile
 if (process.env.EDITORNG_USERDATA) app.setPath('userData', process.env.EDITORNG_USERDATA);
