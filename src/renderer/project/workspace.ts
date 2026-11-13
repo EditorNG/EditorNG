@@ -654,6 +654,27 @@ class Workspace {
     return true;
   }
 
+  /** Runs several edit operations as one undo step. */
+  group<T>(label: string, fn: () => T): T {
+    const n = this.undoStack.length;
+    try {
+      return fn();
+    } finally {
+      const added = this.undoStack.splice(n);
+      if (added.length > 1) {
+        const by = new Map<string, HistGroup['entries'][number]>();
+        for (const g of added) {
+          for (const e of g.entries) {
+            const p = by.get(e.key);
+            if (p) p.after = e.after;
+            else by.set(e.key, { ...e });
+          }
+        }
+        this.undoStack.push({ label, entries: [...by.values()], time: Date.now() });
+      } else this.undoStack.push(...added);
+    }
+  }
+
   undo(): string | null {
     const g = this.undoStack.pop();
     if (!g) return null;

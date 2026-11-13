@@ -269,6 +269,20 @@ export function ViewportPanel() {
     ];
   };
 
+  /** E: extrude the selected nodes, then move the new ones. */
+  const extrude = () => {
+    const idx = selectionNodeIdx();
+    if (!idx.length) {
+      toast('info', 'Select nodes to extrude');
+      return;
+    }
+    const names = ops.extrudeNodes(idx);
+    if (names.length) {
+      ops.selectNodesByName(names);
+      setTimeout(() => startModal('move'), 30);
+    }
+  };
+
   /** M: merges the selected nodes into the active (last clicked) node. */
   const mergeIntoActive = () => {
     const v = ws.vehicle;
@@ -327,8 +341,15 @@ export function ViewportPanel() {
       { title: `${names.length} nodes` },
       { label: names.length === 3 ? 'Make triangle' : names.length === 2 ? 'Connect with a beam' : 'Connect as a chain', key: 'F', run: () => (names.length === 3 ? ops.addTris([[names[0], names[1], names[2]]]) : ops.addBeams(names.slice(1).map((n, i) => [names[i], n] as [string, string]), undefined, names.length > 2 ? 'Connect chain' : 'Add beam')) },
       { label: 'Rail from selection…', run: () => requestTool('rail', undefined, names) },
+      { label: 'Extrude', key: 'E', run: extrude },
+      { label: 'Bridge two chains', submenu: [
+        { label: 'Beams + cross bracing', run: () => ops.bridgeChains(nodeIdx, { bracing: true, triangles: false }) },
+        { label: 'Beams, bracing + triangles', run: () => ops.bridgeChains(nodeIdx, { bracing: true, triangles: true }) },
+        { label: 'Rungs only', run: () => ops.bridgeChains(nodeIdx, { bracing: false, triangles: false }) },
+      ] },
       { label: 'Mirror to other side', key: 'Ctrl+M', run: () => ops.mirrorSelection() },
       { label: `Merge into ${activeIdx !== null ? v.nodes[activeIdx].name : 'last clicked'}`, key: 'M', run: mergeIntoActive },
+      { label: 'Batch edit (weight, group, collision…)', hint: 'in the inspector', run: () => useUi.setState({ inspector: true }) },
       layoutSub,
     ] : [];
     const selectSub: MenuEntry = {
@@ -366,6 +387,7 @@ export function ViewportPanel() {
         { label: 'Move', key: 'G', run: () => startModal('move') },
         { label: 'Rotate', key: 'R', run: () => startModal('rotate') },
         { label: 'Scale', key: 'S', run: () => startModal('scale') },
+        names.length < 2 && { label: 'Extrude', key: 'E', run: extrude },
         isSlide && { label: 'Slide along rail', key: 'G G', run: startRailSlide },
         isSlide && { label: 'Snap onto rail', key: 'Shift+R', run: () => ops.snapToRails(nodeIdx) },
         'sep',
@@ -386,6 +408,16 @@ export function ViewportPanel() {
           { label: 'Same deformGroup', hint: String(b.row.v.deformGroup ?? '') || undefined, disabled: b.row.v.deformGroup ? false : 'No deformGroup on this beam', run: () => ops.selectSimilarBeams(hit.idx, 'deformGroup') },
           { label: 'Same breakGroup', hint: String(b.row.v.breakGroup ?? '') || undefined, disabled: b.row.v.breakGroup ? false : 'No breakGroup on this beam', run: () => ops.selectSimilarBeams(hit.idx, 'breakGroup') },
         ] },
+        { label: 'Convert to', submenu: ops.BEAM_TYPES.map((t) => ({
+          label: t.toLowerCase(),
+          checked: b.type === t,
+          disabled: t === 'HYDRO' ? 'Hydros live in their own "hydros" section' : b.section !== 'beams' ? 'Only rows of a "beams" section' : false,
+          run: () => ops.convertBeams(si.beams.size && si.beams.has(hit.idx) ? [...si.beams] : [hit.idx], t),
+        })) },
+        { label: 'Copy properties', run: () => ops.copyBeamProps(hit.idx) },
+        { label: `Paste properties${si.beams.size > 1 ? ` on ${si.beams.size} beams` : ''}`, disabled: ops.beamClipboardSize() ? false : 'Copy properties from a beam first', run: () => ops.pasteBeamProps(si.beams.size && si.beams.has(hit.idx) ? [...si.beams] : [hit.idx]) },
+        si.beams.size > 1 && { label: 'Batch edit…', hint: 'in the inspector', run: () => useUi.setState({ inspector: true }) },
+        'sep',
         { label: 'Nodes between them…', hint: 'subdivide', run: () => {
           selectNodes([b.a, b.b]);
           requestTool('subdivide');
@@ -1265,6 +1297,7 @@ export function ViewportPanel() {
         setSel(s2);
       });
       if (matches('edit.merge', e)) return run(() => mergeIntoActive());
+      if (matches('edit.extrude', e)) return run(() => extrude());
       if (matches('view.xray', e)) return run(() => useSettings.getState().set({ xray: !settings().xray }));
       if (matches('view.isolatePart', e)) return run(() => toggleIsolate());
       if (matches('select.all', e)) return run(() => {

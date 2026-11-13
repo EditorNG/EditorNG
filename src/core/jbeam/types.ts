@@ -89,11 +89,22 @@ export interface ActivePart {
   order: number;
 }
 
+/** Where a modifier value in effect for a row was set (a {"key": value} row of a table section). */
+export interface ModOrigin {
+  file: string;
+  part: string;
+  /** offsets of the "key": value pair */
+  s: number;
+  e: number;
+}
+
 export interface Row {
   /** Merged values: inherited modifiers + header-mapped cells + inline options. */
   v: Record<string, any>;
   src: SrcRef;
   part: ActivePart;
+  /** origin of each value inherited from modifier rows (shared object, never mutated) */
+  mods?: Record<string, ModOrigin>;
 }
 
 export type BeamType = 'NORMAL' | 'HYDRO' | 'ANISOTROPIC' | 'BOUNDED' | 'PRESSURED' | 'SUPPORT' | 'LBEAM' | 'BROKEN';

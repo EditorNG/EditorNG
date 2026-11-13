@@ -108,6 +108,10 @@ function selectFinding(v: Vehicle, f: Finding) {
   for (const i of f.nodes ?? []) s.nodes.add(v.nodes[i].name);
   setSel(s);
   if (f.nodes?.length) getViewport()?.frameNodes(f.nodes);
+  if (f.src) {
+    revealRange(f.src.file, f.src.s, f.src.e);
+    return;
+  }
   const row = f.beams?.length ? v.beams[f.beams[0]].row : f.tris?.length ? v.tris[f.tris[0]].row : f.nodes?.length ? v.nodes[f.nodes[0]].row : null;
   if (row) revealRange(row.src.file, row.src.node.s, row.src.node.e);
 }

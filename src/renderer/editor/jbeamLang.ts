@@ -251,6 +251,24 @@ export function registerJbeam(): void {
           }
         }
       }
+      // modifiers in effect for this row, with where they were set
+      if (v && ctx.row && ctx.rowIndex) {
+        const refs = ws.rowIndex.get(ctx.row);
+        const row = refs?.length ? rowOfRef(v, refs[0]) : null;
+        const mods = row?.mods;
+        if (row && mods) {
+          const items = Object.keys(mods)
+            .filter((k) => k !== 'partOrigin' && k !== 'partPath' && row.v[k] !== '' && row.v[k] !== undefined)
+            .map((k) => {
+              const o = mods[k];
+              const d = ws.doc(o.file);
+              const ln = d ? ws.ensureModel(d).getPositionAt(o.s).lineNumber : 0;
+              const val = typeof row.v[k] === 'number' ? (Number.isFinite(row.v[k]) ? row.v[k] : 'FLT_MAX') : JSON.stringify(row.v[k]);
+              return `${k}: \`${val}\` _(${o.part === row.part.def.name ? 'line ' + ln : o.part + ' line ' + ln + ', leaks in'})_`;
+            });
+          if (items.length) md.push('**modifiers in effect**\n\n' + items.join('  \n'));
+        }
+      }
       if (!md.length && leaf.k === 'num' && ctx.colName) md.push(`\`${ctx.colName}\``);
       if (!md.length) return null;
       return { range: range(leaf), contents: md.map((value) => ({ value })) };
@@ -668,4 +686,15 @@ export function suggestName(v: Vehicle, base: string): string {
   const prefix = base || settings().namingPrefix;
   for (let n = 1; n < 100000; n++) if (!v.nodeIndex.has(prefix + n)) return prefix + n;
   return prefix;
+}
+
+function rowOfRef(v: any, r: { kind: string; idx: number }): any {
+  if (r.kind === 'node') return v.nodes[r.idx]?.row;
+  if (r.kind === 'beam') return v.beams[r.idx]?.row;
+  if (r.kind === 'tri') return v.tris[r.idx]?.row;
+  if (r.kind === 'flex') return v.flexbodies[r.idx]?.row;
+  if (r.kind === 'prop') return v.props[r.idx]?.row;
+  if (r.kind === 'wheel') return v.wheels[r.idx]?.row;
+  if (r.kind === 'trigger') return v.triggers[r.idx];
+  return null;
 }

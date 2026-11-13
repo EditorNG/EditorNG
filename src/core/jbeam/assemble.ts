@@ -14,7 +14,7 @@ export function isOccupant(p: ActivePart): boolean {
 }
 import type {
   ActivePart, BeamType, Issue, JFile, PartDef, Row, SlotDef, SlotNode, SrcRef, VarDef, Vehicle,
-  VehicleConfig, VBeam, VFlexbody, VNode, VProp, VTri, VWheel,
+  VehicleConfig, VBeam, VFlexbody, VNode, VProp, VTri, VWheel, ModOrigin,
 } from './types';
 
 // ---------------------------------------------------------------------------------------------
@@ -495,7 +495,19 @@ interface TableBuild {
   headerPart?: ActivePart;
   rows: Row[];
   local: Record<string, any>;
+  /** where each modifier in `local` was set (replaced, never mutated) */
+  origin: Record<string, ModOrigin>;
   count: number;
+}
+
+function dropOrigins(tb: TableBuild, keys: Iterable<string>) {
+  let o: Record<string, ModOrigin> | null = null;
+  for (const k of keys) {
+    if (!(k in tb.origin)) continue;
+    if (!o) o = { ...tb.origin };
+    delete o[k];
+  }
+  if (o) tb.origin = o;
 }
 
 function emitPartRows(tb: TableBuild, part: ActivePart, section: string, table: ANode, issues: Issue[]): void {
@@ -533,6 +545,11 @@ function emitPartRows(tb: TableBuild, part: ActivePart, section: string, table: 
     if (row.k === 'obj') {
       const o = evalNode(row, part.scope, ctx);
       tb.local = Object.assign({}, tb.local, o);
+      const origin = { ...tb.origin };
+      row.keys.forEach((k, i) => {
+        origin[k.v] = { file: part.def.file, part: part.def.name, s: k.s, e: row.vals[i].e };
+      });
+      tb.origin = origin;
       continue;
     }
     if (row.k !== 'arr') {
@@ -562,7 +579,7 @@ function emitPartRows(tb: TableBuild, part: ActivePart, section: string, table: 
       if (key === undefined) continue;
       v[key] = evalNode(cells[c], part.scope, ctx);
     }
-    tb.rows.push({ v, src: { file: part.def.file, part: part.def.name, section, node: row, table }, part });
+    tb.rows.push({ v, src: { file: part.def.file, part: part.def.name, section, node: row, table }, part, mods: tb.origin });
     tb.count++;
   }
 }
@@ -606,7 +623,7 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
 
   const tableFor = (name: string): TableBuild => {
     let tb = tables.get(name);
-    if (!tb) tables.set(name, (tb = { header: null, rows: [], local: {}, count: 0 }));
+    if (!tb) tables.set(name, (tb = { header: null, rows: [], local: {}, origin: {}, count: 0 }));
     return tb;
   };
 
@@ -641,6 +658,7 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
       for (const name of touched) {
         const tb = tableFor(name);
         tb.local = Object.assign({}, tb.local, slotOpts);
+        dropOrigins(tb, Object.keys(slotOpts));
       }
     }
     for (const [name, node] of part.def.sections) {
@@ -688,6 +706,7 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
       for (const name of touched) {
         const tb = tableFor(name);
         tb.local = Object.assign({}, tb.local, reset);
+        dropOrigins(tb, Object.keys(reset));
       }
     }
   };

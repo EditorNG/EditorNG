@@ -467,7 +467,7 @@ function BlenderAddon({ close }: { close: () => void }) {
 const SHORTCUT_GROUPS: Array<[string, string[]]> = [
   ['Tools', ['add.menu', 'tool.select', 'tool.addNode', 'tool.beam', 'tool.tri', 'tool.name']],
   ['Transform', ['transform.grab', 'transform.scale', 'transform.rotate', 'edit.symmetry', 'edit.snapRail']],
-  ['Edit', ['edit.merge', 'edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
+  ['Edit', ['edit.extrude', 'edit.merge', 'edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
   ['Select', ['select.all', 'select.none', 'select.invert', 'select.grow', 'select.shrink', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
   ['View', ['view.hide', 'view.hideOthers', 'view.unhide', 'view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
   ['Game', ['game.reload']],
@@ -478,7 +478,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'add.menu': 'Add menu (node, beam, trigger, bulb, wheel…)',
   'game.reload': 'Save all and reload the vehicle in BeamNG',
   'view.hide': 'Hide selected nodes', 'view.hideOthers': 'Hide everything else', 'view.unhide': 'Unhide all',
-  'select.grow': 'Grow selection', 'select.shrink': 'Shrink selection', 'edit.merge': 'Merge nodes into the active one',
+  'edit.extrude': 'Extrude nodes (then move)', 'select.grow': 'Grow selection', 'select.shrink': 'Shrink selection', 'edit.merge': 'Merge nodes into the active one',
   'edit.symmetry': 'Toggle X symmetry (mirror twins move too)', 'edit.snapRail': 'Snap slidenodes onto their rail',
   'select.all': 'Select all', 'select.none': 'Select none', 'select.invert': 'Invert selection', 'select.linked': 'Select linked (same part)', 'select.mirror': 'Add mirror twins to selection',
   'transform.grab': 'Move (X/Y/Z lock, type value)', 'transform.scale': 'Scale (S then X then -1 mirrors)', 'transform.rotate': 'Rotate',

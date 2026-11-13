@@ -3,6 +3,7 @@
  */
 import type { Vehicle } from '../jbeam/types';
 import { collectRails, offRailSlides } from '../jbeam/rails';
+import { modifierLeaks, RISKY_KEYS } from './modifiers';
 
 export type CheckSev = 'error' | 'warning' | 'info';
 
@@ -13,6 +14,8 @@ export interface Finding {
   nodes?: number[];
   beams?: number[];
   tris?: number[];
+  /** where to jump in code (overrides the first element's row) */
+  src?: { file: string; s: number; e: number };
   /** optional automatic fix id */
   fix?: 'deleteBeams' | 'deleteTris' | 'snapRail';
 }
@@ -24,6 +27,8 @@ export interface CheckOptions {
   mirrorTolerance: number;
   suffixL: string;
   suffixR: string;
+  /** files the user can edit; leak findings are limited to leaks touching them */
+  editable?: (file: string) => boolean;
 }
 
 export const CHECKS: Array<{ id: string; title: string; doc: string }> = [
@@ -38,6 +43,7 @@ export const CHECKS: Array<{ id: string; title: string; doc: string }> = [
   { id: 'wrongSide', title: 'Side suffix on wrong side', doc: 'Left-suffixed nodes at -X or right-suffixed nodes at +X (+X is the car\'s left).' },
   { id: 'flexGroups', title: 'Flexbody groups without nodes', doc: 'Flexbodies referencing node groups that no node belongs to; the mesh will not be shown.' },
   { id: 'heavyNodes', title: 'Extreme node weights', doc: 'Nodes weighing more than 50 kg or less than 0.05 kg.' },
+  { id: 'modLeaks', title: 'Leaking modifiers', doc: 'A {"key": value} modifier row stays in effect for the rest of its section, and the game carries it into the same section of every part assembled after it. Values that are not reset at the end of a part change rows of other parts. Reset them with {"key": ""} (or the default) at the end of the section.' },
   { id: 'rails', title: 'Rails & slidenodes', doc: 'Rails with unknown nodes, slidenodes on rails that do not exist, and slidenodes that are not on their rail (they jump onto it when the vehicle spawns). Fix with Snap onto rail (Shift+R).' },
 ];
 
@@ -177,6 +183,28 @@ export function runChecks(v: Vehicle, o: CheckOptions, enabled?: Set<string>): F
       const w = nodeWeight(v, i);
       if (w > 50 || w < 0.05) out.push({ check: 'heavyNodes', sev: 'info', msg: `${n.name}: ${w.toFixed(2)} kg`, nodes: [i] });
     });
+  }
+  if (on('modLeaks')) {
+    for (const l of modifierLeaks(v)) {
+      const rows = [...l.into.values()].flat();
+      if (o.editable && !o.editable(l.origin.file) && !rows.some((r) => o.editable!(r.src.file))) continue;
+      const nodes = new Set<number>();
+      for (const r of rows) {
+        if (l.section === 'nodes') {
+          const i = v.nodeIndex.get(String(r.v.id));
+          if (i !== undefined) nodes.add(i);
+        } else for (const k of ['id1:', 'id2:', 'id3:']) {
+          const i = typeof r.v[k] === 'string' ? v.nodeIndex.get(r.v[k]) : undefined;
+          if (i !== undefined) nodes.add(i);
+        }
+      }
+      const val = typeof l.value === 'number' ? (Number.isFinite(l.value) ? String(l.value) : 'FLT_MAX') : JSON.stringify(l.value);
+      out.push({
+        check: 'modLeaks', sev: RISKY_KEYS.has(l.key) ? 'warning' : 'info',
+        msg: `${l.section}: ${l.key} = ${val} from ${l.origin.part} leaks into ${rows.length} row${rows.length > 1 ? 's' : ''} of ${[...l.into.keys()].join(', ')}`,
+        nodes: [...nodes], src: { file: l.origin.file, s: l.origin.s, e: l.origin.e },
+      });
+    }
   }
   if (on('rails')) {
     for (const r of collectRails(v).values()) {

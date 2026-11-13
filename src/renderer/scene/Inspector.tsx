@@ -8,6 +8,7 @@ import { getViewport, getLayers, startRailSlide } from './ViewportPanel';
 import { openMenu } from '../ui/Menu';
 import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
 import type { Row } from '@core/jbeam/types';
+import type { AArr, AObj } from '@core/sjson';
 import { triggerName, triggerActions } from '@core/jbeam/triggers';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 
@@ -44,18 +45,37 @@ function NumField(props: { label: string; value: number; onCommit: (v: number) =
 
 const OPT_KEYS = ['nodeWeight', 'collision', 'selfCollision', 'frictionCoef', 'nodeMaterial', 'group', 'beamSpring', 'beamDamp', 'beamDeform', 'beamStrength', 'beamType', 'deformGroup', 'breakGroup', 'beamPrecompression', 'beamLongBound', 'beamShortBound', 'deformLimitExpansion'];
 
+/** Effective row values with their origin: column, inline options, a modifier row (click to jump), or the slot. */
 function RowOptions({ row }: { row: Row }) {
-  const keys = OPT_KEYS.filter((k) => row.v[k] !== undefined && row.v[k] !== '');
+  const header = (() => {
+    const t = row.src.table;
+    return t && t.k === 'arr' && t.items[0]?.k === 'arr' ? (t.items[0] as AArr).items.map((x) => (x.k === 'str' ? x.v : '')) : [];
+  })();
+  const node = row.src.node as AArr;
+  const inline = node.k === 'arr' && node.items.length > header.length && node.items[node.items.length - 1]?.k === 'obj' ? (node.items[node.items.length - 1] as AObj) : null;
+  const inlineKeys = new Set(inline ? inline.keys.map((k) => k.v) : []);
+  const mods = row.mods ?? {};
+  const keys = [...new Set([...OPT_KEYS.filter((k) => row.v[k] !== undefined && row.v[k] !== ''), ...Object.keys(mods).filter((k) => row.v[k] !== undefined && row.v[k] !== '' && k !== 'partOrigin' && k !== 'partPath'), ...inlineKeys])].filter((k) => !header.includes(k));
   if (!keys.length) return null;
+  const line = (file: string, off: number) => {
+    const d = ws.doc(file);
+    if (!d) return '';
+    const m = ws.ensureModel(d);
+    return 'line ' + m.getPositionAt(off).lineNumber;
+  };
   return (
     <div className="insp-opts">
       {keys.map((k) => {
         const val = row.v[k];
         const shown = typeof val === 'number' ? (Number.isFinite(val) ? String(+val.toPrecision(6)) : 'FLT_MAX') : JSON.stringify(val);
+        const o = !inlineKeys.has(k) ? mods[k] : undefined;
+        const from = inlineKeys.has(k) ? 'inline' : o ? (o.part === row.part.def.name ? line(o.file, o.s) : `${o.part}`) : 'slot / part';
+        const leaking = o && o.part !== row.part.def.name;
         return (
           <div key={k} className="insp-opt">
             <span className="dim">{k}</span>
             <span className="mono ellipsis" title={shown}>{shown}</span>
+            <button className={'insp-from' + (leaking ? ' warn-text' : '')} disabled={!o} data-tip={o ? `Set by a modifier row in ${o.part} (${line(o.file, o.s)})${leaking ? '\nLeaks in from another part' : ''}` : from === 'inline' ? 'Inline option of this row' : 'From the slot or the part'} data-tip-pos="left" onClick={() => o && revealRange(o.file, o.s, o.e, true)}>{from}</button>
           </div>
         );
       })}
@@ -259,6 +279,8 @@ export function Inspector() {
           }}>{si.nodes.size === 3 ? 'Make triangle' : si.nodes.size === 2 ? 'Make beam' : 'Chain beams'} <span className="kbd">F</span></button>}
           <button className="btn small" onClick={() => ops.mirrorSelection()}>Mirror <span className="kbd">Ctrl+M</span></button>
         </div>
+        {si.nodes.size >= 2 && <BatchEdit title={`${si.nodes.size} nodes`} rows={[...si.nodes].map((i) => v.nodes[i].row)} fields={NODE_FIELDS} />}
+        {si.beams.size >= 2 && <BatchEdit title={`${si.beams.size} beams`} rows={[...si.beams].map((i) => v.beams[i].row)} fields={BEAM_FIELDS} />}
       </>
     );
   }
@@ -369,4 +391,72 @@ function inspectorMenu(e: React.MouseEvent) {
     all && { label: 'Copy x, y, z', hint: all, run: () => navigator.clipboard.writeText(all) },
     name && name !== value && { label: `Copy "${name}"`, run: () => navigator.clipboard.writeText(name) },
   ]);
+}
+
+const NODE_FIELDS = ['nodeWeight', 'group', 'collision', 'selfCollision', 'frictionCoef', 'nodeMaterial', 'fixed'];
+const BEAM_FIELDS = ['beamSpring', 'beamDamp', 'beamDeform', 'beamStrength', 'beamPrecompression', 'deformGroup', 'breakGroup', 'deformLimitExpansion'];
+
+function showVal(v: any): string {
+  if (v === undefined || v === '') return '';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(+v.toPrecision(8)) : 'FLT_MAX';
+  if (typeof v === 'string') return v;
+  return JSON.stringify(v);
+}
+function parseVal(t: string): any {
+  const x = t.trim();
+  if (x === '') return '';
+  if (x === 'true' || x === 'false') return x === 'true';
+  if (x === 'FLT_MAX') return 'FLT_MAX';
+  if (/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(x)) return Number(x);
+  if (/^[[{]/.test(x)) {
+    try {
+      return JSON.parse(x);
+    } catch {}
+  }
+  return x;
+}
+
+/** Shared properties of many rows: equal values shown, different ones as "mixed"; edits write all rows at once. */
+function BatchEdit(props: { title: string; rows: Row[]; fields: string[] }) {
+  const [asModifier, setAsModifier] = useState(false);
+  const block = ops.contiguousBlock(props.rows);
+  const commit = (k: string, text: string) => {
+    const val = parseVal(text);
+    if (asModifier && block) ops.wrapInModifiers(props.rows, { [k]: val }, `Set ${k} (modifier) on ${props.rows.length} rows`);
+    else ops.setRowValues(props.rows, { [k]: val }, `Set ${k} on ${props.rows.length} rows`);
+  };
+  return (
+    <div className="batch">
+      <div className="batch-head">
+        <span className="dim">Batch edit · {props.title}</span>
+        <div className="segmented small">
+          <button className={'seg' + (!asModifier ? ' active' : '')} onClick={() => setAsModifier(false)} data-tip="Write the value into each row (inline options)">rows</button>
+          <button className={'seg' + (asModifier ? ' active' : '')} disabled={!block} onClick={() => setAsModifier(true)} data-tip={block ? 'Wrap the rows in {"key": value} … {"key": ""} modifier rows' : 'Only for one contiguous block of rows'}>modifier</button>
+        </div>
+      </div>
+      {props.fields.map((k) => {
+        const vals = props.rows.map((r) => showVal(r.v[k]));
+        const same = vals.every((x) => x === vals[0]);
+        return <BatchField key={k + vals.join('|')} label={k} value={same ? vals[0] : ''} mixed={!same} onCommit={(t) => commit(k, t)} />;
+      })}
+    </div>
+  );
+}
+
+function BatchField(props: { label: string; value: string; mixed: boolean; onCommit: (t: string) => void }) {
+  const [text, setText] = useState(props.value);
+  const commit = () => {
+    if (text !== props.value || (props.mixed && text !== '')) props.onCommit(text);
+  };
+  return (
+    <label className="batch-field">
+      <span className="dim">{props.label}</span>
+      <input className="input small mono" value={text} placeholder={props.mixed ? 'mixed' : '—'} onChange={(e) => setText(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') setText(props.value);
+        }} />
+    </label>
+  );
 }

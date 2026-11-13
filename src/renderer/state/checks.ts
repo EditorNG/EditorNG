@@ -21,7 +21,10 @@ export function runAllChecks(): Finding[] {
   const v = ws.vehicle;
   if (!v) return [];
   const s = settings();
-  const res = runChecks(v, { shortBeam: s.debugShortBeam, closeNodes: s.debugCloseNodes, minBeams: s.debugMinBeamsPerNode, mirrorTolerance: s.mirrorTolerance, suffixL: s.mirrorSuffixLeft, suffixR: s.mirrorSuffixRight }, useChecks.getState().enabled);
+  const res = runChecks(v, { shortBeam: s.debugShortBeam, closeNodes: s.debugCloseNodes, minBeams: s.debugMinBeamsPerNode, mirrorTolerance: s.mirrorTolerance, suffixL: s.mirrorSuffixLeft, suffixR: s.mirrorSuffixRight, editable: (f) => {
+    const d = ws.doc(f);
+    return !!d?.writable && !d.isCommon;
+  } }, useChecks.getState().enabled);
   useChecks.setState({ results: res, forVehicle: v });
   return res;
 }

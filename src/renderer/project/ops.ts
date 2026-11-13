@@ -3,7 +3,7 @@
  */
 import { ws, useWs, type Doc } from './workspace';
 import {
-  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, insertRowsAfter, setRowCellsText, type TextEdit,
+  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, insertRowsAfter, setRowCellsText, indentAt, type TextEdit,
 } from '@core/jbeam/edit';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import type { ANode, AArr } from '@core/sjson';
@@ -472,13 +472,15 @@ export function duplicateNodes(indices: number[], offset: [number, number, numbe
     map.set(i, name);
     return { name, x: n.x + offset[0], y: n.y + offset[1], z: n.z + offset[2], opts: nodeExtraOpts(n.row) };
   });
-  const names = addNodes(nodes, 'Duplicate nodes');
-  if (!names.length) return [];
-  const set = new Set(indices);
-  const pairs: Array<[string, string]> = [];
-  for (const b of v.beams) if (set.has(b.a) && set.has(b.b)) pairs.push([map.get(b.a)!, map.get(b.b)!]);
-  if (pairs.length) addBeams(pairs, undefined, 'Duplicate beams');
-  return names;
+  return ws.group('Duplicate nodes', () => {
+    const names = addNodes(nodes, 'Duplicate nodes');
+    if (!names.length) return [];
+    const set = new Set(indices);
+    const pairs: Array<[string, string]> = [];
+    for (const b of v.beams) if (set.has(b.a) && set.has(b.b)) pairs.push([map.get(b.a)!, map.get(b.b)!]);
+    if (pairs.length) addBeams(pairs, undefined, 'Duplicate beams');
+    return names;
+  });
 }
 
 export function nextName(base: string, taken: Set<string>): string {
@@ -1033,4 +1035,298 @@ export function hideNodes(names: Iterable<string> | null) {
   for (const n of names) h.add(n);
   useSel.setState({ hidden: h });
   setSel(emptySel());
+}
+
+// ------------------------------------------------------------------------------------------
+// batch edit, beam types, property clipboard
+// ------------------------------------------------------------------------------------------
+
+/** Writes values into many rows (header cells when the column exists, else inline options), one undo step. */
+export function setRowValues(rows: Row[], vals: Record<string, any>, label = 'Edit rows'): boolean {
+  const es = new EditSet();
+  for (const row of rows) {
+    const d = writableDoc(row.src.file);
+    if (!d) return false;
+    const header = headerOf(row.src.table, row.src.section);
+    const node = row.src.node;
+    const text = d.text.slice(node.s, node.e);
+    const next = setRowCellsText(text, header, vals, dec());
+    if (next !== text) es.add(d.key, [{ s: node.s, e: node.e, text: next }]);
+  }
+  if (!es.size) return false;
+  return es.apply(label);
+}
+
+/**
+ * Writes values as modifier rows around a contiguous block of rows of one section:
+ * {"key": value} before the first row and {"key": ""} (reset) after the last.
+ */
+export function wrapInModifiers(rows: Row[], vals: Record<string, any>, label = 'Wrap in modifiers'): boolean {
+  const block = contiguousBlock(rows);
+  if (!block) {
+    toast('info', 'The rows are not one contiguous block of one section');
+    return false;
+  }
+  const d = writableDoc(block.file);
+  if (!d) return false;
+  const eol = eolOf(d.text);
+  const ind = indentAt(d.text, block.first.s);
+  // close the block by restoring what was in effect before it ("" when nothing was)
+  const reset: Record<string, any> = {};
+  for (const k of Object.keys(vals)) {
+    const before = rows[0].v[k];
+    reset[k] = before === undefined ? '' : before;
+  }
+  const lineStart = d.text.lastIndexOf('\n', block.first.s - 1) + 1;
+  const es = new EditSet();
+  es.add(d.key, [{ s: lineStart, e: lineStart, text: ind + fmtValue(vals, dec()) + ',' + eol }]);
+  es.add(d.key, insertRowsAfter(d.text, block.last, [fmtValue(reset, dec())]));
+  return es.apply(label);
+}
+
+/** The rows as one uninterrupted run of a table (first/last row nodes), or null. */
+export function contiguousBlock(rows: Row[]): null | { file: string; first: ANode; last: ANode } {
+  if (!rows.length) return null;
+  const t = rows[0].src.table as AArr;
+  if (!rows.every((r) => r.src.table === t)) return null;
+  const idx = rows.map((r) => t.items.indexOf(r.src.node as any)).sort((a, b) => a - b);
+  if (idx[0] < 0) return null;
+  for (let i = idx[0]; i <= idx[idx.length - 1]; i++) {
+    const it = t.items[i];
+    if (it.k === 'arr' && !idx.includes(i)) return null;
+  }
+  return { file: rows[0].src.file, first: t.items[idx[0]], last: t.items[idx[idx.length - 1]] };
+}
+
+export const BEAM_TYPES = ['NORMAL', 'BOUNDED', 'SUPPORT', 'PRESSURED', 'ANISOTROPIC', 'LBEAM', 'HYDRO'] as const;
+
+/** Converts beams to another beamType, adding the fields that type needs (vanilla-typical values). */
+export function convertBeams(beamIdx: number[], type: (typeof BEAM_TYPES)[number]): boolean {
+  const v = ws.vehicle;
+  if (!v || !beamIdx.length) return false;
+  if (type === 'HYDRO') {
+    toast('info', 'Hydros live in their own "hydros" section; create them there');
+    return false;
+  }
+  const rows: Row[] = [];
+  const es = new EditSet();
+  for (const i of beamIdx) {
+    const b = v.beams[i];
+    if (b.section !== 'beams') continue;
+    const r = b.row.v;
+    const vals: Record<string, any> = { beamType: '|' + type };
+    const unset = (k: string) => r[k] === undefined || r[k] === '';
+    if (type === 'BOUNDED') {
+      if (unset('beamLongBound')) vals.beamLongBound = 0.05;
+      if (unset('beamShortBound')) vals.beamShortBound = 0.05;
+    } else if (type === 'SUPPORT') {
+      if (unset('beamLongBound')) vals.beamLongBound = 1;
+    } else if (type === 'PRESSURED') {
+      if (unset('pressurePSI')) vals.pressurePSI = 30;
+      if (unset('surface')) vals.surface = 1;
+      if (unset('volumeCoef')) vals.volumeCoef = 1;
+    } else if (type === 'ANISOTROPIC') {
+      if (unset('springExpansion')) vals.springExpansion = typeof r.beamSpring === 'number' ? r.beamSpring : 4300000;
+      if (unset('dampExpansion')) vals.dampExpansion = typeof r.beamDamp === 'number' ? r.beamDamp : 580;
+    } else if (type === 'LBEAM' && unset('id3:')) {
+      toast('info', 'L-beams need a third node (id3:); add it to the row');
+      return false;
+    }
+    const d = writableDoc(b.row.src.file);
+    if (!d) return false;
+    const header = headerOf(b.row.src.table, 'beams');
+    const text = d.text.slice(b.row.src.node.s, b.row.src.node.e);
+    es.add(d.key, [{ s: b.row.src.node.s, e: b.row.src.node.e, text: setRowCellsText(text, header, vals, dec()) }]);
+    rows.push(b.row);
+  }
+  if (!rows.length) {
+    toast('info', 'Only rows of a "beams" section can be converted');
+    return false;
+  }
+  return es.apply(`Convert ${rows.length} beam(s) to ${type.toLowerCase()}`);
+}
+
+export const BEAM_PROPS = [
+  'beamType', 'beamSpring', 'beamDamp', 'beamDeform', 'beamStrength', 'beamPrecompression', 'beamLongBound', 'beamShortBound', 'beamLimitSpring', 'beamLimitDamp',
+  'springExpansion', 'dampExpansion', 'deformLimitExpansion', 'deformGroup', 'breakGroup', 'boundZone', 'pressurePSI', 'surface', 'volumeCoef',
+];
+let beamClipboard: Record<string, any> | null = null;
+
+/** Copies the effective physical properties of a beam. */
+export function copyBeamProps(beamIdx: number): void {
+  const v = ws.vehicle;
+  const b = v?.beams[beamIdx];
+  if (!b) return;
+  const out: Record<string, any> = {};
+  for (const k of BEAM_PROPS) {
+    const val = b.row.v[k];
+    if (val !== undefined && val !== '') out[k] = val;
+  }
+  beamClipboard = out;
+  toast('info', `Copied ${Object.keys(out).length} properties`);
+}
+export function beamClipboardSize(): number {
+  return beamClipboard ? Object.keys(beamClipboard).length : 0;
+}
+/** Pastes copied beam properties onto beams (as inline options). */
+export function pasteBeamProps(beamIdx: number[]): boolean {
+  const v = ws.vehicle;
+  if (!v || !beamClipboard) return false;
+  return setRowValues(beamIdx.map((i) => v.beams[i].row), beamClipboard, `Paste properties on ${beamIdx.length} beam(s)`);
+}
+
+// ------------------------------------------------------------------------------------------
+// extrude and bridge
+// ------------------------------------------------------------------------------------------
+
+/** Next free names from the quick-naming prefix with side suffixes (f12l, f12r, f13…). */
+function namesFor(positions: Array<[number, number, number]>): string[] {
+  const v = ws.vehicle!;
+  const nm = useUi.getState().naming;
+  const taken = new Set(v.nodeIndex.keys());
+  let num = nm.next;
+  return positions.map((p) => {
+    let name = sidedName(nm.prefix, num, p[0]);
+    while (taken.has(name)) name = sidedName(nm.prefix, ++num, p[0]);
+    taken.add(name);
+    return name;
+  });
+}
+
+/**
+ * Blender's extrude for a node cage: new nodes on top of the selected ones, beams between the
+ * new nodes where the originals were connected, and a beam from each new node to its origin.
+ * Returns the new names (the caller starts a move).
+ */
+export function extrudeNodes(indices: number[]): string[] {
+  const v = ws.vehicle;
+  if (!v || !indices.length) return [];
+  const pos = indices.map((i) => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z] as [number, number, number]);
+  const names = namesFor(pos);
+  const map = new Map(indices.map((i, k) => [i, names[k]]));
+  return ws.group(`Extrude ${indices.length} node(s)`, () => {
+    const made = addNodes(indices.map((i, k) => ({ name: names[k], x: pos[k][0], y: pos[k][1], z: pos[k][2], opts: nodeExtraOpts(v.nodes[i].row) })), 'Extrude');
+    if (!made.length) return [];
+    const set = new Set(indices);
+    const pairs: Array<[string, string]> = indices.map((i) => [v.nodes[i].name, map.get(i)!] as [string, string]);
+    for (const b of v.beams) if (set.has(b.a) && set.has(b.b)) pairs.push([map.get(b.a)!, map.get(b.b)!]);
+    addBeams(pairs, undefined, 'Extrude beams');
+    return made;
+  });
+}
+
+/** Orders a set of nodes connected as a path (by existing beams); null when it is not a simple path. */
+function asChain(v: Vehicle, nodes: number[]): number[] | null {
+  const set = new Set(nodes);
+  const adj = new Map<number, number[]>();
+  for (const b of v.beams) {
+    if (!set.has(b.a) || !set.has(b.b) || b.a === b.b) continue;
+    (adj.get(b.a) ?? adj.set(b.a, []).get(b.a)!).push(b.b);
+    (adj.get(b.b) ?? adj.set(b.b, []).get(b.b)!).push(b.a);
+  }
+  if (nodes.length === 1) return nodes;
+  const ends = nodes.filter((i) => new Set(adj.get(i) ?? []).size === 1);
+  const start = ends[0] ?? nodes[0];
+  const out = [start];
+  const seen = new Set(out);
+  for (;;) {
+    const cur = out[out.length - 1];
+    const next = [...new Set(adj.get(cur) ?? [])].find((j) => !seen.has(j));
+    if (next === undefined) break;
+    out.push(next);
+    seen.add(next);
+  }
+  return out.length === nodes.length ? out : null;
+}
+
+/** Splits nodes into groups connected by beams among themselves. */
+function components(v: Vehicle, nodes: number[]): number[][] {
+  const set = new Set(nodes);
+  const adj = new Map<number, number[]>();
+  for (const b of v.beams) {
+    if (!set.has(b.a) || !set.has(b.b)) continue;
+    (adj.get(b.a) ?? adj.set(b.a, []).get(b.a)!).push(b.b);
+    (adj.get(b.b) ?? adj.set(b.b, []).get(b.b)!).push(b.a);
+  }
+  const seen = new Set<number>();
+  const out: number[][] = [];
+  for (const n of nodes) {
+    if (seen.has(n)) continue;
+    const comp: number[] = [];
+    const q = [n];
+    seen.add(n);
+    while (q.length) {
+      const i = q.pop()!;
+      comp.push(i);
+      for (const j of adj.get(i) ?? []) if (!seen.has(j)) {
+        seen.add(j);
+        q.push(j);
+      }
+    }
+    out.push(comp);
+  }
+  return out;
+}
+
+/**
+ * Connects two node chains (each linked by beams) like a ladder: rungs between matching nodes,
+ * cross bracing in every bay, and optionally two collision triangles per bay (normals outward).
+ */
+export function bridgeChains(nodes: number[], opts: { bracing: boolean; triangles: boolean }): boolean {
+  const v = ws.vehicle;
+  if (!v) return false;
+  const comps = components(v, nodes);
+  if (comps.length !== 2) {
+    toast('info', `Select two chains of nodes, each connected by beams (found ${comps.length} group${comps.length === 1 ? '' : 's'})`);
+    return false;
+  }
+  let a = asChain(v, comps[0]);
+  let b = asChain(v, comps[1]);
+  if (!a || !b) {
+    toast('info', 'Each chain must be a simple line of beams (no branches)');
+    return false;
+  }
+  const P = (i: number) => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z];
+  const dist = (i: number, j: number) => Math.hypot(P(i)[0] - P(j)[0], P(i)[1] - P(j)[1], P(i)[2] - P(j)[2]);
+  // orient b like a
+  if (dist(a[0], b[0]) + dist(a[a.length - 1], b[b.length - 1]) > dist(a[0], b[b.length - 1]) + dist(a[a.length - 1], b[0])) b = [...b].reverse();
+  if (a.length < b.length) [a, b] = [b, a];
+  // match each node of the longer chain to a node of the other by relative position along the chain
+  const match = (k: number) => b![Math.round((k / Math.max(1, a!.length - 1)) * (b!.length - 1))];
+  const N = (i: number) => v.nodes[i].name;
+  const beams: Array<[string, string]> = [];
+  const tris: Array<[string, string, string]> = [];
+  for (let k = 0; k < a.length; k++) beams.push([N(a[k]), N(match(k))]);
+  for (let k = 0; k + 1 < a.length; k++) {
+    const a0 = a[k], a1 = a[k + 1], b0 = match(k), b1 = match(k + 1);
+    if (opts.bracing) {
+      if (b0 !== b1) beams.push([N(a0), N(b1)]);
+      beams.push([N(a1), N(b0)]);
+    }
+    if (opts.triangles) {
+      tris.push([N(a0), N(a1), N(b1)]);
+      if (b0 !== b1) tris.push([N(a0), N(b1), N(b0)]);
+    }
+  }
+  // collision triangles face outward: away from the vehicle centre
+  if (tris.length) {
+    let cx = 0, cy = 0, cz = 0;
+    for (const n of v.nodes) {
+      cx += n.x;
+      cy += n.y;
+      cz += n.z;
+    }
+    const c = [cx / v.nodes.length, cy / v.nodes.length, cz / v.nodes.length];
+    const [p, q, r] = tris[0].map((n) => P(v.nodeIndex.get(n)!));
+    const u = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], w = [r[0] - p[0], r[1] - p[1], r[2] - p[2]];
+    const nrm = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+    const mid = [(p[0] + q[0] + r[0]) / 3 - c[0], (p[1] + q[1] + r[1]) / 3 - c[1], (p[2] + q[2] + r[2]) / 3 - c[2]];
+    if (nrm[0] * mid[0] + nrm[1] * mid[1] + nrm[2] * mid[2] < 0) for (const t of tris) [t[1], t[2]] = [t[2], t[1]];
+  }
+  return ws.group('Bridge chains', () => {
+    const nb = addBeams(beams, undefined, 'Bridge beams');
+    const nt = tris.length ? addTris(tris, 'Bridge triangles') : 0;
+    if (nb || nt) toast('info', `Bridge: ${nb} beams${nt ? `, ${nt} triangles (check their normals)` : ''}`);
+    return nb > 0 || nt > 0;
+  });
 }
