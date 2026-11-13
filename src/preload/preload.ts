@@ -5,7 +5,7 @@ const invokeNames = [
   'readTexts', 'readBinary', 'findFile', 'readTextFile', 'readBinaryFile', 'writeTextFile', 'writeBinaryFile', 'stat', 'listDir',
   'walkDir', 'mkdirp', 'copyFromVfs', 'pickFolder', 'pickFile', 'saveDialog', 'reveal', 'openExternal', 'cacheRead',
   'cacheWrite', 'cacheClear', 'blenderFind', 'blenderExtract', 'installBlenderAddon', 'watch', 'blenderLinkPort',
-  'windowAction', 'setTitleBarColors',
+  'windowAction', 'setTitleBarColors', 'gameSend', 'gameBridgeStatus', 'gameBridgeInstall', 'gameLogRead',
 ];
 
 const api: Record<string, unknown> = {};

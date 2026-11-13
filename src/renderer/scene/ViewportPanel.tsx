@@ -141,6 +141,18 @@ export function ViewportPanel() {
     vpInstance?.setHover(hover);
   }, [hover]);
 
+  const hidden = useSel((x) => x.hidden);
+  useEffect(() => {
+    const v = ws.vehicle;
+    if (!vpInstance || !v) return;
+    const h = new Set<number>();
+    for (const n of hidden) {
+      const i = v.nodeIndex.get(n);
+      if (i !== undefined) h.add(i);
+    }
+    vpInstance.setHidden(h);
+  }, [hidden, vehicle, scope]);
+
   // view scope: rebuild the visible set when the scope changes (frame it), or silently after re-assembly
   const lastScope = useRef<string>('');
   useEffect(() => {
@@ -257,6 +269,20 @@ export function ViewportPanel() {
     ];
   };
 
+  /** M: merges the selected nodes into the active (last clicked) node. */
+  const mergeIntoActive = () => {
+    const v = ws.vehicle;
+    if (!v) return;
+    const idx = selectionNodeIdx();
+    if (idx.length < 2) {
+      toast('info', 'Select 2 or more nodes; they merge into the last one you clicked');
+      return;
+    }
+    const act = useSel.getState().active;
+    const target = act?.kind === 'node' && idx.includes(act.idx) ? act.idx : idx[idx.length - 1];
+    ops.mergeNodes(target, idx);
+  };
+
   /** Right-click menu for whatever is under the cursor (or empty space). */
   const showContextMenu = (lx: number, ly: number, hit: Hover | null) => {
     const v = ws.vehicle;
@@ -286,12 +312,24 @@ export function ViewportPanel() {
       ];
     };
     const deleteEntry: MenuEntry[] = ['sep', { label: 'Delete', key: 'X', danger: true, run: () => ops.deleteSelection() }];
+    const activeIdx = st.active?.kind === 'node' && nodeIdx.includes(st.active.idx) ? st.active.idx : null;
+    const layoutSub: MenuEntry = names.length >= 2 && {
+      label: 'Align & distribute', submenu: [
+        { label: 'Align X', hint: activeIdx !== null ? 'to active' : 'to average', run: () => ops.alignNodes(nodeIdx, 0, activeIdx) },
+        { label: 'Align Y', hint: activeIdx !== null ? 'to active' : 'to average', run: () => ops.alignNodes(nodeIdx, 1, activeIdx) },
+        { label: 'Align Z', hint: activeIdx !== null ? 'to active' : 'to average', run: () => ops.alignNodes(nodeIdx, 2, activeIdx) },
+        'sep',
+        { label: 'Distribute evenly', disabled: nodeIdx.length >= 3 ? false : 'Select 3 or more nodes', run: () => ops.distributeNodes(nodeIdx) },
+      ],
+    };
     const multiNode: MenuEntry[] = names.length >= 2 ? [
       'sep',
       { title: `${names.length} nodes` },
       { label: names.length === 3 ? 'Make triangle' : names.length === 2 ? 'Connect with a beam' : 'Connect as a chain', key: 'F', run: () => (names.length === 3 ? ops.addTris([[names[0], names[1], names[2]]]) : ops.addBeams(names.slice(1).map((n, i) => [names[i], n] as [string, string]), undefined, names.length > 2 ? 'Connect chain' : 'Add beam')) },
       { label: 'Rail from selection…', run: () => requestTool('rail', undefined, names) },
       { label: 'Mirror to other side', key: 'Ctrl+M', run: () => ops.mirrorSelection() },
+      { label: `Merge into ${activeIdx !== null ? v.nodes[activeIdx].name : 'last clicked'}`, key: 'M', run: mergeIntoActive },
+      layoutSub,
     ] : [];
     const selectSub: MenuEntry = {
       label: 'Select', submenu: [
@@ -305,6 +343,9 @@ export function ViewportPanel() {
           const parts = new Set(nodeIdx.map((i) => v.nodes[i].row.part.def.name));
           selectNodes(v.nodes.map((n, i) => (parts.has(n.row.part.def.name) ? i : -1)).filter((i) => i >= 0));
         } },
+        { label: 'Grow', key: 'Ctrl+Numpad+', run: () => ops.growSelection(true, (i) => vp.nodeVis[i] > 0) },
+        { label: 'Shrink', key: 'Ctrl+Numpad-', run: () => ops.growSelection(false, (i) => vp.nodeVis[i] > 0) },
+        { label: 'Shortest path', hint: 'Ctrl+click a node', disabled: 'Ctrl+click a second node' },
         { label: 'Add mirror twins', key: 'Shift+M', run: () => {
           const out = new Set(names);
           for (const n of names) {
@@ -330,6 +371,8 @@ export function ViewportPanel() {
         'sep',
         selectSub,
         ...multiNode,
+        'sep',
+        { label: 'Hide', key: 'H', run: () => ops.hideNodes(nodeIdx.length ? nodeIdx.map((i) => v.nodes[i].name) : [n.name]) },
         ...rowEntries(n.row),
         ...deleteEntry,
       ];
@@ -338,6 +381,11 @@ export function ViewportPanel() {
       items = [
         { title: `${v.nodes[b.a].name} — ${v.nodes[b.b].name}` },
         { label: 'Select both nodes', run: () => selectNodes([b.a, b.b]) },
+        { label: 'Select similar', submenu: [
+          { label: 'Same beam type', hint: b.type.toLowerCase(), run: () => ops.selectSimilarBeams(hit.idx, 'type', (i) => vp.drawBeams.includes(i)) },
+          { label: 'Same deformGroup', hint: String(b.row.v.deformGroup ?? '') || undefined, disabled: b.row.v.deformGroup ? false : 'No deformGroup on this beam', run: () => ops.selectSimilarBeams(hit.idx, 'deformGroup') },
+          { label: 'Same breakGroup', hint: String(b.row.v.breakGroup ?? '') || undefined, disabled: b.row.v.breakGroup ? false : 'No breakGroup on this beam', run: () => ops.selectSimilarBeams(hit.idx, 'breakGroup') },
+        ] },
         { label: 'Nodes between them…', hint: 'subdivide', run: () => {
           selectNodes([b.a, b.b]);
           requestTool('subdivide');
@@ -420,6 +468,7 @@ export function ViewportPanel() {
         } },
         { label: 'Select none', key: 'Alt+A', disabled: nodeIdx.length || si.beams.size || si.tris.size ? false : 'Nothing selected', run: () => setSel(emptySel()) },
         { label: 'Symmetry (X)', key: 'Shift+X', checked: s.symmetryX, run: toggleSymmetry },
+        { label: 'Unhide all', key: 'Alt+H', disabled: st.hidden.size ? false : 'Nothing hidden', hint: st.hidden.size ? `${st.hidden.size} nodes` : undefined, run: () => ops.hideNodes(null) },
       ];
     }
     openMenu(c.x, c.y, items);
@@ -616,8 +665,12 @@ export function ViewportPanel() {
     let info = '';
     // Ctrl: snap onto the node under the cursor
     const exclude = new Set<number>([...m.initial.keys(), ...m.shown.keys()]);
-    const target = ctrl && !Number.isFinite(num) && (m.type === 'move' || m.type === 'railSlide') ? snapTargetAt(cur.x, cur.y, exclude) : null;
-    const tp = target !== null ? new THREE.Vector3(vp.pos[target * 3], vp.pos[target * 3 + 1], vp.pos[target * 3 + 2]) : null;
+    const snapping = ctrl && !Number.isFinite(num) && (m.type === 'move' || m.type === 'railSlide');
+    const target = snapping ? snapTargetAt(cur.x, cur.y, exclude) : null;
+    // no node under the cursor: snap to the nearest flexbody vertex (fitting a jbeam to a body)
+    const meshP = snapping && target === null ? layersInstance?.meshVertexAt(cur.x, cur.y) ?? null : null;
+    const tp = target !== null ? new THREE.Vector3(vp.pos[target * 3], vp.pos[target * 3 + 1], vp.pos[target * 3 + 2]) : meshP;
+    const snapLabel = target !== null ? v.nodes[target].name : meshP ? 'mesh vertex' : '';
     if (m.type === 'railSlide') {
       const pr = m.slides!.get(m.primary!)!;
       let d: number;
@@ -688,7 +741,7 @@ export function ViewportPanel() {
     if (m.trig) info = `${m.trig.length === 1 ? m.trig[0].name.split(' · ')[0] : m.trig.length + ' triggers'}  ·  ` + info;
     if (m.axis) info += m.trig && m.type === 'scale' ? `   local ${m.axis.toUpperCase()}` : `   along ${m.axis.toUpperCase()}`;
     if (m.numeric) info += `   [${m.numeric}]`;
-    if (target !== null) info += `   → snap ${v.nodes[target].name}`;
+    if (snapLabel) info += `   → snap ${snapLabel}`;
     if (settings().symmetryX) info += '   · symmetry';
     // restore nodes that were previewed before but are not moved any more (twins)
     const shown = ops.symmetryPreview(out);
@@ -698,7 +751,7 @@ export function ViewportPanel() {
     m.current = out;
     m.shown = shown;
     m.info = info;
-    vp.extraLabels = target !== null ? [{ x: tp!.x, y: tp!.y, z: tp!.z, text: '⊙ ' + v.nodes[target].name, color: '#ffd23e' }] : [];
+    vp.extraLabels = tp && snapLabel ? [{ x: tp.x, y: tp.y, z: tp.z, text: '⊙ ' + snapLabel, color: '#ffd23e' }] : [];
     vp.previewPositions(shown);
     setModal({ ...m });
   };
@@ -1000,6 +1053,20 @@ export function ViewportPanel() {
       return;
     }
     if (t === 'select') {
+      const act = useSel.getState().active;
+      if (d.ctrl && hit?.kind === 'node' && act?.kind === 'node' && act.idx !== hit.idx) {
+        // Blender: Ctrl+click picks the shortest path from the active node
+        const vp = vpInstance!;
+        const path = ops.shortestPath(v, act.idx, hit.idx, (i) => vp.nodeVis[i] > 0);
+        if (path) {
+          const s = cloneSel(useSel.getState().sel);
+          for (const i of path) s.nodes.add(v.nodes[i].name);
+          setSel(s, hit);
+          return;
+        }
+        toast('info', 'No beam path between those nodes');
+        return;
+      }
       const s = d.shift || d.ctrl ? cloneSel(useSel.getState().sel) : emptySel();
       if (hit) {
         addToSel(v, s, hit.kind, hit.idx, d.shift || d.ctrl);
@@ -1179,6 +1246,25 @@ export function ViewportPanel() {
       if (matches('view.ortho', e)) return run(() => vp.setOrtho(!vp.isOrtho));
       if (matches('view.toggleLabels', e)) return run(() => useSettings.getState().set({ showLabels: settings().showLabels === 'all' ? 'hover' : 'all' }));
       if (matches('view.toggleMeshes', e)) return run(() => useSettings.getState().set({ showMeshes: !settings().showMeshes }));
+      if (matches('view.unhide', e)) return run(() => ops.hideNodes(null));
+      if (matches('view.hide', e)) return run(() => ops.hideNodes(selectionNodeIdx().map((i) => v.nodes[i].name)));
+      if (matches('view.hideOthers', e)) return run(() => {
+        const keep = new Set(selectionNodeIdx());
+        if (!keep.size) return;
+        ops.hideNodes(v.nodes.map((n, i) => (keep.has(i) || vp.nodeVis[i] === 0 ? '' : n.name)).filter(Boolean));
+        const s2 = emptySel();
+        for (const i of keep) s2.nodes.add(v.nodes[i].name);
+        setSel(s2);
+      });
+      if (matches('select.grow', e)) return run(() => ops.growSelection(true, (i) => vp.nodeVis[i] > 0));
+      if (matches('select.shrink', e)) return run(() => ops.growSelection(false, (i) => vp.nodeVis[i] > 0));
+      if (matches('select.invert', e)) return run(() => {
+        const cur = useSel.getState().sel.nodes;
+        const s2 = emptySel();
+        v.nodes.forEach((n, i) => vp.nodeVis[i] === 2 && !cur.has(n.name) && s2.nodes.add(n.name));
+        setSel(s2);
+      });
+      if (matches('edit.merge', e)) return run(() => mergeIntoActive());
       if (matches('view.xray', e)) return run(() => useSettings.getState().set({ xray: !settings().xray }));
       if (matches('view.isolatePart', e)) return run(() => toggleIsolate());
       if (matches('select.all', e)) return run(() => {
@@ -1359,7 +1445,7 @@ export function ViewportPanel() {
 
       {pickReq && <div className="vp-hint modal">Click a node for: <b>{pickReq.label}</b> <span className="dim">· Esc cancels</span></div>}
       {!pickReq && toolHint[tool] && !modal && <div className="vp-hint">{toolHint[tool]}</div>}
-      {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">{modal.type === 'railSlide' ? '· type metres · Ctrl snap to node · Alt increments · G free move' : `· X/Y/Z axis · type a value · Ctrl snap to node · Alt increments${modal.type === 'move' ? ' · G again: slide on rail' : ''}`} · Enter/LMB confirm · Esc/RMB cancel</span></div>}
+      {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">{modal.type === 'railSlide' ? '· type metres · Ctrl snap to node or mesh · Alt increments · G free move' : `· X/Y/Z axis · type a value · Ctrl snap to node or mesh · Alt increments${modal.type === 'move' ? ' · G again: slide on rail' : ''}`} · Enter/LMB confirm · Esc/RMB cancel</span></div>}
       {box && <div className="box-select" style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }} />}
 
       {nameInput && (

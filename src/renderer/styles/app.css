@@ -2150,3 +2150,32 @@ button.status-item:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.link-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 35%, transparent);
+  flex: none;
+}
+.link-dot.on {
+  background: #3fb950;
+  box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.25);
+}
+.btn.primary .link-dot:not(.on) {
+  background: rgba(0, 0, 0, 0.35);
+}
+.link-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+}
+.log-line .log-t {
+  width: 70px;
+  flex: none;
+  text-align: right;
+  font-size: 11px;
+}

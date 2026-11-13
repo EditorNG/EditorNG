@@ -138,6 +138,8 @@ export class Viewport {
   private hover: Hover | null = null;
   /** visible parts (null = whole vehicle) */
   private scopeParts: Set<string> | null = null;
+  /** hidden node indices (H) */
+  private hidden = new Set<number>();
   /** beams / tris actually drawn (indices into vehicle arrays) */
   drawBeams: number[] = [];
   drawTris: number[] = [];
@@ -532,6 +534,19 @@ export class Viewport {
     this.requestRender();
   }
 
+  /** Hides nodes (and the beams / triangles using them) from view and picking. */
+  setHidden(h: Set<number>) {
+    if (h.size === this.hidden.size && [...h].every((i) => this.hidden.has(i))) return;
+    this.hidden = h;
+    if (!this.vehicle) return;
+    this.computeScope();
+    this.buildBeamTriGeometry();
+    this.updateGeometry();
+    this.buildTriNormals();
+    this.dirtyColors = true;
+    this.requestRender();
+  }
+
   inScope(part: string): boolean {
     return !this.scopeParts || this.scopeParts.has(part);
   }
@@ -544,6 +559,7 @@ export class Viewport {
       this.nodeVis.fill(2);
       this.drawBeams = v.beams.map((_, i) => i);
       this.drawTris = v.tris.map((_, i) => i);
+      this.applyHidden();
       return;
     }
     v.nodes.forEach((n, i) => {
@@ -572,6 +588,16 @@ export class Viewport {
       ctx(w.n2);
     }
     for (const pr of v.props) if (sp.has(pr.row.part.def.name)) for (const k of [pr.idRef, pr.idX, pr.idY]) if (k >= 0) ctx(k);
+    this.applyHidden();
+  }
+
+  private applyHidden() {
+    const h = this.hidden;
+    const v = this.vehicle;
+    if (!h.size || !v) return;
+    for (const i of h) if (i < this.nodeVis.length) this.nodeVis[i] = 0;
+    this.drawBeams = this.drawBeams.filter((i) => !h.has(v.beams[i].a) && !h.has(v.beams[i].b));
+    this.drawTris = this.drawTris.filter((i) => !h.has(v.tris[i].a) && !h.has(v.tris[i].b) && !h.has(v.tris[i].c));
   }
 
   private buildBeamTriGeometry() {

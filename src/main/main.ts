@@ -5,6 +5,7 @@ import * as fsp from 'node:fs/promises';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
+import * as dgram from 'node:dgram';
 import { Vfs, decodeText, detectBeamNG } from './vfs';
 import type { BlenderExtract, DirEntry, EnvInfo, FileRef } from '../shared/ipc';
 
@@ -358,6 +359,72 @@ function registerIpc(): void {
 
   h('watch', (dirs: string[]) => setWatch(dirs));
   h('blenderLinkPort', (port: number) => startBlenderLink(port));
+
+  // ---- game bridge (reload / spawn in the running game) and game log
+  const BRIDGE_PORT = 46791;
+  let gameSeq = 1;
+  h('gameSend', (cmd: Record<string, unknown>, timeoutMs = 700) =>
+    new Promise((resolve) => {
+      const sock = dgram.createSocket('udp4');
+      const id = gameSeq++;
+      let done = false;
+      const finish = (v: unknown) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { sock.close(); } catch {}
+        resolve(v);
+      };
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      sock.on('message', (msg) => {
+        try {
+          const r = JSON.parse(msg.toString('utf8'));
+          if (r && (r.id === undefined || r.id === id)) finish(r);
+        } catch {}
+      });
+      sock.on('error', () => finish(null));
+      sock.send(JSON.stringify({ ...cmd, id }), BRIDGE_PORT, '127.0.0.1', (err) => err && finish(null));
+    }));
+  const bridgeDir = () => (vfs.opts.userDir ? path.join(vfs.opts.userDir, 'mods', 'unpacked', 'editorng_bridge') : null);
+  const bridgeFiles = ['lua/ge/extensions/editorng/bridge.lua', 'scripts/editorng_bridge/modScript.lua'];
+  h('gameBridgeStatus', async () => {
+    const dir = bridgeDir();
+    if (!dir) return { installed: false, dir: null, files: bridgeFiles };
+    const ok = await Promise.all(bridgeFiles.map((f) => fsp.stat(path.join(dir, f)).then(() => true, () => false)));
+    return { installed: ok.every(Boolean), dir, files: bridgeFiles };
+  });
+  h('gameBridgeInstall', async () => {
+    const dir = bridgeDir();
+    if (!dir) throw new Error('BeamNG user folder not found (Settings → Paths)');
+    for (const f of bridgeFiles) {
+      const dst = path.join(dir, f);
+      await fsp.mkdir(path.dirname(dst), { recursive: true });
+      await fsp.copyFile(resourcePath('game', 'editorng_bridge', f), dst);
+    }
+    return { dir, files: bridgeFiles };
+  });
+  h('gameLogRead', async (offset: number) => {
+    const file = vfs.opts.userDir ? path.join(vfs.opts.userDir, 'beamng.log') : null;
+    if (!file) return { text: '', size: 0, path: null, reset: false };
+    const st = await fsp.stat(file).catch(() => null);
+    if (!st) return { text: '', size: 0, path: file, reset: false };
+    let from = offset;
+    let reset = false;
+    if (st.size < offset) {
+      from = 0;
+      reset = true;
+    }
+    from = Math.max(from, st.size - 1024 * 1024);
+    if (st.size <= from) return { text: '', size: st.size, path: file, reset };
+    const fh = await fsp.open(file, 'r');
+    try {
+      const buf = Buffer.alloc(st.size - from);
+      await fh.read(buf, 0, buf.length, from);
+      return { text: buf.toString('utf8'), size: st.size, path: file, reset: reset || from > offset };
+    } finally {
+      await fh.close();
+    }
+  });
 
   h('windowAction', (action: string) => {
     if (!win) return;

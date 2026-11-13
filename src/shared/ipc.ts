@@ -89,6 +89,12 @@ export interface Api {
   onBlenderLink(cb: (data: BlenderExtract) => void): () => void;
 
   blenderLinkPort(port: number): Promise<void>;
+  /** sends a command to the EditorNG bridge mod in the running game; null when nobody answers */
+  gameSend(cmd: Record<string, unknown>, timeoutMs?: number): Promise<null | { ok: boolean; error?: string; action?: string; vehicle?: { model: string; config?: string } | null }>;
+  gameBridgeStatus(): Promise<{ installed: boolean; dir: string | null; files: string[] }>;
+  gameBridgeInstall(): Promise<{ dir: string; files: string[] }>;
+  /** new text of <userDir>/beamng.log since offset (reset = the file was rotated / restarted) */
+  gameLogRead(offset: number): Promise<{ text: string; size: number; path: string | null; reset: boolean }>;
   windowAction(action: 'minimize' | 'maximize' | 'close' | 'devtools' | 'reload' | 'fullscreen'): Promise<void>;
   setTitleBarColors(colors: { color: string; symbolColor: string }): Promise<void>;
   confirmClose(ok: boolean): void;

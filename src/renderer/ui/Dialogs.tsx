@@ -13,6 +13,7 @@ import { openFolder } from './commands';
 import type { BlenderExtract } from '@shared/ipc';
 import type { AArr } from '@core/sjson';
 import { MirrorPartDialog } from './MirrorPart';
+import { GameLinkDialog } from './GameLink';
 
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; width?: number }) {
   useEffect(() => {
@@ -70,6 +71,8 @@ export function Dialogs() {
       return <ImportDialog close={close} initial={d.data} />;
     case 'mirrorPart':
       return <MirrorPartDialog part={d.data} close={close} />;
+    case 'gameLink':
+      return <GameLinkDialog close={close} />;
     case 'symmetryCross':
       return <SymmetryCross close={close} data={d.data} />;
     case 'shortcuts':
@@ -464,14 +467,18 @@ function BlenderAddon({ close }: { close: () => void }) {
 const SHORTCUT_GROUPS: Array<[string, string[]]> = [
   ['Tools', ['add.menu', 'tool.select', 'tool.addNode', 'tool.beam', 'tool.tri', 'tool.name']],
   ['Transform', ['transform.grab', 'transform.scale', 'transform.rotate', 'edit.symmetry', 'edit.snapRail']],
-  ['Edit', ['edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
-  ['Select', ['select.all', 'select.none', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
-  ['View', ['view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
+  ['Edit', ['edit.merge', 'edit.connect', 'edit.flipTri', 'edit.delete', 'edit.rename', 'edit.mirror', 'edit.duplicate', 'edit.undo', 'edit.redo']],
+  ['Select', ['select.all', 'select.none', 'select.invert', 'select.grow', 'select.shrink', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
+  ['View', ['view.hide', 'view.hideOthers', 'view.unhide', 'view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
+  ['Game', ['game.reload']],
   ['App', ['app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload']],
 ];
 
 export const ACTION_LABELS: Record<string, string> = {
   'add.menu': 'Add menu (node, beam, trigger, bulb, wheel…)',
+  'game.reload': 'Save all and reload the vehicle in BeamNG',
+  'view.hide': 'Hide selected nodes', 'view.hideOthers': 'Hide everything else', 'view.unhide': 'Unhide all',
+  'select.grow': 'Grow selection', 'select.shrink': 'Shrink selection', 'edit.merge': 'Merge nodes into the active one',
   'edit.symmetry': 'Toggle X symmetry (mirror twins move too)', 'edit.snapRail': 'Snap slidenodes onto their rail',
   'select.all': 'Select all', 'select.none': 'Select none', 'select.invert': 'Invert selection', 'select.linked': 'Select linked (same part)', 'select.mirror': 'Add mirror twins to selection',
   'transform.grab': 'Move (X/Y/Z lock, type value)', 'transform.scale': 'Scale (S then X then -1 mirrors)', 'transform.rotate': 'Rotate',
@@ -505,8 +512,9 @@ function Shortcuts({ close }: { close: () => void }) {
           <div className="shortcut-row"><span>Context menu</span><span className="kbd">RMB click</span></div>
           <div className="shortcut-row"><span>Zoom</span><span className="kbd">Wheel</span></div>
           <div className="shortcut-row"><span>Slide along rail</span><span className="kbd">G G</span></div>
-          <div className="shortcut-row"><span>Snap to node while moving</span><span className="kbd">hold Ctrl</span></div>
           <div className="shortcut-row"><span>Increments while moving</span><span className="kbd">hold Alt</span></div>
+          <div className="shortcut-row"><span>Select shortest path</span><span className="kbd">Ctrl+click</span></div>
+          <div className="shortcut-row"><span>Snap to node / mesh vertex while moving</span><span className="kbd">hold Ctrl</span></div>
           <div className="shortcut-row"><span>Box select</span><span className="kbd">LMB drag</span></div>
           <div className="shortcut-row"><span>Rename node</span><span className="kbd">Double-click</span></div>
           <div className="shortcut-row"><span>Pick meshes / props / triggers</span><span className="kbd">Alt+click</span></div>

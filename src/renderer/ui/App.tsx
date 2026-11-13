@@ -314,7 +314,7 @@ export function App() {
       if (!k) return;
       const inMonaco = !!(document.activeElement as HTMLElement | null)?.closest('.monaco-editor');
       const inInput = /INPUT|TEXTAREA|SELECT/.test((document.activeElement as HTMLElement | null)?.tagName ?? '');
-      const global = ['app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload'];
+      const global = ['app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload', 'game.reload'];
       for (const id of global) {
         if (matches(id, e)) {
           e.preventDefault();

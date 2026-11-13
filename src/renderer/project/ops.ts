@@ -828,3 +828,209 @@ export function triggerToGlobal(idx: number): boolean {
   const raw = invertNodeXform(getNodeXform(r.v), pl.t.origin[0], pl.t.origin[1], pl.t.origin[2]);
   return setRowOptionFor(r, 'baseTranslationGlobal', { x: +raw.x.toFixed(4), y: +raw.y.toFixed(4), z: +raw.z.toFixed(4) });
 }
+
+// ------------------------------------------------------------------------------------------
+// selection tools (Blender habits) and node layout
+// ------------------------------------------------------------------------------------------
+
+function neighbours(v: Vehicle): Map<number, Array<[number, number]>> {
+  const adj = new Map<number, Array<[number, number]>>();
+  for (const b of v.beams) {
+    const A = v.nodes[b.a], B = v.nodes[b.b];
+    const len = Math.hypot(A.x - B.x, A.y - B.y, A.z - B.z);
+    (adj.get(b.a) ?? adj.set(b.a, []).get(b.a)!).push([b.b, len]);
+    (adj.get(b.b) ?? adj.set(b.b, []).get(b.b)!).push([b.a, len]);
+  }
+  return adj;
+}
+
+/** Shortest path over beams (by length) between two nodes; null when not connected. */
+export function shortestPath(v: Vehicle, from: number, to: number, allowed?: (i: number) => boolean): number[] | null {
+  const adj = neighbours(v);
+  const dist = new Map<number, number>([[from, 0]]);
+  const prev = new Map<number, number>();
+  // binary heap of [dist, node]
+  const heap: Array<[number, number]> = [[0, from]];
+  const push = (x: [number, number]) => {
+    heap.push(x);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  while (heap.length) {
+    const [d, i] = pop();
+    if (i === to) break;
+    if (d > (dist.get(i) ?? Infinity)) continue;
+    for (const [j, w] of adj.get(i) ?? []) {
+      if (allowed && !allowed(j) && j !== to) continue;
+      const nd = d + w;
+      if (nd < (dist.get(j) ?? Infinity)) {
+        dist.set(j, nd);
+        prev.set(j, i);
+        push([nd, j]);
+      }
+    }
+  }
+  if (!dist.has(to)) return null;
+  const path = [to];
+  while (path[path.length - 1] !== from) path.push(prev.get(path[path.length - 1])!);
+  return path.reverse();
+}
+
+/** Adds (grow) or removes (shrink) one ring of beam neighbours. */
+export function growSelection(grow: boolean, visible?: (i: number) => boolean) {
+  const v = ws.vehicle;
+  if (!v) return;
+  const st = useSel.getState();
+  const cur = new Set([...st.sel.nodes].map((n) => v.nodeIndex.get(n)).filter((x): x is number => x !== undefined));
+  if (!cur.size) return;
+  const adj = neighbours(v);
+  const next = new Set(cur);
+  if (grow) {
+    for (const i of cur) for (const [j] of adj.get(i) ?? []) if (!visible || visible(j)) next.add(j);
+  } else {
+    for (const i of cur) if ((adj.get(i) ?? []).some(([j]) => !cur.has(j) && (!visible || visible(j)))) next.delete(i);
+  }
+  const s = emptySel();
+  for (const i of next) s.nodes.add(v.nodes[i].name);
+  setSel(s);
+}
+
+/** Beams sharing a property with the given beam (type, deformGroup, breakGroup). */
+export function selectSimilarBeams(beamIdx: number, by: 'type' | 'deformGroup' | 'breakGroup', visible?: (i: number) => boolean) {
+  const v = ws.vehicle;
+  if (!v) return;
+  const ref = v.beams[beamIdx];
+  const key = (b: (typeof v.beams)[number]) => (by === 'type' ? b.type : String(b.row.v[by] ?? ''));
+  const want = key(ref);
+  const s = emptySel();
+  v.beams.forEach((b, i) => {
+    if (key(b) !== want || (visible && !visible(i))) return;
+    s.beams.add(beamKey(v.nodes[b.a].name, v.nodes[b.b].name));
+  });
+  setSel(s);
+}
+
+/** Flattens nodes onto one coordinate (the active node's, else the average). */
+export function alignNodes(idx: number[], axis: 0 | 1 | 2, toActive: number | null): boolean {
+  const v = ws.vehicle;
+  if (!v || idx.length < 2) return false;
+  const val = toActive !== null ? [v.nodes[toActive].x, v.nodes[toActive].y, v.nodes[toActive].z][axis] : idx.reduce((a, i) => a + [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z][axis], 0) / idx.length;
+  const ch = new Map<number, [number, number, number]>();
+  for (const i of idx) {
+    const p: [number, number, number] = [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z];
+    p[axis] = val;
+    ch.set(i, p);
+  }
+  return moveNodesSym(ch, `Align ${'XYZ'[axis]}`) !== false;
+}
+
+/** Spaces nodes evenly on the line between the two that are farthest apart (order kept). */
+export function distributeNodes(idx: number[]): boolean {
+  const v = ws.vehicle;
+  if (!v || idx.length < 3) return false;
+  const P = (i: number) => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z];
+  let a = idx[0], b = idx[1], best = -1;
+  for (const i of idx) for (const j of idx) {
+    const d = Math.hypot(P(i)[0] - P(j)[0], P(i)[1] - P(j)[1], P(i)[2] - P(j)[2]);
+    if (d > best) {
+      best = d;
+      a = i;
+      b = j;
+    }
+  }
+  const A = P(a), B = P(b);
+  const dir = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const l2 = dir[0] ** 2 + dir[1] ** 2 + dir[2] ** 2 || 1;
+  const order = [...idx].sort((i, j) => {
+    const ti = ((P(i)[0] - A[0]) * dir[0] + (P(i)[1] - A[1]) * dir[1] + (P(i)[2] - A[2]) * dir[2]) / l2;
+    const tj = ((P(j)[0] - A[0]) * dir[0] + (P(j)[1] - A[1]) * dir[1] + (P(j)[2] - A[2]) * dir[2]) / l2;
+    return ti - tj;
+  });
+  const ch = new Map<number, [number, number, number]>();
+  order.forEach((i, k) => {
+    const t = k / (order.length - 1);
+    ch.set(i, [A[0] + dir[0] * t, A[1] + dir[1] * t, A[2] + dir[2] * t]);
+  });
+  return moveNodesSym(ch, 'Distribute nodes') !== false;
+}
+
+/**
+ * Merges nodes into one (Blender's merge at active): every reference to the others is rewritten
+ * to the target, their rows are deleted, and beams / triangles that collapse are removed.
+ */
+export function mergeNodes(target: number, others: number[]): boolean {
+  const v = ws.vehicle;
+  if (!v) return false;
+  others = others.filter((i) => i !== target);
+  if (!others.length) return false;
+  const tName = v.nodes[target].name;
+  const oNames = new Set(others.map((i) => v.nodes[i].name));
+  const merged = (i: number) => i === target || others.includes(i);
+  // rows that disappear: the other nodes, collapsing beams and triangles
+  const dead = new Map<string, ANode[]>();
+  const kill = (r: Row) => (dead.get(r.src.file.toLowerCase()) ?? dead.set(r.src.file.toLowerCase(), []).get(r.src.file.toLowerCase())!).push(r.src.node);
+  for (const i of others) kill(v.nodes[i].row);
+  v.beams.forEach((b) => merged(b.a) && merged(b.b) && kill(b.row));
+  v.tris.forEach((t) => [t.a, t.b, t.c].filter(merged).length >= 2 && kill(t.row));
+  const inDead = (file: string, s: number) => (dead.get(file.toLowerCase()) ?? []).some((n) => s >= n.s && s < n.e);
+  const es = new EditSet();
+  const readOnly = new Set<string>();
+  for (const d of ws.docs.values()) {
+    if (!d.jfile || d.isCommon) continue;
+    for (const p of d.jfile.parts) {
+      for (const name of oNames) {
+        const toks = findNodeTokens(p, name).filter((t) => !inDead(d.key, t.s));
+        if (!toks.length) continue;
+        if (!d.writable) {
+          readOnly.add(d.name);
+          continue;
+        }
+        es.add(d.key, toks.map((t) => ({ s: t.s, e: t.e, text: JSON.stringify(tName) })));
+      }
+    }
+  }
+  for (const [file, nodes] of dead) {
+    const d = writableDoc(file);
+    if (!d) return false;
+    es.add(d.key, deleteNodes(d.text, nodes));
+  }
+  if (!es.apply(`Merge ${others.length + 1} nodes into ${tName}`)) return false;
+  selectNodesByName([tName]);
+  if (readOnly.size) toast('warn', `References in read-only files still use the merged names: ${[...readOnly].join(', ')}`);
+  return true;
+}
+
+/** Hides nodes in the view (H / Shift+H); Alt+H shows everything again. */
+export function hideNodes(names: Iterable<string> | null) {
+  if (names === null) {
+    useSel.setState({ hidden: new Set() });
+    return;
+  }
+  const h = new Set(useSel.getState().hidden);
+  for (const n of names) h.add(n);
+  useSel.setState({ hidden: h });
+  setSel(emptySel());
+}

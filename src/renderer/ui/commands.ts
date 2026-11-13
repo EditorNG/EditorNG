@@ -1,4 +1,5 @@
 import { ws, useWs } from '../project/workspace';
+import { reloadInGame } from './GameLink';
 import { useUi, log } from '../state/ui';
 import { useSettings, settings, keyFor } from '../state/settings';
 import { api } from '../lib/api';
@@ -67,6 +68,9 @@ export const COMMANDS: Command[] = [
   }, enabled: hasVehicle },
   { id: 'tools.importMesh', title: 'Import from Blender / OBJ…', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'import' } }) },
   { id: 'tools.blenderAddon', title: 'Install Blender live-link add-on', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'blenderAddon' } }) },
+  { id: 'game.reload', title: 'Reload vehicle in game', group: 'Tools', key: 'game.reload', run: () => reloadInGame(), enabled: hasVehicle },
+  { id: 'game.setup', title: 'Set up game link (Reload in game)…', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'gameLink' } }) },
+  { id: 'tools.gamelog', title: 'Game log', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'gamelog' }) },
   { id: 'tools.debug', title: 'Run JBeam checks', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'debug' }), enabled: hasVehicle },
   { id: 'tools.mass', title: 'Weight distribution', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'mass' }), enabled: hasVehicle },
   { id: 'tools.variables', title: 'Tuning variables', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'variables' }), enabled: hasVehicle },

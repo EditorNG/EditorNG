@@ -41,7 +41,13 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'view.bottom': 'Ctrl+Numpad7',
   'view.ortho': 'Numpad5',
   'view.toggleLabels': 'Shift+L',
-  'view.toggleMeshes': 'Shift+H',
+  'view.toggleMeshes': '',
+  'view.hide': 'H',
+  'view.hideOthers': 'Shift+H',
+  'view.unhide': 'Alt+H',
+  'select.grow': 'Ctrl+Numpad+',
+  'select.shrink': 'Ctrl+Numpad-',
+  'edit.merge': 'M',
   'view.isolatePart': 'Shift+I',
   'view.xray': 'Alt+Z',
   'mode.nodes': '1',
@@ -56,6 +62,7 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'app.toggleEditor': 'Ctrl+E',
   'app.toggleBottom': 'Ctrl+J',
   'app.reload': 'Ctrl+R',
+  'game.reload': 'F5',
 };
 
 export interface Settings {

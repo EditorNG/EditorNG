@@ -393,6 +393,33 @@ export class Layers {
     this.vp.requestRender();
   }
 
+  /** Flexbody/prop vertex nearest to where the cursor ray hits a mesh (world coordinates). */
+  meshVertexAt(px: number, py: number): THREE.Vector3 | null {
+    if (!this.s.showMeshes) return null;
+    const rc = new THREE.Raycaster();
+    rc.ray.copy(this.vp.ray(px, py));
+    const targets: THREE.Object3D[] = [this.flexGroup];
+    if (this.s.showProps) targets.push(this.propGroup);
+    const hits = rc.intersectObjects(targets, true);
+    for (const h of hits) {
+      const mesh = h.object as THREE.Mesh;
+      const pos = (mesh.geometry as THREE.BufferGeometry | undefined)?.getAttribute('position') as THREE.BufferAttribute | undefined;
+      if (!pos || !h.face) continue;
+      let best: THREE.Vector3 | null = null;
+      let bd = Infinity;
+      for (const k of [h.face.a, h.face.b, h.face.c]) {
+        const p = new THREE.Vector3().fromBufferAttribute(pos, k).applyMatrix4(mesh.matrixWorld);
+        const d = p.distanceToSquared(h.point);
+        if (d < bd) {
+          bd = d;
+          best = p;
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
   /** Ray pick against meshes, props and triggers. */
   pick(px: number, py: number): Hover | null {
     const rc = new THREE.Raycaster();

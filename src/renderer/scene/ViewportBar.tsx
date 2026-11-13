@@ -183,6 +183,8 @@ function ScopeCrumbs() {
 export function ViewStats() {
   const v = useWs((x) => x.vehicle);
   const sel = useSel((x) => x.sel);
+  const hiddenSet = useSel((x) => x.hidden);
+  const active = useSel((x) => x.active);
   useSel((x) => x.scope);
   const vp = getViewport();
   if (!v || !vp) return null;
@@ -195,10 +197,14 @@ export function ViewStats() {
     const i = [...si.nodes][0];
     selText = `1 selected: ${v.nodes[i].name} · ${v.beams.filter((b) => b.a === i || b.b === i).length} beams`;
   } else if (nSel) selText = `${nSel} selected`;
+  const hiddenN = hiddenSet.size;
+  const measure = measureText(v, [...si.nodes], active);
   return (
     <div className="vp-stats">
       <div>{nodes} nodes · {vp.drawBeams.length} beams · {vp.drawTris.length} tris</div>
       {selText && <div>{selText}</div>}
+      {measure && <div className="vp-measure">{measure}</div>}
+      {hiddenN > 0 && <div>{hiddenN} hidden · Alt+H shows them</div>}
     </div>
   );
 }
@@ -223,7 +229,7 @@ export function ViewLegend() {
   if (!v || !vp || !s.showBeams) return null;
   const items: Array<[string, string]> = [];
   if (s.beamColorMode === 'type') {
-    const present = new Set(vp.drawBeams.map((i) => v.beams[i].type));
+    const present = new Set(vp.drawBeams.map((i) => v.beams[i]?.type).filter(Boolean));
     for (const [t, key, label] of TYPE_LEGEND) if (present.has(t as any) || (t === 'NORMAL' && present.size === 0)) items.push([s[key] as string, label]);
   } else if (s.beamColorMode === 'stiffness') {
     items.push(['#3b5bdb', 'soft'], ['#e8590c', 'stiff']);
@@ -242,3 +248,23 @@ export function ViewLegend() {
 }
 
 export { settings };
+
+/** 2 nodes: distance and per-axis deltas; 3 nodes: the angle at the active (or middle) node. */
+export function measureText(v: { nodes: Array<{ name: string; x: number; y: number; z: number }> }, idx: number[], active: { kind: string; idx: number } | null): string | null {
+  if (idx.length === 2) {
+    const [a, b] = idx.map((i) => v.nodes[i]);
+    const d = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    return `↔ ${d.toFixed(4)} m   Δx ${(b.x - a.x).toFixed(3)}  Δy ${(b.y - a.y).toFixed(3)}  Δz ${(b.z - a.z).toFixed(3)}`;
+  }
+  if (idx.length === 3) {
+    const at = active?.kind === 'node' && idx.includes(active.idx) ? active.idx : idx[1];
+    const [p, q] = idx.filter((i) => i !== at).map((i) => v.nodes[i]);
+    const o = v.nodes[at];
+    const u = [p.x - o.x, p.y - o.y, p.z - o.z], w = [q.x - o.x, q.y - o.y, q.z - o.z];
+    const lu = Math.hypot(u[0], u[1], u[2]), lw = Math.hypot(w[0], w[1], w[2]);
+    if (!lu || !lw) return null;
+    const ang = (Math.acos(Math.max(-1, Math.min(1, (u[0] * w[0] + u[1] * w[1] + u[2] * w[2]) / (lu * lw)))) * 180) / Math.PI;
+    return `∠ ${ang.toFixed(2)}° at ${o.name}`;
+  }
+  return null;
+}
