@@ -950,8 +950,14 @@ export class Viewport {
     if (this.beamLines && this.drawBeams.length) {
       const attr = this.beamLines.geometry.getAttribute('instanceColorStart') as THREE.InterleavedBufferAttribute;
       const arr = attr.data.array as Float32Array;
+      // beams attached to a (small) node selection get a softer accent, like the mockup's "attached to f3"
+      const attach = sel && sel.nodes.size > 0 && sel.nodes.size <= 64 ? sel.nodes : null;
       this.drawBeams.forEach((i, k) => {
         let c = this.beamBaseColor(i, cache);
+        if (attach) {
+          const b = v.beams[i];
+          if (attach.has(b.a) || attach.has(b.b)) c = [c[0] * 0.35 + selC[0] * 0.65, c[1] * 0.35 + selC[1] * 0.65, c[2] * 0.35 + selC[2] * 0.65];
+        }
         if (hl?.beams.has(i)) c = hlC;
         if (sel?.beams.has(i)) c = selC;
         else if (hover?.kind === 'beam' && hover.idx === i) c = [Math.min(1, c[0] + 0.35), Math.min(1, c[1] + 0.35), Math.min(1, c[2] + 0.35)];

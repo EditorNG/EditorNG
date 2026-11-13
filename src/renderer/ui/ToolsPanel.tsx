@@ -620,7 +620,7 @@ export function ToolsPanel() {
       <div className="panel-scroll tools">
         <Section icon={<FileUp size={14} />} title="Import from Blender / OBJ" open>
           <div className="tf-actions" style={{ marginTop: 0 }}>
-            <button className="btn small primary" onClick={() => command('tools.importMesh')}><FileUp size={12} /> Import…</button>
+            <button className="btn small" onClick={() => command('tools.importMesh')}><FileUp size={12} /> Import…</button>
             <button className="btn small" onClick={() => command('tools.blenderAddon')}><Link2 size={12} /> Live link</button>
           </div>
           <div className="tf-note">Vertices → nodes, edges → beams, faces → collision triangles. Names get l/r suffixes by side and re-imports keep existing names.</div>

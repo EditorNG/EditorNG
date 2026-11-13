@@ -1,4 +1,9 @@
 import { createRoot } from 'react-dom/client';
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-sans/600.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/500.css';
 import './styles/theme.css';
 import './styles/app.css';
 import { monaco } from './lib/monaco';
@@ -17,39 +22,52 @@ import { meshes, useMeshStatus } from './scene/meshes';
 import { revealRange, getEditor } from './editor/CodeEditor';
 
 function defineThemes() {
-  const accent = 'ff7a1a';
+  const accent = 'ff7a2e';
   monaco.editor.defineTheme('editorng-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '6b7584', fontStyle: 'italic' },
-      { token: 'keyword.section', foreground: accent, fontStyle: 'bold' },
-      { token: 'key', foreground: '9cc3f5' },
-      { token: 'string', foreground: 'c9d4a3' },
-      { token: 'string.expr', foreground: 'e3a6ff' },
-      { token: 'variable', foreground: 'f2c94c' },
-      { token: 'type.flag', foreground: '7fd8c4' },
-      { token: 'number', foreground: 'b5cea8' },
-      { token: 'keyword', foreground: 'f28b82' },
-      { token: 'identifier', foreground: 'dde1e7' },
+      { token: 'comment', foreground: '667080', fontStyle: 'italic' },
+      { token: 'keyword.section', foreground: 'e6e9ee', fontStyle: 'bold' },
+      { token: 'key', foreground: '9db4d0' },
+      { token: 'string', foreground: 'a9c98a' },
+      { token: 'string.expr', foreground: 'c7a6e0' },
+      { token: 'variable', foreground: 'd9b46a' },
+      { token: 'type.flag', foreground: '7fbfb0' },
+      { token: 'number', foreground: accent },
+      { token: 'keyword', foreground: 'd48a7a' },
+      { token: 'delimiter', foreground: '7c838d' },
+      { token: 'delimiter.bracket', foreground: '7c838d' },
+      { token: 'identifier', foreground: 'c5cad2' },
     ],
     colors: {
-      'editor.background': '#15171a',
-      'editor.lineHighlightBackground': '#1d2026',
-      'editorLineNumber.foreground': '#4a525e',
-      'editorLineNumber.activeForeground': '#aab2bd',
-      'editorGutter.background': '#15171a',
-      'editor.selectionBackground': '#ff7a1a33',
-      'editorCursor.foreground': '#ff7a1a',
-      'editorIndentGuide.background1': '#23272e',
-      'editorInlayHint.foreground': '#7c8693',
+      'editor.background': '#1b1d21',
+      'editor.foreground': '#c5cad2',
+      'editor.lineHighlightBackground': '#202328',
+      'editor.lineHighlightBorder': '#00000000',
+      'editorLineNumber.foreground': '#555c66',
+      'editorLineNumber.activeForeground': '#c5cad2',
+      'editorGutter.background': '#1b1d21',
+      'editor.selectionBackground': '#ff660030',
+      'editor.inactiveSelectionBackground': '#ff66001c',
+      'editorCursor.foreground': '#ff6600',
+      'editorIndentGuide.background1': '#25282d',
+      'editorIndentGuide.activeBackground1': '#30343b',
+      'editorBracketMatch.background': '#2f343b',
+      'editorBracketMatch.border': '#00000000',
+      'editorInlayHint.foreground': '#6d747e',
       'editorInlayHint.background': '#00000000',
-      'minimap.background': '#15171a',
-      'editorStickyScroll.background': '#191c20',
-      'editorWidget.background': '#1b1e23',
-      'editorSuggestWidget.background': '#1b1e23',
-      'editorHoverWidget.background': '#1b1e23',
-      'editorHoverWidget.border': '#363d48',
+      'minimap.background': '#1b1d21',
+      'editorStickyScroll.background': '#1d2024',
+      'editorWidget.background': '#1d2024',
+      'editorWidget.border': '#30343b',
+      'editorSuggestWidget.background': '#1d2024',
+      'editorSuggestWidget.border': '#30343b',
+      'editorSuggestWidget.selectedBackground': '#2f343b',
+      'editorHoverWidget.background': '#1d2024',
+      'editorHoverWidget.border': '#30343b',
+      'scrollbarSlider.background': '#30343b80',
+      'scrollbarSlider.hoverBackground': '#444a53a0',
     },
   });
   monaco.editor.defineTheme('editorng-light', {
@@ -67,10 +85,12 @@ function defineThemes() {
       { token: 'keyword', foreground: 'c0352b' },
     ],
     colors: {
-      'editor.background': '#ffffff',
-      'editor.lineHighlightBackground': '#f3f5f8',
-      'editor.selectionBackground': '#ff7a1a33',
-      'editorCursor.foreground': '#d9620c',
+      'editor.background': '#f6f7f9',
+      'editorGutter.background': '#f6f7f9',
+      'minimap.background': '#f6f7f9',
+      'editor.lineHighlightBackground': '#eceef1',
+      'editor.selectionBackground': '#ff660026',
+      'editorCursor.foreground': '#d95300',
       'editorInlayHint.foreground': '#8a93a1',
       'editorInlayHint.background': '#00000000',
       'editorStickyScroll.background': '#f7f8fa',

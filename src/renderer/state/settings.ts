@@ -83,6 +83,7 @@ export interface Settings {
   showProps: boolean;
   showOccupants: boolean;
   showRails: boolean;
+  paletteVersion: number;
   symmetryX: boolean;
   gizmo: 'none' | 'translate' | 'rotate' | 'scale';
   showTriggers: boolean;
@@ -187,7 +188,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
-  accent: '#ff7a1a',
+  accent: '#ff6600',
   uiScale: 1,
   density: 'compact',
   reduceMotion: false,
@@ -208,6 +209,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showProps: true,
   showOccupants: true,
   showRails: true,
+  paletteVersion: 2,
   symmetryX: false,
   gizmo: 'none',
   showTriggers: true,
@@ -217,18 +219,18 @@ export const DEFAULT_SETTINGS: Settings = {
   showLabels: 'hover',
   labelSize: 11,
   beamColorMode: 'type',
-  colorNode: '#f2c94c',
-  colorNodeFixed: '#ff4d6d',
-  colorBeam: '#55c1ff',
-  colorBeamAniso: '#b98cff',
-  colorBeamBounded: '#ffb454',
-  colorBeamSupport: '#ff6f91',
-  colorBeamHydro: '#4fe3a1',
-  colorBeamPressured: '#9ad1ff',
-  colorBeamLbeam: '#e0e0e0',
-  colorTri: '#3ec7a8',
-  colorSelect: '#ff7a1a',
-  colorHighlight: '#ff4fd8',
+  colorNode: '#c5cad2',
+  colorNodeFixed: '#d46a6a',
+  colorBeam: '#6f8aa8',
+  colorBeamAniso: '#9a88c4',
+  colorBeamBounded: '#c9a066',
+  colorBeamSupport: '#c27a8e',
+  colorBeamHydro: '#6fb07a',
+  colorBeamPressured: '#86a9c9',
+  colorBeamLbeam: '#a8adb4',
+  colorTri: '#5aa394',
+  colorSelect: '#ff6600',
+  colorHighlight: '#d07ad0',
   dimOtherParts: true,
   dimOpacity: 0.12,
   xray: false,
@@ -340,14 +342,22 @@ export const useSettings = create<SettingsStore>((set, get) => ({
     scheduleSave(next);
   },
   load: async () => {
-    const saved = await api.settingsLoad().catch(() => ({}));
+    const saved = (await api.settingsLoad().catch(() => ({}))) as Record<string, any>;
     const s = { ...DEFAULT_SETTINGS } as any;
-    for (const k in saved) if (k in DEFAULT_SETTINGS) s[k] = (saved as any)[k];
+    for (const k in saved) if (k in DEFAULT_SETTINGS) s[k] = saved[k];
+    // 0.2 palette: colours still at the 0.1 defaults move to the new defaults (custom colours are kept)
+    if ((saved.paletteVersion ?? 1) < 2) {
+      for (const [k, old] of Object.entries(PALETTE_V1)) if (typeof s[k] === 'string' && s[k].toLowerCase() === old) s[k] = (DEFAULT_SETTINGS as any)[k];
+    }
+    s.paletteVersion = 2;
     set({ s, loaded: true });
   },
 }));
 
 export const settings = () => useSettings.getState().s;
+
+/** 0.1 default colours (migrated to the 0.2 palette when unchanged) */
+const PALETTE_V1: Record<string, string> = {"accent":"#ff7a1a","colorNode":"#f2c94c","colorNodeFixed":"#ff4d6d","colorBeam":"#55c1ff","colorBeamAniso":"#b98cff","colorBeamBounded":"#ffb454","colorBeamSupport":"#ff6f91","colorBeamHydro":"#4fe3a1","colorBeamPressured":"#9ad1ff","colorBeamLbeam":"#e0e0e0","colorTri":"#3ec7a8","colorSelect":"#ff7a1a","colorHighlight":"#ff4fd8"};
 
 export function keyFor(action: string): string {
   const km = settings().keymap;

@@ -398,7 +398,7 @@ async function createWindow(): Promise<void> {
     backgroundColor: '#15171a',
     title: 'EditorNG',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#15171a', symbolColor: '#c9ced6', height: 36 },
+    titleBarOverlay: { color: '#1d2024', symbolColor: '#8a919b', height: 36 },
     icon: resourcePath('build', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.cjs'),

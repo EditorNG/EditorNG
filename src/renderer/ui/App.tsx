@@ -235,7 +235,7 @@ export function App() {
       root.style.setProperty('--ui-scale', String(s.uiScale));
       root.style.setProperty('--speed', s.reduceMotion ? '0ms' : '110ms');
       monaco.editor.setTheme(theme === 'light' ? 'editorng-light' : 'editorng-dark');
-      const bg = getComputedStyle(root).getPropertyValue('--bg-1').trim();
+      const bg = getComputedStyle(root).getPropertyValue('--bg-3').trim();
       const fg = getComputedStyle(root).getPropertyValue('--text-dim').trim();
       api.setTitleBarColors({ color: bg, symbolColor: fg }).catch(() => {});
     };

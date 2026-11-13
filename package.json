@@ -16,6 +16,8 @@
     "package": "node scripts/package.mjs"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "lucide-react": "^1.72.0",
     "monaco-editor": "^0.57.0",
     "react": "^19.3.1",
