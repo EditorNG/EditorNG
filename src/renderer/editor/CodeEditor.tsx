@@ -4,9 +4,12 @@ import { monaco } from '../lib/monaco';
 import { ws, useWs } from '../project/workspace';
 import { useUi, openTab, closeTab } from '../state/ui';
 import { useSettings, settings } from '../state/settings';
-import { useSel, emptySel, beamKey, triKey, rowKey, resolveSel, type Sel } from '../state/selection';
+import { useSel, emptySel, beamKey, triKey, rowKey, resolveSel, addToSel, setSel, type Sel } from '../state/selection';
 import { pathAt } from '@core/sjson';
 import { updateMarkers, contextAt } from './jbeamLang';
+import { openMenu } from '../ui/Menu';
+import { api } from '../lib/api';
+import * as ops from '../project/ops';
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let selDecos: monaco.editor.IEditorDecorationsCollection | null = null;
@@ -218,6 +221,74 @@ export function CodeEditor() {
       const k = useUi.getState().activeTab;
       if (k) ws.save(k);
     });
+    const docOf = (ed: monaco.editor.ICodeEditor) => {
+      const mm = ed.getModel();
+      return mm ? [...ws.docs.values()].find((x) => x.model === mm) : undefined;
+    };
+    /** elements produced by the rows under the selection (or cursor) */
+    const refsAt = (ed: monaco.editor.ICodeEditor) => {
+      const mm = ed.getModel();
+      const dd = docOf(ed);
+      const sel = ed.getSelection();
+      if (!mm || !dd || !sel) return [];
+      return ws.elementsInRange(dd.key, mm.getOffsetAt(sel.getStartPosition()), mm.getOffsetAt(sel.getEndPosition()));
+    };
+    const selectRefs = (ed: monaco.editor.ICodeEditor) => {
+      const v = ws.vehicle;
+      if (!v) return;
+      const s2 = emptySel();
+      for (const r of refsAt(ed)) addToSel(v, s2, r.kind as any, r.idx);
+      // a node name under the cursor counts too
+      const dd = docOf(ed);
+      const mm = ed.getModel();
+      const pos = ed.getPosition();
+      if (dd && mm && pos) {
+        const ctx = contextAt(dd, mm.getOffsetAt(pos));
+        if (ctx.leaf?.k === 'str' && v.nodeIndex.has(ctx.leaf.v)) s2.nodes.add(ctx.leaf.v);
+      }
+      setSel(s2);
+    };
+    editor.addAction({
+      id: 'editorng.select3d',
+      label: 'Select in 3D',
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 1,
+      run: (ed) => selectRefs(ed),
+    });
+    editor.addAction({
+      id: 'editorng.gotoNode',
+      label: 'Go to node definition',
+      keybindings: [monaco.KeyCode.F12],
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 2,
+      run: (ed) => {
+        const v = ws.vehicle;
+        const dd = docOf(ed);
+        const mm = ed.getModel();
+        const pos = ed.getPosition();
+        if (!v || !dd || !mm || !pos) return;
+        const ctx = contextAt(dd, mm.getOffsetAt(pos));
+        const i = ctx.leaf?.k === 'str' ? v.nodeIndex.get(ctx.leaf.v) : undefined;
+        if (i === undefined) return;
+        const r = v.nodes[i].row;
+        revealRange(r.src.file, r.src.node.s, r.src.node.e, true);
+      },
+    });
+    editor.addAction({
+      id: 'editorng.mirrorRow',
+      label: 'Mirror to the other side',
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 3,
+      run: (ed) => {
+        const refs = refsAt(ed);
+        if (refs.some((r) => r.kind === 'trigger')) {
+          for (const r of refs) if (r.kind === 'trigger') ops.mirrorTrigger(r.idx);
+          return;
+        }
+        selectRefs(ed);
+        ops.mirrorSelection();
+      },
+    });
     editor.addAction({
       id: 'editorng.align',
       label: 'Align table columns',
@@ -290,6 +361,20 @@ export function CodeEditor() {
                 } else openTab(k);
               }}
               title={`${d.vpath}\n${d.source}${d.writable ? '' : ' (read-only)'}`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                const others = tabs.filter((t) => t !== k);
+                openMenu(e.clientX, e.clientY, [
+                  { label: 'Close', run: () => closeTab(k) },
+                  { label: 'Close others', disabled: others.length ? false : 'No other tabs', run: () => others.forEach((t) => closeTab(t)) },
+                  { label: 'Close all', run: () => [...tabs].forEach((t) => closeTab(t)) },
+                  'sep',
+                  { label: 'Show this file in 3D', disabled: ws.vehicle?.parts.some((p) => p.def.file === d.key) ? false : 'No active part in this file', run: () => ws.setScope({ mode: 'file', file: d.key }) },
+                  { label: 'Save', key: 'Ctrl+S', disabled: d.writable && dirty ? false : 'No unsaved changes', run: () => ws.save(d.key) },
+                  { label: 'Reveal in Explorer', disabled: d.ref.real ? false : 'Inside a zip', run: () => d.ref.real && api.reveal(d.ref.real) },
+                  { label: 'Copy path', run: () => navigator.clipboard.writeText(d.ref.real ?? d.vpath) },
+                ]);
+              }}
             >
               {!d.writable && <Lock size={11} className="faint" />}
               <span className="ellipsis">{d.name}</span>

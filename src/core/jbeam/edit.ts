@@ -2,6 +2,7 @@
  * Surgical text edits on JBeam source. The text is the source of truth: every 3D tool produces
  * minimal edits so comments, ordering and formatting of untouched content are preserved.
  */
+import { parseSjson as _ps, toJs } from '../sjson';
 import type { ANode, AArr, AObj } from '../sjson';
 import type { PartDef } from './types';
 
@@ -361,3 +362,54 @@ function collectStr(v: ANode, name: string, out: ANode[]): void {
   }
 }
 
+
+/**
+ * Inserts row texts right after an existing row (same indentation, one per line).
+ * Adds the missing comma after the existing row when needed.
+ */
+export function insertRowsAfter(text: string, row: ANode, rows: string[]): TextEdit[] {
+  if (!rows.length) return [];
+  const eol = eolOf(text);
+  const ind = indentAt(text, row.s);
+  let j = row.e;
+  while (j < text.length && (text[j] === ' ' || text[j] === '\t')) j++;
+  const hasComma = text[j] === ',';
+  const edits: TextEdit[] = [];
+  if (!hasComma) edits.push({ s: row.e, e: row.e, text: ',' });
+  const after = hasComma ? j + 1 : row.e;
+  const le = lineEndOff(text, after);
+  // other rows on the same line: insert right after this row instead of at the line end
+  const sameLineRest = text.slice(after, le).trim();
+  const at = sameLineRest && !sameLineRest.startsWith('//') ? after : le;
+  edits.push({ s: at, e: at, text: rows.map((r) => eol + ind + r + ',').join('') });
+  return edits;
+}
+
+/** Replaces cells of a row's text by column (header) index; returns the new row text. */
+export function setRowCellsText(rowText: string, header: string[], values: Record<string, any>, decimals = 3): string {
+  const parsed = _ps(rowText);
+  const arr = parsed.root;
+  if (!arr || arr.k !== 'arr') return rowText;
+  const edits: TextEdit[] = [];
+  const opts: Record<string, any> = {};
+  for (const [k, v] of Object.entries(values)) {
+    const i = header.indexOf(k);
+    const cell = i >= 0 ? arr.items[i] : undefined;
+    if (cell) edits.push({ s: cell.s, e: cell.e, text: fmtValue(v, decimals) });
+    else opts[k] = v;
+  }
+  if (Object.keys(opts).length) edits.push(...setRowOptionsMany(rowText, arr, header.length, opts, decimals));
+  return applyEdits(rowText, edits);
+}
+
+function setRowOptionsMany(text: string, arr: AArr, headerLen: number, opts: Record<string, any>, decimals: number): TextEdit[] {
+  // apply one at a time on the evolving text would shift offsets; instead merge into one options object edit
+  const last = arr.items[arr.items.length - 1];
+  if (last && last.k === 'obj' && arr.items.length > headerLen) {
+    const cur = toJs(last) ?? {};
+    const merged = { ...cur, ...opts };
+    return [{ s: last.s, e: last.e, text: fmtValue(merged, decimals) }];
+  }
+  const end = arr.e - 1;
+  return [{ s: end, e: end, text: (arr.items.length ? ', ' : '') + fmtValue(opts, decimals) }];
+}

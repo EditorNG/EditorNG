@@ -13,6 +13,8 @@ import { toast } from '../state/toast';
 import { settings } from '../state/settings';
 import type { SlotNode, ActivePart } from '@core/jbeam/types';
 import { command } from './commands';
+import { openMenu } from './Menu';
+import { swapSideTokens } from '@core/jbeam/mirror';
 
 export function PanelHeader(props: { title: string; children?: React.ReactNode }) {
   return (
@@ -55,7 +57,6 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
   const model = useWs((x) => x.model);
   const activeTab = useUi((x) => x.activeTab);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [menu, setMenu] = useState<null | { x: number; y: number; doc: Doc }>(null);
   const [openParts, setOpenParts] = useState<Set<string>>(new Set());
   const vehicle = useWs((x) => x.vehicle);
   const scope = useSel((x) => x.scope);
@@ -116,7 +117,7 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
             style={{ paddingLeft: 4 + depth * 12 }}
             onContextMenu={(e) => {
               e.preventDefault();
-              setMenu({ x: e.clientX, y: e.clientY, doc: d });
+              fileMenu(e.clientX, e.clientY, d);
             }}
             title={`${d.vpath}\n${d.source}${d.writable ? '' : ' — read-only'}`}
           >
@@ -183,6 +184,15 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
                       if (k) revealRange(d.key, k.s, node.e);
                       if (geo && active) selectSection(part.name, sec);
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      const k = part.sectionKeys.get(sec);
+                      openMenu(e.clientX, e.clientY, [
+                        { title: `${part.name} › ${sec}` },
+                        { label: 'Select all', disabled: geo && active ? false : !active ? 'Part not in the current configuration' : 'Nothing to select in 3D', run: () => selectSection(part.name, sec) },
+                        { label: 'Go to section', run: () => k && revealRange(d.key, k.s, k.e, true) },
+                      ]);
+                    }}
                     title={geo ? `Select all ${sec} of ${part.name}` : sec}
                   >
                     <span className="mono ellipsis grow">{sec}</span>
@@ -213,10 +223,9 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
   };
 
   return (
-    <div className="panel-scroll" onClick={() => setMenu(null)}>
+    <div className="panel-scroll">
       {render(tree, 0)}
       {!docs.length && <div className="empty-hint">Open a vehicle to see its files.</div>}
-      {menu && <FileMenu x={menu.x} y={menu.y} doc={menu.doc} close={() => setMenu(null)} />}
     </div>
   );
 }
@@ -256,7 +265,26 @@ export function selectSection(part: string, section: string) {
 }
 
 /** Right-click on a part in either tree; installed by the shared context menu. */
-let partMenuHandler: (x: number, y: number, part: string, file: string) => void = () => {};
+let partMenuHandler: (x: number, y: number, part: string, file: string) => void = (x, y, part, file) => {
+  const v = ws.vehicle;
+  const ap = v?.partsByName.get(part);
+  const d = ws.doc(file);
+  const def = ap?.def ?? d?.jfile?.parts.find((p) => p.name === part);
+  const writable = !!d?.writable && !d.isCommon;
+  const mirrorName = swapSideTokens(part);
+  const canMirror = mirrorName !== part && !ws.partDef(mirrorName);
+  openMenu(x, y, [
+    { title: part },
+    { label: 'Show only this part', key: 'Shift+I', run: () => ws.focusPart(part) },
+    { label: 'Show its file', run: () => ws.setScope({ mode: 'file', file }) },
+    { label: 'Go to definition', run: () => def && revealRange(file, def.key.s, def.key.e, true) },
+    'sep',
+    { label: 'Write new elements here', checked: useWs.getState().target?.part === part, disabled: writable ? false : 'Read-only file: make an editable copy first', run: () => ws.setTarget(file, part) },
+    { label: `Mirror to ${mirrorName}…`, disabled: canMirror ? false : mirrorName === part ? 'No _L/_R (or l/r) side token in the name' : `${mirrorName} already exists`, run: () => useUi.setState({ dialog: { kind: 'mirrorPart', data: part } }) },
+    'sep',
+    { label: 'Copy name', run: () => navigator.clipboard.writeText(part) },
+  ]);
+};
 export function setPartMenuHandler(fn: typeof partMenuHandler) {
   partMenuHandler = fn;
 }
@@ -302,24 +330,22 @@ export function StructurePanel() {
   );
 }
 
-function FileMenu(props: { x: number; y: number; doc: Doc; close: () => void }) {
-  const d = props.doc;
-  const act = async (fn: () => Promise<void> | void) => {
-    props.close();
-    await fn();
-  };
-  return (
-    <div className="ctx-menu fixed" style={{ left: props.x, top: props.y }} onClick={(e) => e.stopPropagation()}>
-      <button className="ctx-item" onClick={() => act(() => openTab(d.key))}>Open</button>
-      {d.ref.real && <button className="ctx-item" onClick={() => act(() => api.reveal(d.ref.real!))}>Reveal in Explorer</button>}
-      {!d.writable && (
-        <button className="ctx-item" onClick={() => act(() => useUi.setState({ dialog: { kind: 'makeEditable', data: d.key } }))}>Make editable copy…</button>
-      )}
-      {d.writable && ws.isDirty(d) && <button className="ctx-item" onClick={() => act(() => ws.save(d.key).then(() => undefined))}>Save</button>}
-      <button className="ctx-item" onClick={() => act(() => navigator.clipboard.writeText(d.vpath))}>Copy path</button>
-    </div>
-  );
+/** Right-click on a file in the tree. */
+export function fileMenu(x: number, y: number, d: Doc) {
+  const v = ws.vehicle;
+  const inVehicle = !!v?.parts.some((p) => p.def.file === d.key);
+  openMenu(x, y, [
+    { title: d.name },
+    { label: 'Open', run: () => openTab(d.key) },
+    { label: 'Show this file in 3D', disabled: inVehicle ? false : 'No active part in this file', run: () => ws.setScope({ mode: 'file', file: d.key }) },
+    { label: 'Save', key: 'Ctrl+S', disabled: d.writable && ws.isDirty(d) ? false : 'No unsaved changes', run: () => ws.save(d.key) },
+    !d.writable && { label: 'Make editable copy…', run: () => useUi.setState({ dialog: { kind: 'makeEditable', data: d.key } }) },
+    'sep',
+    { label: 'Reveal in Explorer', disabled: d.ref.real ? false : 'Inside a zip', run: () => d.ref.real && api.reveal(d.ref.real) },
+    { label: 'Copy path', run: () => navigator.clipboard.writeText(d.ref.real ?? d.vpath) },
+  ]);
 }
+
 
 // ------------------------------------------------------------------------------------------
 // Parts / slot tree

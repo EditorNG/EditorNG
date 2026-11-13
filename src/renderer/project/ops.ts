@@ -3,7 +3,7 @@
  */
 import { ws, useWs, type Doc } from './workspace';
 import {
-  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, type TextEdit,
+  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, insertRowsAfter, setRowCellsText, type TextEdit,
 } from '@core/jbeam/edit';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import type { ANode, AArr } from '@core/sjson';
@@ -11,6 +11,8 @@ import type { ActivePart, PartDef, Row, Vehicle } from '@core/jbeam/types';
 import { settings } from '../state/settings';
 import { useUi } from '../state/ui';
 import { collectRails, collectSlides, closestOnRail, railPoints } from '@core/jbeam/rails';
+import { placeTriggers, mirroredTriggerValues } from '@core/jbeam/triggers';
+import { swapSideTokens } from '@core/jbeam/mirror';
 import { toast } from '../state/toast';
 import { useSel, emptySel, beamKey, triKey, cloneSel, resolveSel, setSel } from '../state/selection';
 
@@ -745,4 +747,84 @@ export function setTriggerValues(changes: Map<number, Record<string, any>>, labe
     }
   }
   return es.apply(label);
+}
+
+// ------------------------------------------------------------------------------------------
+// triggers: duplicate, mirror, convert to global
+// ------------------------------------------------------------------------------------------
+
+function triggerPlacement(idx: number) {
+  const v = ws.vehicle;
+  if (!v) return null;
+  const pos = new Float64Array(v.nodes.length * 3);
+  v.nodes.forEach((n, i) => pos.set([n.x, n.y, n.z], i * 3));
+  const t = placeTriggers(v, pos).find((x) => x.idx === idx);
+  return t ? { v, pos, t } : null;
+}
+
+function uniqueTriggerId(v: Vehicle, base: string): string {
+  const taken = new Set(v.triggers.map((r) => String(r.v.id ?? '')));
+  if (!taken.has(base)) return base;
+  let i = 2;
+  while (taken.has(base + '_' + i)) i++;
+  return base + '_' + i;
+}
+
+/** Copies a trigger row right below itself with a unique id. */
+export function duplicateTrigger(idx: number): boolean {
+  const v = ws.vehicle;
+  const row = v?.triggers[idx];
+  if (!v || !row) return false;
+  const d = writableDoc(row.src.file);
+  if (!d) return false;
+  const header = headerOf(row.src.table, row.src.section);
+  const text = d.text.slice(row.src.node.s, row.src.node.e);
+  const id = String(row.v.id ?? 'trigger');
+  const copy = header.includes('id') ? setRowCellsText(text, header, { id: uniqueTriggerId(v, id) }, dec()) : text;
+  const es = new EditSet();
+  es.add(d.key, insertRowsAfter(d.text, row.src.node, [copy]));
+  return es.apply('Duplicate trigger');
+}
+
+/** Adds the X-mirror of a trigger (side tokens in id and node names swapped, box reflected). */
+export function mirrorTrigger(idx: number): boolean {
+  const pl = triggerPlacement(idx);
+  if (!pl) return false;
+  const { v, pos, t } = pl;
+  const row = t.row;
+  const d = writableDoc(row.src.file);
+  if (!d) return false;
+  const header = headerOf(row.src.table, row.src.section);
+  const sw = (n: any) => (typeof n === 'string' ? mirrorName(n) ?? n : n);
+  const nodes = { ref: sw(row.v['idRef:']), x: sw(row.v['idX:']), y: sw(row.v['idY:']) };
+  const toRaw = (q: [number, number, number]): [number, number, number] => {
+    const r = invertNodeXform(getNodeXform(row.v), q[0], q[1], q[2]);
+    return [r.x, r.y, r.z];
+  };
+  const vals = mirroredTriggerValues(v, pos, t, nodes, toRaw);
+  if (!vals) {
+    toast('warn', `Mirror nodes not found (${nodes.ref}, ${nodes.x}, ${nodes.y})`);
+    return false;
+  }
+  const id = String(row.v.id ?? 'trigger');
+  const mid = swapSideTokens(id);
+  vals.id = uniqueTriggerId(v, mid !== id ? mid : id + '_mirror');
+  vals['idRef:'] = nodes.ref;
+  vals['idX:'] = nodes.x;
+  vals['idY:'] = nodes.y;
+  const text = setRowCellsText(d.text.slice(row.src.node.s, row.src.node.e), header, vals, dec());
+  const es = new EditSet();
+  es.add(d.key, insertRowsAfter(d.text, row.src.node, [text]));
+  const ok = es.apply('Mirror trigger');
+  if (ok) toast('info', `Added ${vals.id}. Link its actions in triggerEventLinks2 if they differ per side.`);
+  return ok;
+}
+
+/** Rewrites a node-relative trigger position as baseTranslationGlobal (same place in game). */
+export function triggerToGlobal(idx: number): boolean {
+  const pl = triggerPlacement(idx);
+  if (!pl) return false;
+  const r = pl.t.row;
+  const raw = invertNodeXform(getNodeXform(r.v), pl.t.origin[0], pl.t.origin[1], pl.t.origin[2]);
+  return setRowOptionFor(r, 'baseTranslationGlobal', { x: +raw.x.toFixed(4), y: +raw.y.toFixed(4), z: +raw.z.toFixed(4) });
 }

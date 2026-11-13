@@ -6,6 +6,7 @@ import { useSettings, settings } from '../state/settings';
 import { revealRange } from '../editor/CodeEditor';
 import { CHECKS, massReport, type Finding } from '@core/analysis/debug';
 import { useChecks, runAllChecks, setCheckEnabled } from '../state/checks';
+import { openMenu } from './Menu';
 import { emptySel, setSel, type Sel } from '../state/selection';
 import { getViewport } from '../scene/ViewportPanel';
 import * as ops from '../project/ops';
@@ -80,7 +81,13 @@ function Problems() {
         {list.map((i, k) => {
           const d = i.file ? ws.doc(i.file) : undefined;
           return (
-            <button key={k} className="problem" onClick={() => i.file && i.s !== undefined && revealRange(i.file, i.s, i.e ?? i.s, true)}>
+            <button key={k} className="problem" onClick={() => i.file && i.s !== undefined && revealRange(i.file, i.s, i.e ?? i.s, true)} onContextMenu={(e) => {
+              e.preventDefault();
+              openMenu(e.clientX, e.clientY, [
+                { label: 'Go to code', disabled: i.file && i.s !== undefined ? false : 'No source position', run: () => i.file && i.s !== undefined && revealRange(i.file, i.s, i.e ?? i.s, true) },
+                { label: 'Copy message', run: () => navigator.clipboard.writeText(i.msg) },
+              ]);
+            }}>
               {SEV_ICON[i.sev]}
               <span className="ellipsis grow">{i.msg}</span>
               <span className="faint ellipsis small-text" style={{ maxWidth: 260 }}>{d ? d.name : ''}{i.part ? ` · ${i.part}` : ''}</span>
@@ -123,6 +130,18 @@ function Checks() {
     if (!l) byCheck.set(f.check, (l = []));
     l.push(f);
   }
+  const fixOne = (f: Finding) => {
+    if (!v) return;
+    if (f.fix === 'snapRail') {
+      if (ops.snapToRails(f.nodes ?? [])) setTimeout(run, 50);
+      return;
+    }
+    const rows = fixFinding(v, f);
+    const map = new Map<string, ANode[]>();
+    for (const r of rows) (map.get(r.file) ?? map.set(r.file, []).get(r.file)!).push(r.node);
+    const edits = new Map([...map].map(([file, nodes]) => [file.toLowerCase(), deleteNodes(ws.doc(file)!.text, nodes)]));
+    if (ops.applyRaw('Fix finding', edits)) setTimeout(run, 50);
+  };
   const fixAll = (id: string) => {
     if (!v) return;
     const snaps = (byCheck.get(id) ?? []).filter((f) => f.fix === 'snapRail').flatMap((f) => f.nodes ?? []);
@@ -163,7 +182,17 @@ function Checks() {
                 {fixable && <button className="btn small ghost" onClick={() => fixAll(c.id)}><Wrench size={12} /> {c.id === 'rails' ? 'Snap onto rails' : 'Remove extras'}</button>}
               </div>
               {list.slice(0, 500).map((f, k) => (
-                <button key={k} className="problem" onClick={() => v && selectFinding(v, f)}>
+                <button key={k} className="problem" onClick={() => v && selectFinding(v, f)} onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (!v) return;
+                  openMenu(e.clientX, e.clientY, [
+                    { label: 'Select in 3D', run: () => selectFinding(v, f) },
+                    f.fix && { label: f.fix === 'snapRail' ? 'Snap onto rail' : 'Remove the extras', run: () => fixOne(f) },
+                    'sep',
+                    { label: `Don't run "${c.title}"`, run: () => setCheckEnabled(c.id, false) },
+                    { label: 'Copy message', run: () => navigator.clipboard.writeText(f.msg) },
+                  ]);
+                }}>
                   {SEV_ICON[f.sev]}
                   <span className="ellipsis grow mono">{f.msg}</span>
                 </button>

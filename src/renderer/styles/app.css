@@ -2075,3 +2075,78 @@ button.status-item:hover {
   .vp-meshstatus { display: none; }
 }
 .vp-body { position: relative; }
+
+/* ---------- shared context menu ---------- */
+.cmenu {
+  position: fixed;
+  z-index: 400;
+  min-width: 220px;
+  max-width: 380px;
+  padding: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+}
+.cmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  white-space: nowrap;
+  cursor: default;
+}
+.cmenu-item.active:not(.disabled) {
+  background: var(--bg-active);
+  color: var(--text-strong);
+}
+.cmenu-item.disabled {
+  color: var(--text-deco);
+}
+.cmenu-item.danger:not(.disabled) {
+  color: var(--err);
+}
+.cmenu-check {
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--accent);
+  flex: none;
+}
+.cmenu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmenu-hint {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmenu .kbd {
+  margin-left: 8px;
+}
+.cmenu-arrow {
+  color: var(--text-faint);
+}
+.cmenu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
+}
+.cmenu-title {
+  padding: 5px 8px 4px 22px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

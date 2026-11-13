@@ -345,3 +345,20 @@ export function triggerValues(v: Vehicle, pos: ArrayLike<number>, t: TriggerPlac
   if (target.size) out.size = t.type === 'sphere' ? target.size[0] : { x: target.size[0], y: target.size[1], z: target.size[2] };
   return out;
 }
+
+/**
+ * Values for the X-mirror of a trigger: the same box/sphere reflected through x = 0, expressed
+ * with the mirrored reference nodes. The reflected frame flips handedness, so the box is
+ * re-described with axes (refl X, refl Y, -refl Z) and its corner recomputed.
+ */
+export function mirroredTriggerValues(v: Vehicle, pos: ArrayLike<number>, t: TriggerPlacement, nodes: { ref: string; x: string; y: string }, toRaw: (p: V3) => V3): Record<string, any> | null {
+  const refl = (a: V3): V3 => [-a[0], a[1], a[2]];
+  const row = { ...t.row, v: { ...t.row.v, 'idRef:': nodes.ref, 'idX:': nodes.x, 'idY:': nodes.y } };
+  for (const n of [nodes.ref, nodes.x, nodes.y]) if (!v.nodeIndex.has(n)) return null;
+  const tt: TriggerPlacement = { ...t, row };
+  const center = refl(t.center);
+  if (t.type === 'sphere') return triggerValues(v, pos, tt, { origin: center }, toRaw);
+  const X = refl(t.frame.X), Y = refl(t.frame.Y), Z = mul(refl(t.frame.Z), -1);
+  const origin = sub(sub(sub(center, mul(X, t.size[0] / 2)), mul(Y, t.size[1] / 2)), mul(Z, t.size[2] / 2));
+  return triggerValues(v, pos, tt, { origin, axes: { X, Y, Z } }, toRaw);
+}

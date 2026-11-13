@@ -5,6 +5,7 @@ import { useSel, resolveSel, selNodeIdx } from '../state/selection';
 import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
 import { getViewport, getLayers, startRailSlide } from './ViewportPanel';
+import { openMenu } from '../ui/Menu';
 import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
 import type { Row } from '@core/jbeam/types';
 import { triggerName, triggerActions } from '@core/jbeam/triggers';
@@ -263,7 +264,7 @@ export function Inspector() {
   }
 
   return (
-    <div className="inspector" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+    <div className="inspector" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onContextMenu={inspectorMenu}>
       <div className="insp-head">
         <span className="insp-title ellipsis mono">{title}</span>
         {row && (
@@ -350,4 +351,22 @@ function ScopeSummary({ scope }: { scope: ReturnType<typeof useSel.getState>['sc
       </div>
     </div>
   );
+}
+
+/** Right-click in the inspector: copy the value (or name) of the line under the cursor. */
+function inspectorMenu(e: React.MouseEvent) {
+  const line = (e.target as HTMLElement).closest('.insp-line, .insp-opt, .num-field') as HTMLElement | null;
+  if (!line) return;
+  e.preventDefault();
+  const input = line.querySelector('input') as HTMLInputElement | null;
+  const parts = [...line.children].map((c) => (c as HTMLElement).innerText.trim());
+  const value = input ? input.value : parts[parts.length - 1] ?? '';
+  const name = parts[0] ?? '';
+  const xyz = line.closest('.insp-xyz');
+  const all = xyz ? [...xyz.querySelectorAll('input')].map((i) => (i as HTMLInputElement).value).join(', ') : '';
+  openMenu(e.clientX, e.clientY, [
+    { label: 'Copy value', hint: value.length > 24 ? value.slice(0, 24) + '…' : value, run: () => navigator.clipboard.writeText(value) },
+    all && { label: 'Copy x, y, z', hint: all, run: () => navigator.clipboard.writeText(all) },
+    name && name !== value && { label: `Copy "${name}"`, run: () => navigator.clipboard.writeText(name) },
+  ]);
 }

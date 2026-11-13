@@ -12,6 +12,7 @@ import { StructurePanel } from './SidePanels';
 import { useSel, resolveSel } from '../state/selection';
 import { useChecks, runAllChecks } from '../state/checks';
 import { ReloadInGameButton } from './GameLink';
+import { MenuHost } from './Menu';
 import { BottomPanel } from './BottomPanel';
 import { ToolsPanel } from './ToolsPanel';
 import { Palette } from './Palette';
@@ -410,6 +411,7 @@ export function App() {
       <Palette />
       <Dialogs />
       <Toasts />
+      <MenuHost />
     </div>
   );
 }

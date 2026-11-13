@@ -8,7 +8,7 @@ import { Viewport } from './viewport';
 import { Layers } from './layers';
 import { Gizmo, type GizmoDelta } from './gizmo';
 import { ws, useWs } from '../project/workspace';
-import { useSettings, settings, matches } from '../state/settings';
+import { useSettings, settings, matches, type Settings } from '../state/settings';
 import { scopeParts } from '../state/selection';
 import { useSel, resolveSel, addToSel, cloneSel, emptySel, setSel, selNodeIdx, selCount, type Hover, type PickMode } from '../state/selection';
 import { useUi, requestTool, type Tool } from '../state/ui';
@@ -24,6 +24,8 @@ import { ViewportBar, ViewStats, ViewLegend } from './ViewportBar';
 import { meshes, useMeshStatus } from './meshes';
 import { meshFiles } from '../project/workspace';
 import { command } from '../ui/commands';
+import { openMenu, closeMenu, type MenuEntry } from '../ui/Menu';
+import type { Row } from '@core/jbeam/types';
 
 let vpInstance: Viewport | null = null;
 let layersInstance: Layers | null = null;
@@ -87,8 +89,6 @@ export function ViewportPanel() {
   const modalRef = useRef<Modal | null>(null);
   const [nameInput, setNameInput] = useState<null | { x: number; y: number; value: string; node?: string; create?: [number, number, number]; queue?: string[] }>(null);
   const [chain, setChain] = useState<string[]>([]);
-  const [ctxMenu, setCtxMenu] = useState<null | { x: number; y: number; hit: Hover | null }>(null);
-  const [addMenu, setAddMenu] = useState<null | { x: number; y: number; world: [number, number, number] }>(null);
   const mouse = useRef({ x: 0, y: 0, inside: false });
   const down = useRef<null | { x: number; y: number; button: number; shift: boolean; ctrl: boolean; alt: boolean; moved: boolean }>(null);
 
@@ -205,9 +205,224 @@ export function ViewportPanel() {
     const w = vp.pointOnViewPlane(x, y, vp.controls.target.clone());
     return [w.x, w.y, w.z];
   };
+  const toClient = (x: number, y: number) => {
+    const r = host.current!.getBoundingClientRect();
+    return { x: r.left + x, y: r.top + y };
+  };
   const openAddMenu = (x: number, y: number) => {
-    setCtxMenu(null);
-    setAddMenu({ x, y, world: worldAt(x, y) });
+    const c = toClient(x, y);
+    openMenu(c.x, c.y, [{ title: 'Add' }, ...addEntries(x, y)]);
+  };
+
+  /** Entries of the Add menu at a viewport position (also the "Add ▸" submenu). */
+  const addEntries = (lx: number, ly: number): MenuEntry[] => {
+    const v = ws.vehicle;
+    const vp = vpInstance;
+    const world = worldAt(lx, ly);
+    const sel = [...useSel.getState().sel.nodes];
+    // node set for placers: the selection, else the 3 nearest visible nodes
+    const nearNodes = (): string[] => {
+      if (sel.length >= 3 || !v || !vp) return sel;
+      const [x, y, z] = world;
+      return v.nodes
+        .map((n, i) => ({ n, i, d: (n.x - x) ** 2 + (n.y - y) ** 2 + (n.z - z) ** 2 }))
+        .filter((o) => vp.nodeVis[o.i] === 2)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 3)
+        .map((o) => o.n.name);
+    };
+    return [
+      {
+        label: 'Node here', hint: 'name it right away', key: 'N', run: () => {
+          if (!v) return;
+          const nm = useUi.getState().naming;
+          const taken = new Set(v.nodeIndex.keys());
+          let num = nm.next;
+          let name = ops.sidedName(nm.prefix, num, world[0]);
+          while (taken.has(name)) name = ops.sidedName(nm.prefix, ++num, world[0]);
+          setNameInput({ x: lx, y: ly, value: name, create: world });
+        },
+      },
+      { label: 'Beam', hint: sel.length >= 2 ? `${sel.length} selected nodes` : undefined, key: 'F', disabled: sel.length >= 2 ? false : 'Select 2 or more nodes', run: () => ops.addBeams(sel.slice(1).map((n, i) => [sel[i], n] as [string, string]), undefined, sel.length > 2 ? 'Connect chain' : 'Add beam') },
+      { label: 'Triangle', hint: sel.length === 3 ? 'from selection' : undefined, key: 'F', disabled: sel.length === 3 ? false : 'Select exactly 3 nodes', run: () => ops.addTris([[sel[0], sel[1], sel[2]]]) },
+      'sep',
+      { label: 'Trigger here', hint: 'triggers2', run: () => requestTool('trigger', world, nearNodes()) },
+      { label: 'Light bulb here', hint: 'slots2 bulb', run: () => requestTool('bulb', world, nearNodes()) },
+      { label: 'Occupant seat', hint: 'from 6 selected nodes', run: () => requestTool('occupant', world, sel) },
+      { label: 'Pressure wheel here', hint: 'axle nodes + wheel', run: () => requestTool('wheel', world) },
+      { label: 'Rail', hint: sel.length >= 2 ? 'from selection' : 'rails tool', run: () => requestTool('rail', world, sel) },
+      { label: 'Nodes between 2 nodes', hint: 'subdivide', disabled: sel.length === 2 ? false : 'Select exactly 2 nodes', run: () => requestTool('subdivide') },
+      'sep',
+      { label: 'Import from Blender / OBJ…', run: () => useUi.setState({ dialog: { kind: 'import' } }) },
+    ];
+  };
+
+  /** Right-click menu for whatever is under the cursor (or empty space). */
+  const showContextMenu = (lx: number, ly: number, hit: Hover | null) => {
+    const v = ws.vehicle;
+    const vp = vpInstance;
+    const c = toClient(lx, ly);
+    if (!v || !vp) {
+      openMenu(c.x, c.y, [{ label: 'Open vehicle…', run: () => command('app.openVehicle') }, { label: 'Open .jbeam file(s)…', run: () => command('file.openFile') }, { label: 'New vehicle…', run: () => useUi.setState({ dialog: { kind: 'newVehicle' } }) }]);
+      return;
+    }
+    const st = useSel.getState();
+    const si = resolveSel(v, st.sel);
+    const nodeIdx = [...selNodeIdx(v, si)];
+    const names = [...st.sel.nodes];
+    const s = settings();
+    const rowOf = (h: Hover): Row | null =>
+      h.kind === 'node' ? v.nodes[h.idx]?.row : h.kind === 'beam' ? v.beams[h.idx]?.row : h.kind === 'tri' ? v.tris[h.idx]?.row : h.kind === 'flex' ? v.flexbodies[h.idx]?.row
+        : h.kind === 'prop' ? v.props[h.idx]?.row : h.kind === 'wheel' ? v.wheels[h.idx]?.row : v.triggers[h.idx] ?? null;
+    const selectNodes = (idx: Iterable<number>) => ops.selectNodesByName([...new Set([...idx].map((i) => v.nodes[i].name))]);
+    const rowEntries = (row: Row | null): MenuEntry[] => {
+      if (!row) return [];
+      const d = ws.doc(row.src.file);
+      return [
+        'sep',
+        { label: 'Show in code', run: () => revealRange(row.src.file, row.src.node.s, row.src.node.e, true) },
+        { label: `Write new elements into ${row.part.def.name}`, disabled: d?.writable && !d.isCommon ? false : 'This file is read-only: make an editable copy first', run: () => ws.setTarget(row.src.file, row.part.def.name) },
+        { label: 'Show only this part', key: 'Shift+I', run: () => ws.focusPart(row.part.def.name) },
+      ];
+    };
+    const deleteEntry: MenuEntry[] = ['sep', { label: 'Delete', key: 'X', danger: true, run: () => ops.deleteSelection() }];
+    const multiNode: MenuEntry[] = names.length >= 2 ? [
+      'sep',
+      { title: `${names.length} nodes` },
+      { label: names.length === 3 ? 'Make triangle' : names.length === 2 ? 'Connect with a beam' : 'Connect as a chain', key: 'F', run: () => (names.length === 3 ? ops.addTris([[names[0], names[1], names[2]]]) : ops.addBeams(names.slice(1).map((n, i) => [names[i], n] as [string, string]), undefined, names.length > 2 ? 'Connect chain' : 'Add beam')) },
+      { label: 'Rail from selection…', run: () => requestTool('rail', undefined, names) },
+      { label: 'Mirror to other side', key: 'Ctrl+M', run: () => ops.mirrorSelection() },
+    ] : [];
+    const selectSub: MenuEntry = {
+      label: 'Select', submenu: [
+        { label: 'Linked (same part)', key: 'L', run: selectLinked },
+        { label: 'Same group', disabled: hit?.kind === 'node' && v.nodes[hit.idx].groups.length ? false : 'The node has no group', run: () => {
+          if (hit?.kind !== 'node') return;
+          const g = new Set(v.nodes[hit.idx].groups);
+          selectNodes(v.nodes.map((n, i) => (n.groups.some((x) => g.has(x)) ? i : -1)).filter((i) => i >= 0));
+        } },
+        { label: 'Same part', run: () => {
+          const parts = new Set(nodeIdx.map((i) => v.nodes[i].row.part.def.name));
+          selectNodes(v.nodes.map((n, i) => (parts.has(n.row.part.def.name) ? i : -1)).filter((i) => i >= 0));
+        } },
+        { label: 'Add mirror twins', key: 'Shift+M', run: () => {
+          const out = new Set(names);
+          for (const n of names) {
+            const mn = ops.mirrorName(n);
+            if (mn && v.nodeIndex.has(mn)) out.add(mn);
+          }
+          ops.selectNodesByName([...out]);
+        } },
+      ],
+    };
+    let items: MenuEntry[] = [];
+    if (hit?.kind === 'node') {
+      const n = v.nodes[hit.idx];
+      const isSlide = vp.slides.some((x) => nodeIdx.includes(x.node));
+      items = [
+        { title: n.name },
+        { label: 'Rename…', key: 'F2', run: () => openNameInput(hit.idx) },
+        { label: 'Move', key: 'G', run: () => startModal('move') },
+        { label: 'Rotate', key: 'R', run: () => startModal('rotate') },
+        { label: 'Scale', key: 'S', run: () => startModal('scale') },
+        isSlide && { label: 'Slide along rail', key: 'G G', run: startRailSlide },
+        isSlide && { label: 'Snap onto rail', key: 'Shift+R', run: () => ops.snapToRails(nodeIdx) },
+        'sep',
+        selectSub,
+        ...multiNode,
+        ...rowEntries(n.row),
+        ...deleteEntry,
+      ];
+    } else if (hit?.kind === 'beam') {
+      const b = v.beams[hit.idx];
+      items = [
+        { title: `${v.nodes[b.a].name} — ${v.nodes[b.b].name}` },
+        { label: 'Select both nodes', run: () => selectNodes([b.a, b.b]) },
+        { label: 'Nodes between them…', hint: 'subdivide', run: () => {
+          selectNodes([b.a, b.b]);
+          requestTool('subdivide');
+        } },
+        ...rowEntries(b.row),
+        ...deleteEntry,
+      ];
+    } else if (hit?.kind === 'tri') {
+      const t = v.tris[hit.idx];
+      items = [
+        { title: 'Triangle' },
+        { label: 'Flip normal', key: 'Ctrl+F', run: () => ops.flipTris(si.tris.size ? si.tris : [hit.idx]) },
+        { label: 'Select its nodes', run: () => selectNodes([t.a, t.b, t.c]) },
+        ...rowEntries(t.row),
+        ...deleteEntry,
+      ];
+    } else if (hit?.kind === 'trigger') {
+      const r = v.triggers[hit.idx];
+      const global = ['baseTranslationGlobal', 'baseTranslationGlobalElastic', 'baseTranslationGlobalRigid'].some((k) => r?.v[k] && typeof r.v[k] === 'object');
+      items = [
+        { title: String(r?.v.id ?? 'Trigger') },
+        { label: 'Move', key: 'G', run: () => startModal('move') },
+        { label: 'Rotate', key: 'R', run: () => startModal('rotate') },
+        { label: 'Resize', key: 'S', run: () => startModal('scale') },
+        'sep',
+        { label: 'Duplicate', run: () => ops.duplicateTrigger(hit.idx) },
+        { label: 'Mirror to other side', run: () => ops.mirrorTrigger(hit.idx) },
+        !global && { label: 'Convert to global position', hint: 'baseTranslationGlobal', run: () => ops.triggerToGlobal(hit.idx) },
+        { label: 'Select its reference nodes', run: () => ops.selectNodesByName(['idRef:', 'idX:', 'idY:'].map((k) => String(r?.v[k] ?? '')).filter((x) => v.nodeIndex.has(x))) },
+        ...rowEntries(r ?? null),
+        ...deleteEntry,
+      ];
+    } else if (hit?.kind === 'flex' || hit?.kind === 'prop') {
+      const isFlex = hit.kind === 'flex';
+      const f = isFlex ? v.flexbodies[hit.idx] : null;
+      const pr = !isFlex ? v.props[hit.idx] : null;
+      items = [
+        { title: f ? f.mesh : pr ? `prop ${pr.mesh}` : 'Mesh' },
+        f && { label: 'Select bound nodes', hint: f.groups.join(', '), run: () => selectNodes(v.nodes.map((n, i) => (n.groups.some((g) => f.groups.includes(g)) ? i : -1)).filter((i) => i >= 0)) },
+        pr && { label: 'Select its reference nodes', run: () => selectNodes([pr.idRef, pr.idX, pr.idY].filter((i) => i >= 0)) },
+        ...rowEntries(f?.row ?? pr?.row ?? null),
+        ...deleteEntry,
+      ];
+    } else if (hit?.kind === 'wheel') {
+      const w = v.wheels[hit.idx];
+      items = [{ title: 'Wheel' }, { label: 'Select axle nodes', run: () => selectNodes([w.n1, w.n2]) }, ...rowEntries(w.row)];
+    } else {
+      const toggle = (key: keyof Settings, label: string): MenuEntry => ({ label, checked: !!s[key], run: () => useSettings.getState().set({ [key]: !s[key] } as any) });
+      items = [
+        { label: 'Add', key: 'Shift+A', submenu: addEntries(lx, ly) },
+        ...multiNode,
+        'sep',
+        { label: 'View', submenu: [
+          { label: 'Frame all', key: 'Home', run: () => vp.frameNodes(null) },
+          { label: 'Frame selection', key: 'F', disabled: nodeIdx.length ? false : 'Nothing selected', run: () => vp.frameNodes(nodeIdx) },
+          'sep',
+          { label: 'Front', key: 'Numpad1', run: () => vp.setView('front') },
+          { label: 'Back', key: 'Ctrl+Numpad1', run: () => vp.setView('back') },
+          { label: 'Right side', key: 'Numpad3', run: () => vp.setView('right') },
+          { label: 'Left side', key: 'Ctrl+Numpad3', run: () => vp.setView('left') },
+          { label: 'Top', key: 'Numpad7', run: () => vp.setView('top') },
+          { label: 'Bottom', key: 'Ctrl+Numpad7', run: () => vp.setView('bottom') },
+          'sep',
+          { label: 'Orthographic', key: 'Numpad5', checked: vp.isOrtho, run: () => vp.setOrtho(!vp.isOrtho) },
+        ] },
+        { label: 'Show', submenu: [
+          toggle('showNodes', 'Nodes'), toggle('showBeams', 'Beams'), toggle('showTris', 'Collision triangles'), toggle('showMeshes', 'Flexbodies'),
+          toggle('showOccupants', 'Occupants'), toggle('showProps', 'Props & lights'), toggle('showTriggers', 'Triggers'), toggle('showWheels', 'Wheels'),
+          toggle('showRails', 'Rails & slidenodes'), toggle('showGrid', 'Grid'), 'sep', toggle('xray', 'X-ray'),
+        ] },
+        { label: 'Scope', submenu: [
+          { label: 'Whole vehicle', checked: st.scope.mode === 'vehicle', run: () => ws.setScope({ mode: 'vehicle' }) },
+          { label: 'Part of the selection', key: 'Shift+I', disabled: nodeIdx.length ? false : 'Nothing selected', run: toggleIsolate },
+        ] },
+        'sep',
+        { label: 'Select all', key: 'A', run: () => {
+          const sel = emptySel();
+          v.nodes.forEach((_, i) => vp.nodeVis[i] === 2 && addToSel(v, sel, 'node', i));
+          setSel(sel);
+        } },
+        { label: 'Select none', key: 'Alt+A', disabled: nodeIdx.length || si.beams.size || si.tris.size ? false : 'Nothing selected', run: () => setSel(emptySel()) },
+        { label: 'Symmetry (X)', key: 'Shift+X', checked: s.symmetryX, run: toggleSymmetry },
+      ];
+    }
+    openMenu(c.x, c.y, items);
   };
 
   const selectionNodeIdx = (): number[] => {
@@ -690,8 +905,7 @@ export function ViewportPanel() {
   const onPointerDown = (e: React.PointerEvent) => {
     const p = local(e);
     host.current?.focus();
-    setCtxMenu(null);
-    setAddMenu(null);
+    closeMenu();
     if (modalRef.current) {
       e.preventDefault();
       if (e.button === 0) confirmModal();
@@ -751,7 +965,7 @@ export function ViewportPanel() {
         const already = [...tmp.nodes].every((k) => cur.nodes.has(k)) && [...tmp.beams].every((k) => cur.beams.has(k)) && [...tmp.tris].every((k) => cur.tris.has(k)) && selCount(tmp) > 0;
         if (!already) setSel(tmp, hit);
       }
-      setCtxMenu({ x: p.x, y: p.y, hit });
+      showContextMenu(p.x, p.y, hit);
       return;
     }
     if (d.button !== 0 || !v) return;
@@ -1116,7 +1330,6 @@ export function ViewportPanel() {
       onPointerLeave={() => { mouse.current.inside = false; if (!down.current) useSel.setState({ hover: null }); }}
       onDoubleClick={onDoubleClick}
       onContextMenu={(e) => e.preventDefault()}
-      onWheel={() => setCtxMenu(null)}
     >
       <div className="vp-toolbar left" onPointerDown={(e) => e.stopPropagation()}>
         {toolBtn('select', <MousePointer2 size={16} />, 'Select (Q)\nDrag: box select · Shift add · Ctrl remove')}
@@ -1169,44 +1382,6 @@ export function ViewportPanel() {
         />
       )}
 
-      {addMenu && (
-        <AddMenu
-          x={addMenu.x}
-          y={addMenu.y}
-          world={addMenu.world}
-          close={() => setAddMenu(null)}
-          addNode={() => {
-            const v = ws.vehicle;
-            if (!v) return;
-            const nm = useUi.getState().naming;
-            const taken = new Set(v.nodeIndex.keys());
-            let num = nm.next;
-            let name = ops.sidedName(nm.prefix, num, addMenu.world[0]);
-            while (taken.has(name)) name = ops.sidedName(nm.prefix, ++num, addMenu.world[0]);
-            setNameInput({ x: addMenu.x, y: addMenu.y, value: name, create: addMenu.world });
-          }}
-        />
-      )}
-
-      {ctxMenu && (
-        <ContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          hit={ctxMenu.hit}
-          close={() => setCtxMenu(null)}
-          actions={{
-            rename: (i) => openNameInput(i),
-            grab: () => startModal('move'),
-            rotate: () => startModal('rotate'),
-            scale: () => startModal('scale'),
-            railSlide: startRailSlide,
-            isolate: toggleIsolate,
-            linked: selectLinked,
-            add: () => openAddMenu(ctxMenu.x, ctxMenu.y),
-          }}
-        />
-      )}
-
       <ViewStats />
       <ViewLegend />
       {(meshStatus.loading > 0 || meshStatus.missing.length > 0) && (
@@ -1235,93 +1410,6 @@ function EmptyState() {
           <button className="btn" onClick={() => { ws.refreshVehicleList(); useUi.setState({ page: 'workbench', palette: 'vehicles' }); }}>Browse vehicles…</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function AddMenu(props: { x: number; y: number; world: [number, number, number]; close: () => void; addNode: () => void }) {
-  const v = ws.vehicle;
-  const sel = [...useSel.getState().sel.nodes];
-  const vp = getViewport();
-  // node set for placers: the selection, else the 3 nearest visible nodes
-  const nearNodes = (): string[] => {
-    if (sel.length >= 3 || !v || !vp) return sel;
-    const [x, y, z] = props.world;
-    return v.nodes
-      .map((n, i) => ({ n, i, d: (n.x - x) ** 2 + (n.y - y) ** 2 + (n.z - z) ** 2 }))
-      .filter((o) => vp.nodeVis[o.i] === 2)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 3)
-      .map((o) => o.n.name);
-  };
-  const go = (fn: () => void) => () => {
-    props.close();
-    fn();
-  };
-  const item = (label: string, hint: string, fn: () => void, enabled = true) => (
-    <button className="ctx-item" disabled={!enabled} onClick={go(fn)}>
-      <span>{label}</span>
-      <span className="faint small-text">{hint}</span>
-    </button>
-  );
-  return (
-    <div className="ctx-menu add-menu" style={{ left: props.x, top: props.y }} onPointerDown={(e) => e.stopPropagation()}>
-      <div className="ctx-title">Add</div>
-      {item('Node here', 'name it right away', props.addNode)}
-      {item('Beam', sel.length >= 2 ? `${sel.length} selected nodes` : 'select 2+ nodes', () => ops.addBeams(sel.slice(1).map((n, i) => [sel[i], n] as [string, string]), undefined, sel.length > 2 ? 'Connect chain' : 'Add beam'), sel.length >= 2)}
-      {item('Triangle', sel.length === 3 ? 'from selection' : 'select 3 nodes', () => ops.addTris([[sel[0], sel[1], sel[2]]]), sel.length === 3)}
-      <div className="ctx-sep" />
-      {item('Trigger here', 'triggers2', () => requestTool('trigger', props.world, nearNodes()))}
-      {item('Light bulb here', 'slots2 bulb', () => requestTool('bulb', props.world, nearNodes()))}
-      {item('Occupant seat', 'from 6 selected nodes', () => requestTool('occupant', props.world, sel))}
-      {item('Pressure wheel here', 'axle nodes + wheel', () => requestTool('wheel', props.world))}
-      {item('Nodes between 2 nodes', 'subdivide', () => requestTool('subdivide'), sel.length === 2)}
-      {item('Rail / slidenodes', sel.length >= 2 ? 'from selection' : 'rails tool', () => requestTool('rail'))}
-      <div className="ctx-sep" />
-      {item('Import from Blender / OBJ…', '', () => useUi.setState({ dialog: { kind: 'import' } }))}
-    </div>
-  );
-}
-
-function ContextMenu(props: { x: number; y: number; hit: Hover | null; close: () => void; actions: { rename: (i: number) => void; grab: () => void; rotate: () => void; scale: () => void; railSlide: () => void; isolate: () => void; linked: () => void; add: () => void } }) {
-  const v = ws.vehicle;
-  const items: Array<[string, () => void, string?] | null> = [];
-  const hit = props.hit;
-  items.push(['Add…', props.actions.add, 'Shift+A']);
-  items.push(null);
-  if (v && hit?.kind === 'node') items.push(['Rename…', () => props.actions.rename(hit.idx), 'F2']);
-  const row = v && hit ? (hit.kind === 'node' ? v.nodes[hit.idx].row : hit.kind === 'beam' ? v.beams[hit.idx].row : hit.kind === 'tri' ? v.tris[hit.idx].row : hit.kind === 'flex' ? v.flexbodies[hit.idx].row : hit.kind === 'prop' ? v.props[hit.idx].row : v.triggers[hit.idx]) : null;
-  if (row) items.push(['Show in code', () => revealRange(row.src.file, row.src.node.s, row.src.node.e, true)]);
-  if (row) items.push([`Set "${row.src.part}" as target part`, () => ws.setTarget(row.src.file, row.src.part)]);
-  items.push(null);
-  items.push(['Move', props.actions.grab, 'G']);
-  if (hit?.kind === 'trigger') {
-    items.push(['Rotate', props.actions.rotate, 'R']);
-    items.push(['Resize', props.actions.scale, 'S']);
-  }
-  const vp = getViewport();
-  const selIdx = v ? [...useSel.getState().sel.nodes].map((n) => v.nodeIndex.get(n)).filter((x): x is number => x !== undefined) : [];
-  if (vp && selIdx.some((i) => vp.slides.some((sl) => sl.node === i))) {
-    items.push(['Slide along rail', props.actions.railSlide, 'G G']);
-    items.push(['Snap onto rail', () => ops.snapToRails(selIdx), 'Shift+R']);
-  }
-  items.push(['Mirror to other side', () => ops.mirrorSelection(), 'Ctrl+M']);
-  items.push(['Select linked', props.actions.linked, 'L']);
-  items.push(['Show only this part', props.actions.isolate, 'Shift+I']);
-  items.push(null);
-  items.push(['Delete', () => ops.deleteSelection(), 'X']);
-  return (
-    <div className="ctx-menu" style={{ left: props.x, top: props.y }} onPointerDown={(e) => e.stopPropagation()}>
-      {items.map((it, i) =>
-        it ? (
-          <button key={i} className="ctx-item" onClick={() => { props.close(); it[1](); }}>
-            <span>{it[0]}</span>
-            {it[2] && <span className="kbd">{it[2]}</span>}
-          </button>
-        ) : (
-          <div key={i} className="ctx-sep" />
-        ),
-      )}
     </div>
   );
 }
