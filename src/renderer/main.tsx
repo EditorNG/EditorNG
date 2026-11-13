@@ -16,7 +16,7 @@ import { ws, useWs } from './project/workspace';
 import { useSel } from './state/selection';
 import { toast } from './state/toast';
 import * as ops from './project/ops';
-import { getViewport, getGizmo } from './scene/ViewportPanel';
+import { getViewport, getGizmo, getLayers } from './scene/ViewportPanel';
 import { command } from './ui/commands';
 import { meshes, useMeshStatus } from './scene/meshes';
 import { shading } from './scene/shading';
@@ -149,7 +149,7 @@ async function boot() {
     await restoreSession(state.lastVehicle).catch(() => {});
   }
   // automation hooks (used by scripts/shot.mjs and handy in devtools)
-  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading };
+  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, layers: getLayers, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading };
 }
 
 boot().catch((e) => {

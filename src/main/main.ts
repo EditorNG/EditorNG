@@ -633,7 +633,19 @@ async function createWindow(): Promise<void> {
   });
   win.setMenuBarVisibility(false);
   if (state.maximized && !process.env.EDITORNG_NO_MAXIMIZE) win.maximize();
-  win.once('ready-to-show', () => win?.show());
+  // automated tests run headless: the window lives far off-screen, without focus or a taskbar entry, so it
+  // never pops up. It is still "shown" — a never-shown window gets almost no frames (3/s), so the 3D view
+  // would not behave like the real thing.
+  const headless = process.env.EDITORNG_HEADLESS === '1';
+  if (headless) {
+    win.setSkipTaskbar(true);
+    win.setFocusable(false);
+    win.once('ready-to-show', () => {
+      if (!win) return;
+      win.setPosition(-30000, -30000);
+      win.showInactive();
+    });
+  } else win.once('ready-to-show', () => win?.show());
   win.on('close', (e) => {
     if (!win) return;
     if (!allowClose) {

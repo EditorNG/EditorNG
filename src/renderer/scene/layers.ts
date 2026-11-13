@@ -2,6 +2,7 @@
  * Flexbody / prop meshes, light props and triggers2 boxes for the 3D view.
  */
 import * as THREE from 'three';
+import { computeBoundsTree, acceleratedRaycast, type MeshBVH } from 'three-mesh-bvh';
 import { shading } from './shading';
 import { ws } from '../project/workspace';
 import type { Vehicle, Row } from '@core/jbeam/types';
@@ -12,6 +13,12 @@ import { bulbDirection } from '@core/jbeam/generators';
 import { placeTriggers } from '@core/jbeam/triggers';
 import { isOccupant } from '@core/jbeam/assemble';
 import { partColor, type Viewport } from './viewport';
+
+// flexbody picking: a bounding volume tree per geometry (built the first time a ray reaches it) turns
+// per-triangle raycasts over whole bodies into a few box tests
+(THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+const tmpSphere = new THREE.Sphere();
 
 const DEG = Math.PI / 180;
 
@@ -494,7 +501,23 @@ export class Layers {
       if (allow.flex !== false) targets.push(this.flexGroup);
     }
     if (!targets.length) return null;
-    const hits = rc.intersectObjects(targets, true);
+    // only meshes (wireframe overlays are lines); a geometry gets its tree when a ray first reaches it
+    const list: THREE.Mesh[] = [];
+    for (const g of targets) {
+      g.traverseVisible((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const geo = m.geometry as THREE.BufferGeometry & { boundsTree?: MeshBVH; computeBoundsTree?: () => void };
+        if (!geo.boundsTree && geo.attributes.position?.count > 300) {
+          if (!geo.boundingSphere) geo.computeBoundingSphere();
+          tmpSphere.copy(geo.boundingSphere!).applyMatrix4(m.matrixWorld);
+          if (rc.ray.intersectsSphere(tmpSphere)) geo.computeBoundsTree?.();
+        }
+        list.push(m);
+      });
+    }
+    (rc as any).firstHitOnly = true;
+    const hits = rc.intersectObjects(list, false);
     for (const h of hits) {
       const ud = h.object.userData;
       if (ud && (ud.kind === 'flex' || ud.kind === 'prop' || ud.kind === 'trigger')) return { kind: ud.kind, idx: ud.idx };

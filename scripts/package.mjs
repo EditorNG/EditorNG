@@ -31,6 +31,14 @@ const [appDir] = await packager({
   ignore: (p) => (p === '' ? false : !keep.some((re) => re.test(p.replace(/\\/g, '/')))),
   prune: false,
 });
+// trim what the app never uses: UI translations of Chromium's own dialogs (English only; other system
+// languages fall back to it) and the DirectX shader compiler used only by WebGPU (WebGL goes through
+// ANGLE's d3dcompiler_47.dll, which stays, as does the software-rendering fallback)
+const locales = path.join(appDir, 'locales');
+for (const f of fs.readdirSync(locales)) if (f !== 'en-US.pak') fs.rmSync(path.join(locales, f));
+for (const f of ['dxcompiler.dll', 'dxil.dll']) fs.rmSync(path.join(appDir, f), { force: true });
+// no Python bytecode caches from local Blender runs
+fs.rmSync(path.join(appDir, 'resources', 'blender', '__pycache__'), { recursive: true, force: true });
 // readme for end users
 fs.copyFileSync(path.join(root, 'docs', 'USER_GUIDE.md'), path.join(appDir, 'USER_GUIDE.md'));
 const zip = path.join(out, `EditorNG-${pkg.version}-win64.zip`);

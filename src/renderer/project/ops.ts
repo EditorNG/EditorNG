@@ -108,6 +108,119 @@ function requireTarget(): { doc: Doc; part: PartDef; active?: ActivePart } | nul
 }
 
 // ------------------------------------------------------------------------------------------
+// symmetry for edits (X mirror): with Symmetry on, creating / deleting / renaming / editing
+// also applies to the mirror twin. Explicit mirror commands run without it.
+// ------------------------------------------------------------------------------------------
+
+type Target = { doc: Doc; part: PartDef; active?: ActivePart };
+let symOff = 0;
+
+function symOn(): boolean {
+  return settings().symmetryX && symOff === 0 && !!ws.vehicle;
+}
+
+/** Runs an edit with symmetry suspended (explicit mirror ops, and the twin half of a symmetric edit). */
+export function withoutSymmetry<T>(fn: () => T): T {
+  symOff++;
+  try {
+    return fn();
+  } finally {
+    symOff--;
+  }
+}
+
+/** Where mirrored rows go: the other-side part (door_FL → door_FR) when it is loaded and editable, else the same part. */
+function twinTarget(t: Target): Target {
+  const name = swapSideTokens(t.part.name);
+  if (name !== t.part.name) {
+    const ap = ws.vehicle?.partsByName.get(name);
+    const d = ap ? ws.doc(ap.def.file) : undefined;
+    const p = d?.jfile?.parts.find((x) => x.name === name);
+    if (ap && d && p && d.writable && !d.isCommon) return { doc: d, part: p, active: ap };
+  }
+  return t;
+}
+
+/** Name of a node's twin (existing node), or null for centre-line / unmatched nodes. */
+function twinName(v: Vehicle, name: string): string | null {
+  const i = v.nodeIndex.get(name);
+  if (i === undefined) return null;
+  const t = twinOf(v, i);
+  return t === null || t === i ? null : v.nodes[t].name;
+}
+
+/** Twin of a beam (the beam between the twins of its nodes). */
+function twinBeam(v: Vehicle, bi: number): number | null {
+  const b = v.beams[bi];
+  const ta = twinOf(v, b.a), tb = twinOf(v, b.b);
+  if (ta === null || tb === null) return null;
+  const j = v.beams.findIndex((x) => (x.a === ta && x.b === tb) || (x.a === tb && x.b === ta));
+  return j >= 0 && j !== bi ? j : null;
+}
+
+function twinTri(v: Vehicle, ti: number): number | null {
+  const t = v.tris[ti];
+  const tw = [twinOf(v, t.a), twinOf(v, t.b), twinOf(v, t.c)];
+  if (tw.some((x) => x === null)) return null;
+  const want = new Set(tw as number[]);
+  const j = v.tris.findIndex((x) => want.has(x.a) && want.has(x.b) && want.has(x.c));
+  return j >= 0 && j !== ti ? j : null;
+}
+
+/** Twin of a trigger: the one with the side-swapped id, else the one on the mirrored nodes. */
+function twinTrigger(v: Vehicle, idx: number): number | null {
+  const r = v.triggers[idx];
+  if (!r) return null;
+  const id = String(r.v.id ?? '');
+  const mid = swapSideTokens(id);
+  if (mid !== id) {
+    const j = v.triggers.findIndex((x, k) => k !== idx && String(x.v.id ?? '') === mid);
+    if (j >= 0) return j;
+  }
+  const m = (k: string) => (typeof r.v[k] === 'string' ? mirrorName(r.v[k]) : null);
+  const ref = m('idRef:'), x = m('idX:'), y = m('idY:');
+  if (!ref || !x || !y) return null;
+  const j = v.triggers.findIndex((t, k) => k !== idx && t.v['idRef:'] === ref && t.v['idX:'] === x && t.v['idY:'] === y);
+  return j >= 0 ? j : null;
+}
+
+/** Side tokens swapped in string option values (group "door_L" → "door_R"). */
+function mirrorOpts(opts: Record<string, any> | undefined): Record<string, any> | undefined {
+  if (!opts) return opts;
+  const out: Record<string, any> = {};
+  for (const [k, val] of Object.entries(opts)) out[k] = typeof val === 'string' ? swapSideTokens(val) : Array.isArray(val) ? val.map((x) => (typeof x === 'string' ? swapSideTokens(x) : x)) : val;
+  return out;
+}
+
+/** Rows of the twins of node / beam / triangle rows (writable ones only). */
+function twinRows(v: Vehicle, rows: Row[]): Row[] {
+  const have = new Set(rows.map((r) => r.src.node));
+  const out: Row[] = [];
+  const add = (r: Row | undefined) => {
+    if (!r || have.has(r.src.node) || !ws.doc(r.src.file)?.writable) return;
+    have.add(r.src.node);
+    out.push(r);
+  };
+  const want = new Set(rows.map((r) => r.src.node));
+  v.nodes.forEach((n, i) => {
+    if (!want.has(n.row.src.node)) return;
+    const t = twinOf(v, i);
+    if (t !== null && t !== i) add(v.nodes[t].row);
+  });
+  v.beams.forEach((b, i) => {
+    if (!want.has(b.row.src.node)) return;
+    const t = twinBeam(v, i);
+    if (t !== null) add(v.beams[t].row);
+  });
+  v.tris.forEach((x, i) => {
+    if (!want.has(x.row.src.node)) return;
+    const t = twinTri(v, i);
+    if (t !== null) add(v.tris[t].row);
+  });
+  return out;
+}
+
+// ------------------------------------------------------------------------------------------
 // nodes
 // ------------------------------------------------------------------------------------------
 
@@ -126,17 +239,48 @@ export function addNodes(nodes: Array<{ name: string; x: number; y: number; z: n
       return [];
     }
   }
-  const table = t.part.sections.get('nodes');
-  const header = headerOf(table, 'nodes');
-  const xf = getNodeXform(t.active?.slotOptions ?? {});
-  const rows = nodes.map((n) => {
-    const raw = invertNodeXform(xf, n.x, n.y, n.z);
-    const rec: Record<string, any> = { id: n.name, posX: round(raw.x), posY: round(raw.y), posZ: round(raw.z), ...(n.opts ?? {}) };
-    return fmtRow(rowFromRecord(header, rec), dec());
-  });
+  // symmetry: a twin at −x for every off-centre node (l/r name swapped) unless it already exists
+  const twins = new Map<number, { name: string; x: number; y: number; z: number; opts?: Record<string, any> }>();
+  if (symOn() && v) {
+    const tol = symTol();
+    const batch = new Set(nodes.map((n) => n.name));
+    let unnamed = 0;
+    nodes.forEach((n, k) => {
+      if (Math.abs(n.x) <= tol) return;
+      const name = mirrorName(n.name);
+      if (!name) return void unnamed++;
+      if (batch.has(name) || v.nodeIndex.has(name)) return;
+      if (v.nodes.some((m) => Math.hypot(m.x + n.x, m.y - n.y, m.z - n.z) <= tol)) return;
+      batch.add(name);
+      twins.set(k, { name, x: -n.x, y: n.y, z: n.z, opts: mirrorOpts(n.opts) });
+    });
+    if (unnamed) toast('info', `Symmetry: ${unnamed} node(s) have no l/r suffix, so no twin was made`);
+  }
+  const rowsFor = (tg: Target, list: typeof nodes) => {
+    const header = headerOf(tg.part.sections.get('nodes'), 'nodes');
+    const xf = getNodeXform(tg.active?.slotOptions ?? {});
+    return {
+      header,
+      rows: list.map((n) => {
+        const raw = invertNodeXform(xf, n.x, n.y, n.z);
+        const rec: Record<string, any> = { id: n.name, posX: round(raw.x), posY: round(raw.y), posZ: round(raw.z), ...(n.opts ?? {}) };
+        return fmtRow(rowFromRecord(header, rec), dec());
+      }),
+    };
+  };
   const es = new EditSet();
-  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'nodes', header, rows));
-  if (!es.apply(label)) return [];
+  const tt = twins.size ? twinTarget(t) : t;
+  if (tt === t) {
+    // same part: each twin right after its node
+    const list = nodes.flatMap((n, k) => (twins.has(k) ? [n, twins.get(k)!] : [n]));
+    const r = rowsFor(t, list);
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'nodes', r.header, r.rows));
+  } else {
+    const a = rowsFor(t, nodes), b = rowsFor(tt, [...twins.values()]);
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'nodes', a.header, a.rows));
+    es.add(tt.doc.key, insertRowsHere(tt.doc.text, tt.part, 'nodes', b.header, b.rows));
+  }
+  if (!es.apply(twins.size ? label + ' (symmetry)' : label)) return [];
   return nodes.map((n) => n.name);
 }
 
@@ -181,6 +325,13 @@ export function renameNode(oldName: string, newName: string): boolean {
   newName = newName.trim();
   const v = ws.vehicle;
   if (!v || !newName || oldName === newName) return false;
+  if (symOn()) {
+    // the twin follows: b5l → x5l renames b5r → x5r too
+    const tOld = twinName(v, oldName), tNew = mirrorName(newName);
+    if (tOld && tNew && tNew !== newName && !v.nodeIndex.has(tNew) && ws.doc(v.nodes[v.nodeIndex.get(tOld)!].row.src.file)?.writable) {
+      return ws.group(`Rename ${oldName} → ${newName} (symmetry)`, () => withoutSymmetry(() => renameNode(oldName, newName) && (renameNode(tOld, tNew), true)));
+    }
+  }
   if (/["\\\s]/.test(newName)) {
     toast('warn', 'Node names cannot contain spaces, quotes or backslashes');
     return false;
@@ -267,11 +418,43 @@ export function addBeams(pairs: Array<[string, string]>, opts?: Record<string, a
     toast('info', 'Beam already exists');
     return 0;
   }
-  const header = headerOf(t.part.sections.get('beams'), 'beams');
-  const rows = list.map(([a, b]) => fmtRow(rowFromRecord(header, { 'id1:': a, 'id2:': b, ...(opts ?? {}) }), dec()));
+  // symmetry: the beam between the twins of its nodes
+  const twins = new Map<number, [string, string]>();
+  if (symOn()) {
+    list.forEach(([a, b], k) => {
+      const ta = twinName(v, a) ?? (Math.abs(v.nodes[v.nodeIndex.get(a)!].x) <= symTol() ? a : null);
+      const tb = twinName(v, b) ?? (Math.abs(v.nodes[v.nodeIndex.get(b)!].x) <= symTol() ? b : null);
+      if (!ta || !tb || ta === tb) return;
+      const key = beamKey(ta, tb);
+      if (seen.has(key) || hasBeam(v, v.nodeIndex.get(ta)!, v.nodeIndex.get(tb)!)) return;
+      seen.add(key);
+      twins.set(k, [ta, tb]);
+    });
+  }
+  const rowsFor = (tg: Target, pairs: Array<[string, string]>, o?: Record<string, any>) => {
+    const header = headerOf(tg.part.sections.get('beams'), 'beams');
+    return { header, rows: pairs.map(([a, b]) => fmtRow(rowFromRecord(header, { 'id1:': a, 'id2:': b, ...(o ?? {}) }), dec())) };
+  };
   const es = new EditSet();
-  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'beams', header, rows));
-  return es.apply(label) ? list.length : 0;
+  const tt = twins.size ? twinTarget(t) : t;
+  if (tt === t) {
+    const r = rowsFor(t, list.flatMap((p, k) => (twins.has(k) ? [p, twins.get(k)!] : [p])), opts);
+    // twin rows get side-swapped options; rebuild those rows individually
+    if (opts && twins.size) {
+      const mo = mirrorOpts(opts);
+      let j = 0;
+      list.forEach((p, k) => {
+        j++;
+        if (twins.has(k)) r.rows[j++] = rowsFor(t, [twins.get(k)!], mo).rows[0];
+      });
+    }
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'beams', r.header, r.rows));
+  } else {
+    const a = rowsFor(t, list, opts), b = rowsFor(tt, [...twins.values()], mirrorOpts(opts));
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'beams', a.header, a.rows));
+    es.add(tt.doc.key, insertRowsHere(tt.doc.text, tt.part, 'beams', b.header, b.rows));
+  }
+  return es.apply(twins.size ? label + ' (symmetry)' : label) ? list.length : 0;
 }
 
 export function addTris(tris: Array<[string, string, string]>, label = 'Add triangle'): number {
@@ -284,11 +467,35 @@ export function addTris(tris: Array<[string, string, string]>, label = 'Add tria
     toast('info', 'Triangle already exists');
     return 0;
   }
-  const header = headerOf(t.part.sections.get('triangles'), 'triangles');
-  const rows = list.map(([a, b, c]) => fmtRow(rowFromRecord(header, { 'id1:': a, 'id2:': b, 'id3:': c }), dec()));
+  // symmetry: the twin triangle, winding reversed so its normal mirrors too
+  const twins = new Map<number, [string, string, string]>();
+  if (symOn()) {
+    const seen = new Set(list.map((x) => triKey(...x)));
+    const tn = (n: string) => twinName(v, n) ?? (Math.abs(v.nodes[v.nodeIndex.get(n)!].x) <= symTol() ? n : null);
+    list.forEach(([a, b, c], k) => {
+      const ta = tn(a), tb = tn(b), tc = tn(c);
+      if (!ta || !tb || !tc || new Set([ta, tb, tc]).size < 3) return;
+      const key = triKey(ta, tc, tb);
+      if (seen.has(key) || existing.has(key)) return;
+      seen.add(key);
+      twins.set(k, [ta, tc, tb]);
+    });
+  }
+  const rowsFor = (tg: Target, l: Array<[string, string, string]>) => {
+    const header = headerOf(tg.part.sections.get('triangles'), 'triangles');
+    return { header, rows: l.map(([a, b, c]) => fmtRow(rowFromRecord(header, { 'id1:': a, 'id2:': b, 'id3:': c }), dec())) };
+  };
   const es = new EditSet();
-  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'triangles', header, rows));
-  return es.apply(label) ? list.length : 0;
+  const tt = twins.size ? twinTarget(t) : t;
+  if (tt === t) {
+    const r = rowsFor(t, list.flatMap((x, k) => (twins.has(k) ? [x, twins.get(k)!] : [x])));
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'triangles', r.header, r.rows));
+  } else {
+    const a = rowsFor(t, list), b = rowsFor(tt, [...twins.values()]);
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'triangles', a.header, a.rows));
+    es.add(tt.doc.key, insertRowsHere(tt.doc.text, tt.part, 'triangles', b.header, b.rows));
+  }
+  return es.apply(twins.size ? label + ' (symmetry)' : label) ? list.length : 0;
 }
 
 /** Swaps id2/id3 of selected triangle rows (flips the normal). */
@@ -297,7 +504,14 @@ export function flipTris(idx: Iterable<number>): boolean {
   if (!v) return false;
   const es = new EditSet();
   const done = new Set<ANode>();
-  for (const i of idx) {
+  const all = new Set(idx);
+  if (symOn()) {
+    for (const i of [...all]) {
+      const t = twinTri(v, i);
+      if (t !== null && ws.doc(v.tris[t].row.src.file)?.writable) all.add(t);
+    }
+  }
+  for (const i of all) {
     const t = v.tris[i];
     if (!t || done.has(t.row.src.node)) continue;
     done.add(t.row.src.node);
@@ -323,6 +537,26 @@ export function deleteSelection(): boolean {
   const v = ws.vehicle;
   if (!v) return false;
   const si = resolveSel(v, useSel.getState().sel);
+  if (symOn()) {
+    // the twins go too (only those in editable files)
+    const ok = (r: Row) => !!ws.doc(r.src.file)?.writable;
+    for (const i of [...si.nodes]) {
+      const t = twinOf(v, i);
+      if (t !== null && ok(v.nodes[t].row)) si.nodes.add(t);
+    }
+    for (const i of [...si.beams]) {
+      const t = twinBeam(v, i);
+      if (t !== null && ok(v.beams[t].row)) si.beams.add(t);
+    }
+    for (const i of [...si.tris]) {
+      const t = twinTri(v, i);
+      if (t !== null && ok(v.tris[t].row)) si.tris.add(t);
+    }
+    for (const i of [...si.triggers]) {
+      const t = twinTrigger(v, i);
+      if (t !== null && ok(v.triggers[t])) si.triggers.add(t);
+    }
+  }
   const rows = new Map<string, Set<ANode>>();
   const add = (r: Row) => {
     let s = rows.get(r.src.file);
@@ -378,6 +612,9 @@ function escape(s: string): string {
 
 /** Mirrors selected nodes (and beams/tris between them) across X=0, creating or moving counterparts. */
 export function mirrorSelection(): boolean {
+  return withoutSymmetry(mirrorSelectionImpl);
+}
+function mirrorSelectionImpl(): boolean {
   const v = ws.vehicle;
   if (!v) return false;
   const si = resolveSel(v, useSel.getState().sel);
@@ -750,6 +987,51 @@ export function addSlidenodes(nodes: string[], rail: string, snap: boolean, spri
 
 /** Writes new values (header cells or options) into trigger rows, one undo step. */
 export function setTriggerValues(changes: Map<number, Record<string, any>>, label = 'Transform triggers'): boolean {
+  const v0 = ws.vehicle;
+  if (v0 && symOn()) {
+    const pairs: Array<[number, number]> = [];
+    for (const i of changes.keys()) {
+      const t = twinTrigger(v0, i);
+      if (t !== null && !changes.has(t) && ws.doc(v0.triggers[t].src.file)?.writable) pairs.push([i, t]);
+    }
+    if (pairs.length) {
+      return ws.group(label + ' (symmetry)', () =>
+        withoutSymmetry(() => {
+          if (!setTriggerValues(changes, label)) return false;
+          const tw = new Map<number, Record<string, any>>();
+          for (const [i, t] of pairs) {
+            const vals = mirroredValuesFor(i, t);
+            if (vals) tw.set(t, vals);
+          }
+          if (tw.size) setTriggerValues(tw, label);
+          return true;
+        }),
+      );
+    }
+  }
+  return setTriggerValuesRaw(changes, label);
+}
+
+/** Placement values of trigger `src` mirrored across X, expressed on trigger `dst`'s own nodes. */
+function mirroredValuesFor(src: number, dst: number): Record<string, any> | null {
+  const pl = triggerPlacement(src);
+  const row = ws.vehicle?.triggers[dst];
+  if (!pl || !row) return null;
+  const nodes = { ref: String(row.v['idRef:']), x: String(row.v['idX:']), y: String(row.v['idY:']) };
+  const toRaw = (q: [number, number, number]): [number, number, number] => {
+    const r = invertNodeXform(getNodeXform(row.v), q[0], q[1], q[2]);
+    return [r.x, r.y, r.z];
+  };
+  const vals = mirroredTriggerValues(pl.v, pl.pos, pl.t, nodes, toRaw);
+  if (!vals) return null;
+  delete vals.id;
+  delete vals['idRef:'];
+  delete vals['idX:'];
+  delete vals['idY:'];
+  return vals;
+}
+
+function setTriggerValuesRaw(changes: Map<number, Record<string, any>>, label: string): boolean {
   const v = ws.vehicle;
   if (!v) return false;
   const es = new EditSet();
@@ -809,6 +1091,9 @@ export function duplicateTrigger(idx: number): boolean {
 
 /** Adds the X-mirror of a trigger (side tokens in id and node names swapped, box reflected). */
 export function mirrorTrigger(idx: number): boolean {
+  return withoutSymmetry(() => mirrorTriggerImpl(idx));
+}
+function mirrorTriggerImpl(idx: number): boolean {
   const pl = triggerPlacement(idx);
   if (!pl) return false;
   const { v, pos, t } = pl;
@@ -1003,6 +1288,28 @@ export function distributeNodes(idx: number[]): boolean {
  * to the target, their rows are deleted, and beams / triangles that collapse are removed.
  */
 export function mergeNodes(target: number, others: number[]): boolean {
+  const v0 = ws.vehicle;
+  if (v0 && symOn()) {
+    // the twins merge the same way, when every twin exists and none is already part of this merge
+    const tt = twinOf(v0, target);
+    const to = others.map((i) => twinOf(v0, i));
+    const mine = new Set([target, ...others]);
+    if (tt !== null && tt !== target && to.every((x) => x !== null && !mine.has(x))) {
+      const names = [v0.nodes[tt].name, ...to.map((x) => v0.nodes[x!].name)];
+      return ws.group('Merge nodes (symmetry)', () =>
+        withoutSymmetry(() => {
+          if (!mergeNodes(target, others)) return false;
+          const v1 = ws.vehicle!;
+          const idx = names.map((n) => v1.nodeIndex.get(n));
+          if (idx.every((x) => x !== undefined)) mergeNodes(idx[0]!, idx.slice(1) as number[]);
+          return true;
+        }),
+      );
+    }
+  }
+  return withoutSymmetry(() => mergeNodesImpl(target, others));
+}
+function mergeNodesImpl(target: number, others: number[]): boolean {
   const v = ws.vehicle;
   if (!v) return false;
   others = others.filter((i) => i !== target);
@@ -1063,13 +1370,17 @@ export function hideNodes(names: Iterable<string> | null) {
 /** Writes values into many rows (header cells when the column exists, else inline options), one undo step. */
 export function setRowValues(rows: Row[], vals: Record<string, any>, label = 'Edit rows'): boolean {
   const es = new EditSet();
-  for (const row of rows) {
+  const v = ws.vehicle;
+  const twins = symOn() && v ? twinRows(v, rows) : [];
+  const mvals = twins.length ? mirrorOpts(vals)! : vals;
+  const isTwin = new Set(twins.map((r) => r.src.node));
+  for (const row of [...rows, ...twins]) {
     const d = writableDoc(row.src.file);
     if (!d) return false;
     const header = headerOf(row.src.table, row.src.section);
     const node = row.src.node;
     const text = d.text.slice(node.s, node.e);
-    const next = setRowCellsText(text, header, vals, dec());
+    const next = setRowCellsText(text, header, isTwin.has(node) ? mvals : vals, dec());
     if (next !== text) es.add(d.key, [{ s: node.s, e: node.e, text: next }]);
   }
   if (!es.size) return false;
@@ -1129,7 +1440,14 @@ export function convertBeams(beamIdx: number[], type: (typeof BEAM_TYPES)[number
   }
   const rows: Row[] = [];
   const es = new EditSet();
-  for (const i of beamIdx) {
+  const all = new Set(beamIdx);
+  if (symOn()) {
+    for (const i of beamIdx) {
+      const t = twinBeam(v, i);
+      if (t !== null && ws.doc(v.beams[t].row.src.file)?.writable) all.add(t);
+    }
+  }
+  for (const i of all) {
     const b = v.beams[i];
     if (b.section !== 'beams') continue;
     const r = b.row.v;

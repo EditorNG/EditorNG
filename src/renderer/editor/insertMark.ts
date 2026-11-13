@@ -10,6 +10,11 @@ let model: monaco.editor.ITextModel | null = null;
 let tracker: string[] = [];
 let visual: string[] = [];
 let listener: monaco.IDisposable | null = null;
+/** Whether an offset lies inside a section that tools insert rows into (the mark is only drawn there). */
+let useful: (m: monaco.editor.ITextModel, offset: number) => boolean = () => true;
+export function setInsertMarkFilter(fn: (m: monaco.editor.ITextModel, offset: number) => boolean) {
+  useful = fn;
+}
 
 const TRACK: monaco.editor.IModelDecorationOptions = { stickiness: monaco.editor.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges };
 
@@ -21,7 +26,7 @@ function trackedRange(): monaco.Range | null {
 function refreshVisual() {
   if (!model || model.isDisposed()) return;
   const r = trackedRange();
-  const line = r?.endLineNumber;
+  const line = r && useful(model, model.getOffsetAt(r.getEndPosition())) ? r.endLineNumber : undefined;
   visual = model.deltaDecorations(
     visual,
     line

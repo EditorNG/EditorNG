@@ -81,12 +81,14 @@ status bar    problems · target part · selection · symmetry · parts
 - **H** hides the selected nodes, **Shift+H** everything else, **Alt+H** shows all again.
 - **Selectable** (Display popover): what a plain click or box select can pick — Nodes, Beams,
   Tris, Triggers, Flexbodies, Props. Flexbodies and props are off by default so they never get in
-  the way; **Alt+click** always picks flexbodies, props and triggers.
+  the way; **Alt+click** always picks flexbodies, props and triggers. Meshes are picked only where
+  you actually point at their surface.
 - Bottom-left: what is in view and what is selected; with 2 nodes selected the distance (and Δx,
   Δy, Δz), with 3 the angle at the last clicked one. Top-right: what the beam colours mean.
 - Triangles: back faces are tinted purple, so flipped collision triangles stand out.
 - Clicking an element jumps to its line in code; the selected rows (and the beams of a selected
-  node) are highlighted in the editor. Putting the cursor on a row highlights it in 3D.
+  node) are highlighted in the editor. Putting the cursor on a row highlights it in 3D — with
+  several cursors or a multi-line selection, every row under them.
 
 ## 4. Editing
 
@@ -95,7 +97,7 @@ status bar    problems · target part · selection · symmetry · parts
 | **G** / **S** / **R** | Move / scale / rotate selected nodes **or triggers**. Then **X/Y/Z** to lock an axis, type a value (`G Z 0.05`, `S X -1` mirrors), hold **Ctrl** to snap onto the node under the cursor — or, with no node there, the nearest **flexbody vertex** (fitting a jbeam to a body) — only along the locked axis if one is set; hold **Alt** for grid / 5° / 0.1 increments, hold **Shift** for precision (the mouse moves things 10× less, like Blender). **Enter/click** confirms, **Esc/right-click** cancels. |
 | **G G** | Slide selected slidenodes along their rail (Blender's edge slide). |
 | **Shift+R** | Snap slidenodes onto their rail. |
-| **Shift+X** | X symmetry: moves also apply to mirror twins (by `l`/`r` name or mirrored position). Twins in another part (`fender_R` → `fender_L`) ask first. |
+| **Shift+X** | X symmetry: edits also apply to the mirror twins (by `l`/`r` name or mirrored position) — moving, **adding nodes, beams and triangles** (the twin triangle gets the mirrored winding), **deleting**, **renaming** (`b5l` → `x5l` renames `b5r` → `x5r`), merging, flipping, batch edits and beam conversion (side tokens in values like `door_L` swap), and **triggers** (adding one adds its mirror; moving / rotating / resizing one updates its twin). New twin rows go into the other-side part (`door_FL` → `door_FR`) when it is loaded and editable, else the same part. Moves of twins in another part ask first. Nodes without an `l`/`r` suffix get no twin. |
 | **E** | Extrude: new nodes on top of the selected ones, beams back to them and between them, then move. |
 | **M** | Merge the selected nodes into the last clicked one (references rewritten, collapsed beams/triangles removed). |
 | **N** | Add-node tool. **B** beam chain. **T** triangle strip. **Shift+N** quick naming (`f1l`, `f1r`…). |
@@ -156,7 +158,10 @@ click jumping to the part or file a message names.
   for the **modifiers in effect** and where each was set;
 - **completion** for node names, sections (with headers), option keys, parts, meshes, groups,
   `$variables`, actions;
-- **F12** go to definition, **Shift+F12** find references (also in the References tab),
+- **multiple cursors** like VS Code: **Ctrl+click** adds one, **Ctrl+Alt+↑/↓** adds one on the line
+  above/below, **Shift+Alt+drag** selects a column; the rows under every cursor or selection light up
+  in 3D;
+- **F12** or **Alt+click** go to definition, **Shift+F12** find references (also in the References tab),
   **F2** rename; right-click → **Select in 3D**, **Mirror to the other side**;
 - **Shift+Alt+F** aligns table columns;
 - underlines for what the game's loader would complain about, and for **property typos**

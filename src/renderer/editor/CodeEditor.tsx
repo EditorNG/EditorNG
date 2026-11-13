@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Lock, Circle } from 'lucide-react';
 import { monaco } from '../lib/monaco';
-import { setInsertMark } from './insertMark';
+import { setInsertMark, setInsertMarkFilter } from './insertMark';
+
+// the insert mark is drawn only inside a table section (nodes, beams, triggers2…) of a part
+setInsertMarkFilter((m, off) => {
+  const d = [...ws.docs.values()].find((x) => x.model === m);
+  if (!d?.jfile || m.getValueLength() !== d.text.length) return false;
+  return d.jfile.parts.some((p) => [...p.sections.values()].some((sec) => sec.k === 'arr' && sec.s < off && off < sec.e - 1));
+});
 import { ws, useWs } from '../project/workspace';
 import { useUi, openTab, closeTab } from '../state/ui';
 import { useSettings, settings } from '../state/settings';
@@ -199,6 +206,8 @@ export function CodeEditor() {
       mouseWheelZoom: true,
       folding: true,
       showFoldingControls: 'mouseover',
+      // VS Code style: Ctrl+click adds a cursor, Alt+click goes to definition
+      multiCursorModifier: 'ctrlCmd',
       fixedOverflowWidgets: true,
       padding: { top: 6 },
       'semanticHighlighting.enabled': false,

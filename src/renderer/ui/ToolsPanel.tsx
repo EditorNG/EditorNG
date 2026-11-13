@@ -5,7 +5,7 @@ import { useUi, requestPick } from '../state/ui';
 import { useSel, resolveSel, selNodeIdx } from '../state/selection';
 import { settings } from '../state/settings';
 import { toast } from '../state/toast';
-import { targetPart, insertRowsHere, insertRawRows, addNodes, EditSet, addRail, addSlidenodes, snapToRails, selectNodesByName } from '../project/ops';
+import { mirrorName, mirrorTrigger, targetPart, insertRowsHere, insertRawRows, addNodes, EditSet, addRail, addSlidenodes, snapToRails, selectNodesByName } from '../project/ops';
 import { offRailSlides } from '@core/jbeam/rails';
 import { getViewport, startRailSlide } from '../scene/ViewportPanel';
 import { COMMON_ACTIONS, GENERIC_ACTIONS, BULB_TYPES } from '@core/jbeam/docs';
@@ -167,7 +167,16 @@ function TriggerTool() {
     if (links.length) es.add(t.doc.key, insertRowsHere(text, t.part, 'triggerEventLinks2', headerOf(t, 'triggerEventLinks2'), links));
     const enable = [action, action2].filter((a) => needsActionsEnabled(a));
     if (enable.length) es.add(t.doc.key, insertRowsHere(text, t.part, 'actionsEnabled', headerOf(t, 'actionsEnabled'), enable.map((a) => fmtRow([a]))));
-    if (es.apply(`Add trigger ${id}`)) {
+    const sym = settings().symmetryX;
+    const added = ws.group(`Add trigger ${id}${sym ? ' (symmetry)' : ''}`, () => {
+      if (!es.apply(`Add trigger ${id}`)) return false;
+      // symmetry: its mirror on the other side too (unless it sits on the centre line)
+      const v = ws.vehicle;
+      const i = v ? v.triggers.findIndex((r) => r.v.id === id) : -1;
+      if (sym && i >= 0 && ![ref, nx, ny].every((n) => mirrorName(n) === null)) mirrorTrigger(i);
+      return true;
+    });
+    if (added) {
       toast('ok', `Trigger ${id} added${enable.length ? ' (+ actionsEnabled)' : ''}`);
       setId(id.replace(/\d+$/, (m) => String(+m + 1)));
     }

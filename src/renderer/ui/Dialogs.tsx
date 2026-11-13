@@ -705,6 +705,11 @@ function Shortcuts({ close }: { close: () => void }) {
           <div className="shortcut-row"><span>Box select</span><span className="kbd">LMB drag</span></div>
           <div className="shortcut-row"><span>Rename node</span><span className="kbd">Double-click</span></div>
           <div className="shortcut-row"><span>Pick meshes / props (always) — plain click picks what Display › Selectable allows</span><span className="kbd">Alt+click</span></div>
+          <div className="group-label">Code editor</div>
+          <div className="shortcut-row"><span>Add a cursor (rows under every cursor light up in 3D)</span><span className="kbd">Ctrl+click</span></div>
+          <div className="shortcut-row"><span>Cursor on the line above / below</span><span className="kbd">Ctrl+Alt+↑ / ↓</span></div>
+          <div className="shortcut-row"><span>Column (box) selection</span><span className="kbd">Shift+Alt+drag</span></div>
+          <div className="shortcut-row"><span>Go to definition</span><span className="kbd">Alt+click / F12</span></div>
         </div>
       </div>
       <div className="faint small-text" style={{ marginTop: 10 }}>All shortcuts can be changed in Settings → Keymap. Defaults: {Object.keys(DEFAULT_KEYMAP).length} actions.</div>

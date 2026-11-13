@@ -9,3 +9,5 @@ shots/
 .cache/
 .cache_open.js
 shots/
+__pycache__/
+*.pyc

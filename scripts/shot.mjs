@@ -1,5 +1,6 @@
 // Launches the built app with Playwright, optionally runs a script in the renderer, and saves a screenshot.
-//   node scripts/shot.mjs <name> [--js "<async function body>"] [--file script.js] [--wait ms] [--size WxH] [--keep-profile]
+//   node scripts/shot.mjs <name> [--js "<async function body>"] [--file script.js] [--wait ms] [--size WxH] [--keep-profile] [--show]
+// Headless by default (the window is never shown); --show displays it.
 // Inside the script, `app` is window.__app (the automation hooks exposed by the renderer).
 import { _electron as electron } from 'playwright-core';
 import path from 'node:path';
@@ -26,7 +27,7 @@ const app = await electron.launch({
   ...(exe ? { executablePath: exe, args: [] } : { args: ['.'] }),
   cwd: root,
   env: (() => {
-    const env = { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1', EDITORNG_AUTOMATION: '1' };
+    const env = { ...process.env, EDITORNG_USERDATA: profile, EDITORNG_NO_MAXIMIZE: '1', EDITORNG_AUTOMATION: '1', EDITORNG_HEADLESS: args.includes('--show') ? '0' : '1' };
     delete env.ELECTRON_RUN_AS_NODE; // set by VS Code terminals; would make Electron behave like plain Node
     return env;
   })(),
