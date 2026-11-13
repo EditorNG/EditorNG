@@ -8,7 +8,6 @@ const root = path.resolve(import.meta.dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 
-run('node scripts/make-icon.mjs');
 run('node scripts/build.mjs');
 
 // one folder per version, so a running copy of an older build never blocks packaging

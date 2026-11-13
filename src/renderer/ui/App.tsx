@@ -23,6 +23,8 @@ import { MirrorButton } from './MirrorPart';
 import { COMMANDS, command, commandKey } from './commands';
 import { api } from '../lib/api';
 import { monaco } from '../lib/monaco';
+import logoLight from '../assets/logo.png';
+import logoDark from '../assets/logo-dark.png';
 
 const SettingsPage = lazy(() => import('./SettingsPage'));
 const SuspensionPage = lazy(() => import('./SuspensionPage'));
@@ -79,12 +81,8 @@ function TitleBar() {
   return (
     <div className="titlebar">
       <div className="brand">
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 18 L12 4 L20 18 Z" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" />
-          <circle cx="4" cy="18" r="2.4" fill="var(--accent)" />
-          <circle cx="12" cy="4" r="2.4" fill="var(--accent)" />
-          <circle cx="20" cy="18" r="2.4" fill="var(--accent)" />
-        </svg>
+        <img className="brand-logo on-dark" src={logoDark} width={18} height={18} alt="" />
+        <img className="brand-logo on-light" src={logoLight} width={18} height={18} alt="" />
         <span className="brand-name">EditorNG</span>
       </div>
       <div className="menus">
