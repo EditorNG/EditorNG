@@ -38,6 +38,13 @@ export interface Doc {
   size: number;
   /** last known modification time on disk */
   mtime?: number;
+  /** listed for the explorer only: content never loaded, never reloaded, never saved */
+  binary?: boolean;
+}
+
+/** Files EditorNG may read and write as text. Everything else is listed but never touched. */
+export function isTextPath(p: string): boolean {
+  return TEXT_EXT.test(p);
 }
 
 export interface ElementRef {
@@ -202,6 +209,7 @@ class Workspace {
         if (!this.docs.has(f.vpath.toLowerCase())) {
           const d = this.addDoc(f, '', false);
           d.lang = 'text';
+          d.binary = true;
         }
       }
       meshFiles = [...own, ...common].filter((f) => /\.dae$/i.test(f.vpath));
@@ -231,6 +239,10 @@ class Workspace {
 
   /** Opens arbitrary .jbeam files from disk (loose mode). */
   async openFiles(paths: string[]): Promise<void> {
+    const skipped = paths.filter((p) => !isTextPath(p));
+    paths = paths.filter((p) => isTextPath(p));
+    if (skipped.length) toast('warn', `Not a text file, not opened: ${skipped.map((p) => p.split(/[\\/]/).pop()).join(', ')}`);
+    if (!paths.length) return;
     const token = ++this.openToken;
     onFilesOpened?.(paths);
     useWs.setState({ loading: 'Loading files…' });
@@ -297,6 +309,7 @@ class Workspace {
     const changed: Doc[] = [];
     const set = new Set(paths.map((p) => p.toLowerCase().replace(/\//g, '\\')));
     for (const d of this.docs.values()) {
+      if (d.binary || !isTextPath(d.vpath)) continue;
       if (d.ref.real && set.has(d.ref.real.toLowerCase().replace(/\//g, '\\'))) changed.push(d);
     }
     const out: string[] = [];
@@ -514,7 +527,7 @@ class Workspace {
   }
 
   isDirty(d: Doc): boolean {
-    return d.text !== d.savedText;
+    return !d.binary && d.text !== d.savedText;
   }
 
   // ---------------------------------------------------------------------------------------
@@ -726,6 +739,11 @@ class Workspace {
     this.flush();
     const d = this.doc(key);
     if (!d || !d.writable || !d.ref.real) return false;
+    if (d.binary || !isTextPath(d.ref.real)) {
+      // never write text into a file EditorNG only lists (textures, meshes, sounds…)
+      d.text = d.savedText;
+      return false;
+    }
     const s = settings();
     try {
       const r = await api.writeTextFile(d.ref.real, d.text, { backup: s.backupOnSave, backupDir: s.backupDir || undefined, keepBackups: s.backupCount });

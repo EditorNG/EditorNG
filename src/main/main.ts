@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import * as dgram from 'node:dgram';
 import { makeZip } from './zip';
+import { assertTextWritable } from './binaryGuard';
 import { parseJbeamFile } from '../core/jbeam/parts';
 import { Vfs, decodeText, detectBeamNG } from './vfs';
 import type { BlenderExtract, DirEntry, EnvInfo, FileRef } from '../shared/ipc';
@@ -364,6 +365,7 @@ function registerIpc(): void {
   h('readTextFile', async (real: string) => decodeText(await fsp.readFile(real)));
   h('readBinaryFile', async (real: string) => new Uint8Array(await fsp.readFile(real)));
   h('writeTextFile', async (real: string, text: string, opts?: { backup?: boolean; backupDir?: string; keepBackups?: number }) => {
+    await assertTextWritable(real);
     if (opts?.backup) {
       try {
         const prev = await fsp.readFile(real);
