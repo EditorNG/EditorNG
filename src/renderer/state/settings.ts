@@ -118,6 +118,8 @@ export interface Settings {
   colorBeamPressured: string;
   colorBeamLbeam: string;
   colorTri: string;
+  /** back faces of collision triangles (the game shows them purple) */
+  colorTriBack: string;
   colorSelect: string;
   colorHighlight: string;
   dimOtherParts: boolean;
@@ -247,6 +249,7 @@ export const DEFAULT_SETTINGS: Settings = {
   colorBeamPressured: '#86a9c9',
   colorBeamLbeam: '#a8adb4',
   colorTri: '#5aa394',
+  colorTriBack: '#b04fd6',
   colorSelect: '#ff6600',
   colorHighlight: '#d07ad0',
   dimOtherParts: true,

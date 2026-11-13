@@ -73,6 +73,7 @@ const GROUPS: Group[] = [
       { key: 'colorBeamPressured', label: 'Pressured beams', type: 'color' },
       { key: 'colorBeamLbeam', label: 'L-beams', type: 'color' },
       { key: 'colorTri', label: 'Triangles', type: 'color' },
+      { key: 'colorTriBack', label: 'Triangle back faces', type: 'color' },
       { key: 'colorSelect', label: 'Selection', type: 'color' },
       { key: 'colorHighlight', label: 'Code cursor highlight', type: 'color' },
     ],

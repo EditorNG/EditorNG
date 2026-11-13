@@ -58,19 +58,39 @@ void main() {
 
 const TRI_VS = /* glsl */ `
 attribute vec4 aColor;
+attribute vec3 aBary;
 varying vec4 vColor;
+varying vec3 vBary;
 void main() {
   vColor = aColor;
+  vBary = aBary;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
+// Collision triangles drawn like the game's debug view: each triangle is inset from its edges
+// (a transparent gap with rounded corners) behind a dark border band, so neighbouring triangles
+// read as separate shapes; back faces are purple.
 const TRI_FS = /* glsl */ `
 uniform float uOpacity;
 uniform vec3 uBack;
+uniform float uGap;
+uniform float uBand;
 varying vec4 vColor;
+varying vec3 vBary;
 void main() {
-  vec3 col = gl_FrontFacing ? vColor.rgb : mix(vColor.rgb, uBack, 0.55);
-  gl_FragColor = vec4(col, uOpacity * vColor.a);
+  // distance to each edge in screen pixels
+  vec3 px = vBary / max(fwidth(vBary), vec3(1e-6));
+  // soft minimum: rounds the corners like in game
+  float k = 2.5;
+  float d = -k * log(exp(-px.x / k) + exp(-px.y / k) + exp(-px.z / k));
+  vec3 base = gl_FrontFacing ? vColor.rgb : mix(vColor.rgb, uBack, 0.8);
+  float fill = smoothstep(uGap, uGap + 1.5, d);
+  float band = 1.0 - smoothstep(uGap + 0.5, uGap + uBand, d);
+  vec3 col = mix(base, base * 0.12, band);
+  float a = uOpacity * vColor.a;
+  a = max(a, 0.85 * band * min(1.0, vColor.a)) * fill;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4(col, a);
 }
 `;
 
@@ -216,7 +236,7 @@ export class Viewport {
     this.triMat = new THREE.ShaderMaterial({
       vertexShader: TRI_VS,
       fragmentShader: TRI_FS,
-      uniforms: { uOpacity: { value: s.triOpacity }, uBack: { value: new THREE.Color(0xff3355) } },
+      uniforms: { uOpacity: { value: s.triOpacity }, uBack: { value: new THREE.Color(s.colorTriBack) }, uGap: { value: 2 }, uBand: { value: 7 } },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -387,6 +407,7 @@ export class Viewport {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, s.pixelRatioCap));
     this.beamMat.linewidth = s.beamWidth;
     this.triMat.uniforms.uOpacity.value = s.triOpacity;
+    this.triMat.uniforms.uBack.value.set(s.colorTriBack);
     this.nodeMat.uniforms.uWorld.value = s.nodeWorldScale ? 1 : 0;
     this.nodeMat.depthTest = !s.xray;
     this.beamMat.depthTest = !s.xray;
@@ -693,6 +714,10 @@ export class Viewport {
     const tg = new THREE.BufferGeometry();
     tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nt * 9), 3));
     tg.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(nt * 12), 4));
+    // barycentric corners (edge distance in the fragment shader)
+    const bary = new Float32Array(nt * 9);
+    for (let k = 0; k < nt; k++) bary.set([1, 0, 0, 0, 1, 0, 0, 0, 1], k * 9);
+    tg.setAttribute('aBary', new THREE.BufferAttribute(bary, 3));
     this.triMesh = new THREE.Mesh(tg, this.triMat);
     this.triMesh.frustumCulled = false;
     this.triMesh.renderOrder = 1;
