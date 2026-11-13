@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import {
-  Files, Car, Puzzle, Hammer, Bug, Activity as ActivityIcon, Settings as SettingsIcon, Sun, Moon, Save, Undo2, Redo2, Code2, PanelBottom, PanelLeft,
-  Command as CommandIcon, Loader2,
+  ListTree, Hammer, Activity as ActivityIcon, Settings as SettingsIcon, Sun, Moon, Save, Undo2, Redo2, Code2, PanelBottom, PanelLeft,
+  Command as CommandIcon, Loader2, ShieldCheck, ChevronUp, FlipHorizontal2, Target,
 } from 'lucide-react';
 import { ws, useWs } from '../project/workspace';
 import { useUi, PERSISTED_UI, type Activity } from '../state/ui';
 import { useSettings, settings, matches, eventKey } from '../state/settings';
 import { ViewportPanel } from '../scene/ViewportPanel';
 import { CodeEditor } from '../editor/CodeEditor';
-import { VehiclesPanel, ExplorerPanel, PartsPanel } from './SidePanels';
+import { StructurePanel } from './SidePanels';
+import { useSel, resolveSel } from '../state/selection';
+import { useChecks, runAllChecks } from '../state/checks';
+import { ReloadInGameButton } from './GameLink';
 import { BottomPanel } from './BottomPanel';
 import { ToolsPanel } from './ToolsPanel';
 import { Palette } from './Palette';
@@ -61,6 +64,9 @@ function TitleBar() {
   const editorVisible = useSettings((x) => x.s.editorVisible);
   const bottom = useUi((x) => x.bottom);
   const sidebar = useUi((x) => x.sidebar);
+  const activeConfig = useWs((x) => x.activeConfig);
+  const configs = useWs((x) => x.configs);
+  const config = activeConfig ? (configs.find((c) => c.key === activeConfig)?.name ?? activeConfig).replace(/^.*[\\/]/, '').replace(/\.pc$/i, '') : '';
   const [menu, setMenu] = useState<string | null>(null);
   useEffect(() => {
     if (!menu) return;
@@ -100,10 +106,17 @@ function TitleBar() {
         {loading ? (
           <span className="dim row"><Loader2 size={13} className="spin" /> {loading}</span>
         ) : model ? (
-          <span><b>{model}</b>{dirty > 0 && <span className="dim"> · {dirty} unsaved</span>}</span>
+          <span>
+            <span className="title-vehicle">{model}</span>
+            {config && <span className="faint"> › {config}</span>}
+            {dirty > 0 && <span className="dim"> · {dirty} unsaved</span>}
+          </span>
         ) : mode === 'loose' ? <span>Loose files{dirty > 0 && <span className="dim"> · {dirty} unsaved</span>}</span> : <span className="dim">No vehicle</span>}
       </div>
       <div className="title-actions">
+        <CheckButton />
+        <ReloadInGameButton />
+        <div className="sep-v" />
         <button className="icon-btn" data-tip="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => command('edit.undo')} aria-label="Undo"><Undo2 size={15} /></button>
         <button className="icon-btn" data-tip="Redo (Ctrl+Y)" disabled={!canRedo} onClick={() => command('edit.redo')} aria-label="Redo"><Redo2 size={15} /></button>
         <button className={'icon-btn' + (dirty ? ' dirty-save' : '')} data-tip="Save all (Ctrl+Shift+S)" onClick={() => command('app.saveAll')} aria-label="Save all"><Save size={15} /></button>
@@ -148,11 +161,8 @@ function ActivityBar() {
   );
   return (
     <div className="activitybar">
-      {item('vehicles', <Car size={20} />, 'Vehicles')}
-      {item('explorer', <Files size={20} />, 'Files')}
-      {item('parts', <Puzzle size={20} />, 'Parts & config')}
-      {item('tools', <Hammer size={20} />, 'Create & place')}
-      {item('debug', <Bug size={20} />, 'Checks')}
+      {item('structure', <ListTree size={20} />, 'Structure: files, parts, slots')}
+      {item('create', <Hammer size={20} />, 'Create & place')}
       <div className="grow" />
       {pageBtn('suspension', <ActivityIcon size={20} />, 'Suspension analysis')}
       {pageBtn('settings', <SettingsIcon size={20} />, 'Settings (Ctrl+,)')}
@@ -162,52 +172,104 @@ function ActivityBar() {
 
 function SideBar() {
   const activity = useUi((x) => x.activity);
-  if (activity === 'vehicles') return <VehiclesPanel />;
-  if (activity === 'explorer') return <ExplorerPanel />;
-  if (activity === 'parts') return <PartsPanel />;
-  if (activity === 'tools') return <ToolsPanel />;
-  if (activity === 'debug') {
-    return (
-      <div className="panel">
-        <div className="panel-header"><span className="panel-title">Checks</span></div>
-        <div className="panel-pad dim">
-          Structural checks run in the bottom panel so results stay visible next to the 3D view.
-          <div style={{ marginTop: 10 }}>
-            <button className="btn primary" onClick={() => useUi.setState({ bottom: true, bottomTab: 'debug' })}>Open checks</button>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <button className="btn" onClick={() => useUi.setState({ bottom: true, bottomTab: 'mass' })}>Weight distribution</button>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <button className="btn" onClick={() => useUi.setState({ page: 'suspension' })}>Suspension analysis</button>
-          </div>
+  return activity === 'create' ? <ToolsPanel /> : <StructurePanel />;
+}
+
+/** Runs the structural checks and opens their tab; shows the count of the last run. */
+function CheckButton() {
+  const v = useWs((x) => x.vehicle);
+  const res = useChecks((x) => x.results);
+  const forV = useChecks((x) => x.forVehicle);
+  const stale = !!res && forV !== v;
+  const err = res?.filter((f) => f.sev === 'error').length ?? 0;
+  const warn = res?.filter((f) => f.sev === 'warning').length ?? 0;
+  return (
+    <button className="btn small title-btn" disabled={!v} data-tip={res ? `${err} errors, ${warn} warnings${stale ? ' (vehicle changed since)' : ''}` : 'Run structural checks'} onClick={() => {
+      runAllChecks();
+      useUi.setState({ bottom: true, bottomTab: 'debug' });
+    }}>
+      <ShieldCheck size={13} /> Check
+      {res && !stale && (err + warn > 0 ? <span className={'badge ' + (err ? 'err' : 'warn')}>{err + warn}</span> : <span className="badge ok">0</span>)}
+    </button>
+  );
+}
+
+/** Status bar target-part picker: the one place that shows and changes where new elements go. */
+function TargetPicker() {
+  const target = useWs((x) => x.target);
+  const v = useWs((x) => x.vehicle);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [open]);
+  const writable = (v?.parts ?? []).filter((p) => {
+    const d = ws.doc(p.def.file);
+    return d?.writable && !d.isCommon;
+  });
+  return (
+    <div className="status-pop-wrap" onPointerDown={(e) => e.stopPropagation()}>
+      <button className="status-item" onClick={() => setOpen(!open)} data-tip="Target part: where new nodes, beams, triangles… are written" data-tip-pos="top">
+        <Target size={12} /> <span className="mono">{target ? target.part : 'auto'}</span> <ChevronUp size={11} />
+      </button>
+      {open && (
+        <div className="menu-pop status-pop">
+          <div className="ctx-title">Write new elements into</div>
+          <button className={'ctx-item' + (!target ? ' checked' : '')} onClick={() => { ws.clearTarget(); setOpen(false); }}>
+            <span>Automatic</span><span className="faint small-text">part you last clicked</span>
+          </button>
+          {writable.map((p) => (
+            <button key={p.def.name} className={'ctx-item' + (target?.part === p.def.name ? ' checked' : '')} onClick={() => { ws.setTarget(p.def.file, p.def.name); setOpen(false); }}>
+              <span className="mono">{p.def.name}</span>
+            </button>
+          ))}
+          {!writable.length && <div className="ctx-item" style={{ opacity: 0.6 }}>No editable part. Right-click a file → Make editable copy.</div>}
         </div>
-      </div>
-    );
-  }
-  return null;
+      )}
+    </div>
+  );
+}
+
+function SelectionSummary() {
+  const v = useWs((x) => x.vehicle);
+  const sel = useSel((x) => x.sel);
+  if (!v) return null;
+  const si = resolveSel(v, sel);
+  const bits: string[] = [];
+  const add = (n: number, w: string) => n && bits.push(`${n} ${w}${n > 1 ? 's' : ''}`);
+  add(si.nodes.size, 'node');
+  add(si.beams.size, 'beam');
+  add(si.tris.size, 'tri');
+  add(si.triggers.size, 'trigger');
+  add(si.flex.size + si.props.size, 'mesh');
+  if (!bits.length) return null;
+  if (si.nodes.size === 1 && bits.length === 1) return <span className="status-item mono">{v.nodes[[...si.nodes][0]].name}</span>;
+  return <span className="status-item">{bits.join(' · ')}</span>;
 }
 
 function StatusBar() {
-  const target = useWs((x) => x.target);
   const v = useWs((x) => x.vehicle);
-  const tool = useUi((x) => x.tool);
+  const sym = useSettings((x) => x.s.symmetryX);
   const errors = v?.issues.filter((i) => i.sev === 'error').length ?? 0;
   const warnings = v?.issues.filter((i) => i.sev === 'warning').length ?? 0;
   return (
     <div className="statusbar">
-      <button className="status-item" onClick={() => useUi.setState({ bottom: true, bottomTab: 'problems' })}>
+      <button className="status-item" onClick={() => useUi.setState({ bottom: true, bottomTab: 'problems' })} data-tip="Problems" data-tip-pos="top">
         <span className={errors ? 'err-text' : ''}>● {errors}</span>
         <span className={warnings ? 'warn-text' : ''}>▲ {warnings}</span>
       </button>
-      <span className="status-item">tool: {tool}</span>
-      <button className="status-item" onClick={() => useUi.setState({ activity: 'parts', sidebar: true })} title="Where new nodes, beams and triangles are written">
-        target: <span className="mono">{target ? target.part : 'auto'}</span>
-      </button>
+      {v && <TargetPicker />}
+      <SelectionSummary />
       <div className="grow" />
-      {v && <span className="status-item">{v.parts.length} parts</span>}
       <MirrorButton />
-      <span className="status-item faint">EditorNG</span>
+      {v && (
+        <button className={'status-item' + (sym ? ' on' : '')} onClick={() => useSettings.getState().set({ symmetryX: !sym })} data-tip="X symmetry (Shift+X)" data-tip-pos="top">
+          <FlipHorizontal2 size={12} /> {sym ? 'Symmetry on' : 'Symmetry off'}
+        </button>
+      )}
+      {v && <span className="status-item faint">{v.parts.length} parts</span>}
     </div>
   );
 }
@@ -324,7 +386,7 @@ export function App() {
               {s.editorVisible && (
                 <>
                   <Splitter dir="x" onDrag={(d) => useUi.setState({ editorWidth: clamp(useUi.getState().editorWidth - d, 280, 1400) })} />
-                  <div className="editor-wrap" style={{ width: editorWidth }}><CodeEditor /></div>
+                  <div className="editor-wrap" style={{ width: editorWidth, maxWidth: `calc(100vw - ${page === 'workbench' && sidebar ? sideWidth : 0}px - 48px - 480px)` }}><CodeEditor /></div>
                 </>
               )}
             </div>

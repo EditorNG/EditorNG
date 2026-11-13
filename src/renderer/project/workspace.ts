@@ -219,7 +219,7 @@ class Workspace {
       this.assemble();
       this.watch();
       const main = this.vehicle?.root?.def.file;
-      useUi.setState({ activity: 'explorer', sidebar: true });
+      useUi.setState({ activity: 'structure', structMode: 'files', sidebar: true });
       if (main && this.doc(main)) openTab(main);
       useSel.setState({ scope: main ? { mode: 'file', file: main } : { mode: 'vehicle' }, sel: { nodes: new Set(), beams: new Set(), tris: new Set(), flex: new Set(), props: new Set(), triggers: new Set() } });
     } catch (e: any) {
@@ -749,6 +749,10 @@ class Workspace {
     this.assemble();
     this.watch();
     return d;
+  }
+
+  clearTarget() {
+    useWs.setState({ target: null });
   }
 
   setTarget(doc: string, part: string) {

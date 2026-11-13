@@ -4,7 +4,8 @@ import { ws, useWs } from '../project/workspace';
 import { useUi, type BottomTab } from '../state/ui';
 import { useSettings, settings } from '../state/settings';
 import { revealRange } from '../editor/CodeEditor';
-import { CHECKS, runChecks, massReport, type Finding } from '@core/analysis/debug';
+import { CHECKS, massReport, type Finding } from '@core/analysis/debug';
+import { useChecks, runAllChecks, setCheckEnabled } from '../state/checks';
 import { emptySel, setSel, type Sel } from '../state/selection';
 import { getViewport } from '../scene/ViewportPanel';
 import * as ops from '../project/ops';
@@ -37,7 +38,7 @@ export function BottomPanel() {
     <div className="bottom-panel">
       <div className="btabs">
         {tabBtn('problems', <>Problems {counts.error > 0 && <span className="badge err">{counts.error}</span>} {counts.warning > 0 && <span className="badge warn">{counts.warning}</span>}</>)}
-        {tabBtn('debug', 'Checks')}
+        {tabBtn('debug', <>Checks <ChecksBadge /></>)}
         {tabBtn('mass', 'Weight')}
         {tabBtn('variables', 'Tuning')}
         {tabBtn('output', 'Output')}
@@ -110,13 +111,11 @@ function fixFinding(v: Vehicle, f: Finding) {
 
 function Checks() {
   const v = useWs((x) => x.vehicle);
-  const s = useSettings((x) => x.s);
-  const [enabled, setEnabled] = useState<Set<string>>(new Set(CHECKS.map((c) => c.id).filter((id) => id !== 'weakNodes' && id !== 'heavyNodes')));
-  const [res, setRes] = useState<Finding[] | null>(null);
+  const enabled = useChecks((x) => x.enabled);
+  const res = useChecks((x) => x.results);
   const [active, setActive] = useState<string | null>(null);
   const run = () => {
-    if (!v) return;
-    setRes(runChecks(v, { shortBeam: s.debugShortBeam, closeNodes: s.debugCloseNodes, minBeams: s.debugMinBeamsPerNode, mirrorTolerance: s.mirrorTolerance, suffixL: s.mirrorSuffixLeft, suffixR: s.mirrorSuffixRight }, enabled));
+    if (v) runAllChecks();
   };
   const byCheck = new Map<string, Finding[]>();
   for (const f of res ?? []) {
@@ -144,12 +143,7 @@ function Checks() {
         <button className="btn primary small" onClick={run} disabled={!v}><Play size={12} /> Run checks</button>
         {CHECKS.map((c) => (
           <div key={c.id} className={'check-row' + (active === c.id ? ' active' : '')} title={c.doc}>
-            <button className={'switch' + (enabled.has(c.id) ? ' on' : '')} onClick={() => {
-              const n = new Set(enabled);
-              if (n.has(c.id)) n.delete(c.id);
-              else n.add(c.id);
-              setEnabled(n);
-            }} aria-label={c.title} />
+            <button className={'switch' + (enabled.has(c.id) ? ' on' : '')} onClick={() => setCheckEnabled(c.id, !enabled.has(c.id))} aria-label={c.title} />
             <button className="check-name" onClick={() => setActive(active === c.id ? null : c.id)}>{c.title}</button>
             {res && <span className={'badge' + ((byCheck.get(c.id)?.length ?? 0) ? ' warn' : '')}>{byCheck.get(c.id)?.length ?? 0}</span>}
           </div>
@@ -263,3 +257,11 @@ function Output() {
 }
 
 export { settings };
+
+function ChecksBadge() {
+  const res = useChecks((x) => x.results);
+  if (!res) return null;
+  const err = res.filter((f) => f.sev === 'error').length;
+  const warn = res.filter((f) => f.sev === 'warning').length;
+  return <>{err > 0 && <span className="badge err">{err}</span>} {warn > 0 && <span className="badge warn">{warn}</span>}</>;
+}

@@ -1,13 +1,68 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Lock, Circle } from 'lucide-react';
 import { monaco } from '../lib/monaco';
 import { ws, useWs } from '../project/workspace';
 import { useUi, openTab, closeTab } from '../state/ui';
 import { useSettings, settings } from '../state/settings';
-import { useSel, emptySel, beamKey, triKey, rowKey, type Sel } from '../state/selection';
+import { useSel, emptySel, beamKey, triKey, rowKey, resolveSel, type Sel } from '../state/selection';
+import { pathAt } from '@core/sjson';
 import { updateMarkers, contextAt } from './jbeamLang';
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+let selDecos: monaco.editor.IEditorDecorationsCollection | null = null;
+
+/** "part › section › row" at an offset of a jbeam document. */
+function crumbsAt(docKey: string, offset: number): string[] {
+  const d = ws.doc(docKey);
+  if (!d?.jfile?.root) return [];
+  const path = pathAt(d.jfile.root, offset);
+  const out: string[] = [];
+  // root obj → part (key) → section (key) → row (index)
+  if (path[1]?.key) out.push(path[1].key);
+  if (path[2]?.key) out.push(path[2].key);
+  const row = path[3]?.node;
+  if (row && row.k === 'arr' && path[3].index !== undefined) {
+    const first = row.items[0];
+    const isHeader = path[3].index === 0 && row.items.every((x) => x.k === 'str');
+    out.push(isHeader ? 'header' : first && first.k === 'str' ? first.v : `row ${path[3].index}`);
+  } else if (path[3]?.key) out.push(path[3].key);
+  return out;
+}
+
+/** Rows of the 3D selection in the open file: the selected rows strongly, rows of attached beams faintly. */
+function decorateSelection() {
+  if (!editor) return;
+  const m = editor.getModel();
+  const v = ws.vehicle;
+  if (!selDecos) selDecos = editor.createDecorationsCollection();
+  const d = m ? [...ws.docs.values()].find((x) => x.model === m) : undefined;
+  if (!m || !v || !d) {
+    selDecos.clear();
+    return;
+  }
+  const si = resolveSel(v, useSel.getState().sel);
+  const decos: monaco.editor.IModelDeltaDecoration[] = [];
+  const add = (row: { src: { file: string; node: { s: number; e: number } } } | undefined, strong: boolean) => {
+    if (!row || row.src.file.toLowerCase() !== d.key.toLowerCase()) return;
+    const a = m.getPositionAt(row.src.node.s), b = m.getPositionAt(row.src.node.e);
+    decos.push({
+      range: new monaco.Range(a.lineNumber, 1, b.lineNumber, 1),
+      options: { isWholeLine: true, className: strong ? 'code-sel-line' : 'code-rel-line', linesDecorationsClassName: strong ? 'code-sel-bar' : 'code-rel-bar' },
+    });
+  };
+  if (si.nodes.size <= 200) for (const i of si.nodes) add(v.nodes[i].row, true);
+  for (const i of si.beams) add(v.beams[i].row, true);
+  for (const i of si.tris) add(v.tris[i].row, true);
+  for (const i of si.triggers) add(v.triggers[i], true);
+  for (const i of si.flex) add(v.flexbodies[i].row, true);
+  for (const i of si.props) add(v.props[i].row, true);
+  if (si.nodes.size > 0 && si.nodes.size <= 16) {
+    v.beams.forEach((b, i) => {
+      if (!si.beams.has(i) && (si.nodes.has(b.a) || si.nodes.has(b.b))) add(b.row, false);
+    });
+  }
+  selDecos.set(decos.slice(0, 2000));
+}
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
 let suppressCursor = 0;
 
@@ -119,7 +174,11 @@ export function CodeEditor() {
   const tabs = useUi((s) => s.tabs);
   const active = useUi((s) => s.activeTab);
   const s = useSettings((x) => x.s);
-  useWs((x) => x.version);
+  const version = useWs((x) => x.version);
+  const sel = useSel((x) => x.sel);
+  const [crumbs, setCrumbs] = useState<string[]>([]);
+  const crumbRef = useRef<(c: string[]) => void>(setCrumbs);
+  crumbRef.current = setCrumbs;
 
   useEffect(() => {
     if (!host.current) return;
@@ -143,7 +202,10 @@ export function CodeEditor() {
       suggest: { showWords: false },
     } as any);
     let t: ReturnType<typeof setTimeout> | null = null;
-    editor.onDidChangeCursorSelection(() => {
+    editor.onDidChangeCursorSelection((e) => {
+      const mm = editor?.getModel();
+      const dd = mm ? [...ws.docs.values()].find((x) => x.model === mm) : undefined;
+      if (mm && dd) crumbRef.current(crumbsAt(dd.key, mm.getOffsetAt(e.selection.getStartPosition())));
       if (suppressCursor) return;
       if (t) clearTimeout(t);
       t = setTimeout(highlightFromCursor, 60);
@@ -164,6 +226,7 @@ export function CodeEditor() {
       run: (ed) => ed.getAction('editor.action.formatDocument')?.run(),
     });
     return () => {
+      selDecos = null;
       editor?.dispose();
       editor = null;
     };
@@ -197,6 +260,10 @@ export function CodeEditor() {
     const sc = useSel.getState().scope;
     if (sc.mode === 'file' && sc.file !== d.key && ws.vehicle?.parts.some((p) => p.def.file === d.key)) ws.setScope({ mode: 'file', file: d.key });
   }, [active]);
+
+  useEffect(() => {
+    decorateSelection();
+  }, [sel, active, version]);
 
   // drop tabs whose documents vanished (vehicle switch)
   useEffect(() => {
@@ -242,6 +309,13 @@ export function CodeEditor() {
           );
         })}
       </div>
+      {active && (
+        <div className="code-crumbs">
+          {crumbs.length ? crumbs.map((c, i) => (
+            <span key={i} className={i === crumbs.length - 1 ? 'mono strong' : 'mono'}>{i > 0 && <span className="crumb-sep"> › </span>}{c}</span>
+          )) : <span className="faint">{ws.doc(active)?.name}</span>}
+        </div>
+      )}
       <div className="editor-host" ref={host} />
       {!active && (
         <div className="editor-empty">

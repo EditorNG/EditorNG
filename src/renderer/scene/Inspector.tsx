@@ -65,11 +65,11 @@ function RowOptions({ row }: { row: Row }) {
 export function Inspector() {
   const v = useWs((x) => x.vehicle);
   const sel = useSel((x) => x.sel);
-  const [open, setOpen] = useState(true);
-  if (!v) return null;
+  const scope = useSel((x) => x.scope);
+  if (!v) return <div className="inspector"><div className="insp-head"><span className="insp-title">Inspector</span></div><div className="insp-empty">Open a vehicle or a .jbeam file.</div></div>;
   const si = resolveSel(v, sel);
   const total = si.nodes.size + si.beams.size + si.tris.size + si.flex.size + si.props.size + si.triggers.size;
-  if (!total) return null;
+  if (!total) return <ScopeSummary scope={scope} />;
 
   let body: React.ReactNode = null;
   let title = '';
@@ -265,7 +265,6 @@ export function Inspector() {
   return (
     <div className="inspector" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <div className="insp-head">
-        <button className="icon-btn small" onClick={() => setOpen(!open)} aria-label="Collapse">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
         <span className="insp-title ellipsis mono">{title}</span>
         {row && (
           <button className="icon-btn small" data-tip="Show in code" data-tip-pos="left" onClick={() => revealRange(row!.src.file, row!.src.node.s, row!.src.node.e, true)} aria-label="Show in code">
@@ -276,7 +275,7 @@ export function Inspector() {
           <Crosshair size={14} />
         </button>
       </div>
-      {open && <div className="insp-body">{body}</div>}
+      <div className="insp-body">{body}</div>
     </div>
   );
 }
@@ -319,6 +318,36 @@ function RailInfo({ node }: { node: number }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Inspector content with nothing selected: what is in view, and how to get going. */
+function ScopeSummary({ scope }: { scope: ReturnType<typeof useSel.getState>['scope'] }) {
+  const v = ws.vehicle!;
+  const vp = getViewport();
+  const parts = scope.mode === 'part' ? [scope.part] : scope.mode === 'file' ? v.parts.filter((p) => p.def.file === scope.file).map((p) => p.def.name) : null;
+  const inScope = (name: string) => !parts || parts.includes(name);
+  const count = <T,>(arr: T[], part: (x: T) => string) => arr.filter((x) => inScope(part(x))).length;
+  const title = scope.mode === 'part' ? scope.part : scope.mode === 'file' ? scope.file.slice(scope.file.lastIndexOf('/') + 1) : ws.model ?? 'Vehicle';
+  const part = scope.mode === 'part' ? v.partsByName.get(scope.part) : undefined;
+  return (
+    <div className="inspector summary" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="insp-head"><span className="insp-title ellipsis mono">{title}</span></div>
+      <div className="insp-body">
+        {part?.def.info.name && <div className="insp-line"><span className="dim">name</span><span className="ellipsis">{part.def.info.name}</span></div>}
+        {part && <div className="insp-line"><span className="dim">slotType</span><span className="mono ellipsis">{part.def.slotTypes.join(', ')}</span></div>}
+        {parts && scope.mode === 'file' && <div className="insp-line"><span className="dim">parts</span><span>{parts.length}</span></div>}
+        <div className="insp-line"><span className="dim">nodes</span><span>{count(v.nodes, (n) => n.row.part.def.name)}</span></div>
+        <div className="insp-line"><span className="dim">beams</span><span>{count(v.beams, (b) => b.row.part.def.name)}</span></div>
+        <div className="insp-line"><span className="dim">triangles</span><span>{count(v.tris, (t) => t.row.part.def.name)}</span></div>
+        <div className="insp-line"><span className="dim">flexbodies</span><span>{count(v.flexbodies, (f) => f.row.part.def.name)}</span></div>
+        <div className="insp-line"><span className="dim">triggers</span><span>{count(v.triggers, (r) => r.part.def.name)}</span></div>
+        {vp && vp.rails.size > 0 && <div className="insp-line"><span className="dim">rails</span><span>{[...vp.rails.values()].filter((r) => inScope(r.part.def.name)).length}</span></div>}
+        <div className="insp-hint">
+          Click or box-select to inspect. <span className="kbd">Shift+A</span> adds things; right-click shows what you can do with what is under the cursor.
+        </div>
+      </div>
     </div>
   );
 }

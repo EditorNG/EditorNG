@@ -116,18 +116,6 @@ function nodePos(name: string): V3 | null {
   return { x: v.nodes[i].x, y: v.nodes[i].y, z: v.nodes[i].z };
 }
 
-function TargetLine() {
-  const target = useWs((x) => x.target);
-  const t = targetPart();
-  return (
-    <div className="tool-target">
-      <Target size={12} />
-      <span className="dim">writes into</span>
-      <span className="mono ellipsis">{t ? t.part.name : '—'}</span>
-      {!target && t && <span className="faint">(auto)</span>}
-    </div>
-  );
-}
 
 function headerOf(part: ReturnType<typeof targetPart>, sec: string): string[] {
   const t = part?.part.sections.get(sec);
@@ -581,7 +569,6 @@ function RailTool() {
           if (!n.length) return toast('info', 'Select the nodes that should slide (not the rail nodes)');
           addSlidenodes(n, railName, snap, spring);
         }}>Make selected slidenodes</button>
-        <button className="btn small" onClick={() => { if (v) snapToRails([...selNodeIdx(v, resolveSel(v, useSel.getState().sel))]); }} data-tip="Shift+R">Snap onto rail</button>
         <button className="btn small" onClick={() => startRailSlide()} data-tip="G G in the viewport">Slide</button>
       </div>
       <div className="tf-note">Move a slidenode along its rail with <b>G G</b> (like Blender's edge slide): drag, type metres, Ctrl snaps to a pointed node, Alt uses increments.</div>
@@ -616,7 +603,6 @@ export function ToolsPanel() {
   return (
     <div className="panel">
       <PanelHeader title="Create & place" />
-      <TargetLine />
       <div className="panel-scroll tools">
         <Section icon={<FileUp size={14} />} title="Import from Blender / OBJ" open>
           <div className="tf-actions" style={{ marginTop: 0 }}>

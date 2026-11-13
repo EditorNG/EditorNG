@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 
-export type Activity = 'explorer' | 'vehicles' | 'parts' | 'tools' | 'debug' | 'search';
+export type Activity = 'structure' | 'create';
 export type Page = 'workbench' | 'suspension' | 'settings';
 export type Tool = 'select' | 'addNode' | 'beam' | 'tri' | 'name';
-export type BottomTab = 'problems' | 'debug' | 'mass' | 'variables' | 'output';
+export type BottomTab = 'problems' | 'debug' | 'gamelog' | 'refs' | 'mass' | 'variables' | 'output';
 
 export interface UiState {
   activity: Activity;
+  /** Structure panel: file/part tree or slot tree */
+  structMode: 'files' | 'slots';
+  /** docked inspector column */
+  inspector: boolean;
   sidebar: boolean;
   page: Page;
   tool: Tool;
@@ -29,7 +33,9 @@ export interface UiState {
 }
 
 export const useUi = create<UiState>(() => ({
-  activity: 'explorer',
+  activity: 'structure',
+  structMode: 'files',
+  inspector: true,
   sidebar: true,
   page: 'workbench',
   tool: 'select',
@@ -50,7 +56,7 @@ export const useUi = create<UiState>(() => ({
 
 let reqSeq = 1;
 export function requestTool(section: string, pos?: [number, number, number], nodes?: string[]) {
-  useUi.setState({ toolReq: { section, pos, nodes, seq: reqSeq++ }, activity: 'tools', sidebar: true, page: 'workbench' });
+  useUi.setState({ toolReq: { section, pos, nodes, seq: reqSeq++ }, activity: 'create', sidebar: true, page: 'workbench' });
 }
 
 export function requestPick(label: string): Promise<string | null> {
@@ -83,4 +89,16 @@ export function log(line: string) {
 }
 
 /** Layout values persisted across sessions. */
-export const PERSISTED_UI: Array<keyof UiState> = ['activity', 'sidebar', 'bottom', 'bottomTab', 'sideWidth', 'editorWidth', 'bottomHeight', 'naming'];
+export const PERSISTED_UI: Array<keyof UiState> = ['activity', 'structMode', 'inspector', 'sidebar', 'bottom', 'bottomTab', 'sideWidth', 'editorWidth', 'bottomHeight', 'naming'];
+
+/** Maps layout values saved by 0.1 (four activities) to the 0.2 sidebar. */
+export function migrateUi(ui: Record<string, any>): Record<string, any> {
+  const out = { ...ui };
+  if (out.activity === 'tools') out.activity = 'create';
+  else if (out.activity !== 'create') {
+    if (out.activity === 'parts') out.structMode = 'slots';
+    out.activity = 'structure';
+  }
+  if (!['problems', 'debug', 'gamelog', 'refs', 'mass', 'variables', 'output'].includes(out.bottomTab)) out.bottomTab = 'problems';
+  return out;
+}

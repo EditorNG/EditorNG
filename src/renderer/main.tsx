@@ -11,7 +11,7 @@ import { registerJbeam } from './editor/jbeamLang';
 import { App } from './ui/App';
 import { api } from './lib/api';
 import { useSettings, settings } from './state/settings';
-import { useUi, PERSISTED_UI, log } from './state/ui';
+import { useUi, PERSISTED_UI, log, migrateUi } from './state/ui';
 import { ws, useWs } from './project/workspace';
 import { useSel } from './state/selection';
 import { toast } from './state/toast';
@@ -109,7 +109,8 @@ async function boot() {
   const state = await api.stateLoad();
   if (state.ui) {
     const ui: Record<string, any> = {};
-    for (const k of PERSISTED_UI) if (k in state.ui) ui[k] = state.ui[k];
+    const saved = migrateUi(state.ui);
+    for (const k of PERSISTED_UI) if (k in saved) ui[k] = saved[k];
     useUi.setState(ui);
   }
   api.blenderLinkPort(s.linkPort).catch(() => {});

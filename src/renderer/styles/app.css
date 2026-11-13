@@ -740,7 +740,7 @@
   flex-direction: column;
   min-width: 0;
   position: relative;
-  background: var(--bg-1);
+  background: var(--bg-2);
 }
 .tabs {
   height: 32px;
@@ -1769,3 +1769,309 @@ button.status-item:hover {
 .vp-toolbar .icon-btn.small.active {
   color: var(--text-strong);
 }
+
+/* ---------- 0.2 layout: viewport shell, bar, docked inspector ---------- */
+.vp-shell {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vp-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.vp-body > .viewport {
+  position: relative;
+  inset: auto;
+  flex: 1;
+  min-width: 0;
+}
+.vp-bar {
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--border);
+}
+.vp-bar .sep-v {
+  margin: 8px 2px;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.crumb,
+.crumb-select {
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  max-width: 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crumb:hover,
+.crumb-select:hover {
+  background: var(--bg-4);
+  color: var(--text-strong);
+}
+.crumb.active,
+.crumb-select.active {
+  color: var(--text-strong);
+  background: var(--bg-active);
+}
+.crumb-select {
+  appearance: none;
+  cursor: pointer;
+}
+.crumb-select option {
+  background: var(--bg-2);
+  color: var(--text);
+}
+.crumb-sep {
+  color: var(--text-deco);
+}
+.vp-pop-wrap {
+  position: relative;
+}
+.disp-pop {
+  right: 0;
+  left: auto;
+  top: 30px;
+  width: 340px;
+  padding: 6px 10px 10px;
+}
+.disp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+}
+.disp-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.disp-check input {
+  accent-color: var(--accent);
+}
+.disp-slider,
+.disp-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 40px;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+}
+.disp-row {
+  grid-template-columns: 110px 1fr;
+}
+.vp-stats {
+  position: absolute;
+  left: 56px;
+  bottom: 10px;
+  z-index: 10;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-deco);
+  pointer-events: none;
+}
+.vp-legend {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  z-index: 10;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.vp-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vp-legend i {
+  width: 18px;
+  height: 2px;
+  display: inline-block;
+}
+.vp-meshstatus {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 10;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.vp-body > .inspector {
+  position: relative;
+  inset: auto;
+  margin: 0;
+  width: 280px;
+  flex: none;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  background: var(--bg-2);
+  overflow-y: auto;
+  z-index: 1;
+}
+.vp-body > .inspector .insp-head {
+  height: 30px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.vp-body > .inspector .insp-title {
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.vp-body > .inspector .insp-body {
+  padding: 10px 12px 14px;
+  gap: 6px;
+}
+.insp-empty,
+.insp-hint {
+  padding: 12px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+.insp-hint {
+  padding: 8px 0 0;
+  margin-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+.vp-toolbar.left {
+  top: 10px;
+  left: 10px;
+}
+.struct-switch {
+  margin: 0 8px 6px;
+  gap: 4px;
+}
+.segmented .seg.grow {
+  flex: 1;
+}
+.tree-item.section {
+  height: calc(var(--row-h) - 4px);
+  font-size: 0.92em;
+  color: var(--text-dim);
+}
+.tree-item.section:hover {
+  color: var(--text-strong);
+}
+.tree-count {
+  color: var(--text-deco);
+  font-size: 11px;
+  padding-right: 8px;
+}
+.part-row.viewing {
+  background: var(--accent-soft);
+}
+.title-btn {
+  height: 24px;
+  gap: 5px;
+  margin-right: 4px;
+}
+.title-vehicle {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.badge.ok {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--ok);
+}
+.status-pop-wrap {
+  position: relative;
+}
+.status-pop {
+  bottom: 24px;
+  top: auto;
+  left: 0;
+  max-height: 60vh;
+  overflow: auto;
+  min-width: 240px;
+}
+.status-item.on {
+  color: var(--text-strong);
+}
+.ctx-item.checked {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--accent-soft);
+}
+
+.vp-shell { container-type: inline-size; container-name: vp; }
+.crumbs { flex: 0 1 auto; }
+.crumb { flex: none; max-width: 140px; }
+.crumb-select { max-width: 190px; }
+@container vp (max-width: 980px) { .bar-views { display: none; } }
+@container vp (max-width: 760px) { .bar-pick { display: none; } }
+@container vp (max-width: 560px) { .vp-legend { display: none; } }
+
+.code-crumbs {
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.code-crumbs .strong {
+  color: var(--text);
+}
+.monaco-editor .code-sel-line {
+  background: rgba(var(--accent-rgb), 0.1);
+}
+.monaco-editor .code-rel-line {
+  background: rgba(var(--accent-rgb), 0.045);
+}
+.monaco-editor .code-sel-bar {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.monaco-editor .code-rel-bar {
+  box-shadow: inset 2px 0 0 rgba(var(--accent-rgb), 0.45);
+}
+
+.vp-stats div { white-space: nowrap; }
+.editor-wrap { min-width: 280px; }
+@container vp (max-width: 820px) {
+  .vp-body > .inspector {
+    position: absolute;
+    right: 0;
+    top: 0;
+    max-height: 100%;
+    width: 260px;
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    z-index: 12;
+  }
+  .vp-body > .inspector.summary { display: none; }
+  .vp-meshstatus { display: none; }
+}
+.vp-body { position: relative; }

@@ -20,6 +20,7 @@ import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
 import { placeTriggers, triggerValues, type TriggerPlacement } from '@core/jbeam/triggers';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import { Inspector } from './Inspector';
+import { ViewportBar, ViewStats, ViewLegend } from './ViewportBar';
 import { meshes, useMeshStatus } from './meshes';
 import { meshFiles } from '../project/workspace';
 import { command } from '../ui/commands';
@@ -1096,6 +1097,7 @@ export function ViewportPanel() {
   );
 
   const nm = useUi((x) => x.naming);
+  const inspectorOpen = useUi((x) => x.inspector);
   const pickReq = useUi((x) => x.pick);
   const toolHint: Record<Tool, string> = {
     select: '',
@@ -1106,6 +1108,9 @@ export function ViewportPanel() {
   };
 
   return (
+    <div className="vp-shell">
+    <ViewportBar />
+    <div className="vp-body">
     <div className="viewport" ref={host} tabIndex={0}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onPointerLeave={() => { mouse.current.inside = false; if (!down.current) useSel.setState({ hover: null }); }}
@@ -1123,48 +1128,6 @@ export function ViewportPanel() {
         {gizmoBtn('translate', <Move3d size={16} />, 'Move gizmo\nDrag the arrows/planes · Alt: increments')}
         {gizmoBtn('rotate', <Rotate3d size={16} />, 'Rotate gizmo')}
         {gizmoBtn('scale', <Scale3d size={16} />, 'Scale / resize gizmo\n(trigger boxes resize along their own axes)')}
-      </div>
-
-      <ScopeBar />
-
-      <div className="vp-toolbar top" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="segmented">
-          {modeBtn('all', 'All', 'Pick anything')}
-          {modeBtn('nodes', 'Nodes', 'Nodes only (1)')}
-          {modeBtn('beams', 'Beams', 'Beams only (2)')}
-          {modeBtn('tris', 'Tris', 'Triangles only (3)')}
-        </div>
-        <div className="sep-v" />
-        {toggle('showNodes', <CircleDot size={14} />, 'Nodes')}
-        {toggle('showBeams', <Minus size={14} />, 'Beams')}
-        {toggle('showTris', <Shapes size={14} />, 'Triangles')}
-        {toggle('showMeshes', <Box size={14} />, 'Flexbodies (Shift+H)')}
-        {toggle('showWheels', <Waves size={14} />, 'Wheels')}
-        {toggle('showProps', <Lightbulb size={14} />, 'Props & lights')}
-        {toggle('showTriggers', <Cuboid size={14} />, 'Triggers')}
-        {toggle('showOccupants', <Armchair size={14} />, 'Occupants (0.40)')}
-        {toggle('showRails', <Route size={14} />, 'Rails & slidenodes')}
-        {toggle('xray', <Ghost size={14} />, 'X-ray: nodes & beams through meshes (Alt+Z)')}
-        <div className="sep-v" />
-        <button className={'icon-btn small' + (s.symmetryX ? ' active sym-on' : '')} data-tip={'X symmetry (Shift+X)\nMoving a node also moves its mirror twin'} onClick={toggleSymmetry} aria-label="Symmetry">
-          <FlipHorizontal2 size={14} />
-        </button>
-        <button className={'icon-btn small' + (s.showLabels === 'all' ? ' active' : '')} data-tip="Node labels (Shift+L)" onClick={() => set({ showLabels: s.showLabels === 'all' ? 'hover' : 'all' })} aria-label="Labels">
-          <Tags size={14} />
-        </button>
-        {toggle('showGrid', <Grid3x3 size={14} />, 'Grid')}
-      </div>
-
-      <div className="vp-toolbar right" onPointerDown={(e) => e.stopPropagation()}>
-        <button className="icon-btn small" data-tip="Frame all (Home)" data-tip-pos="left" onClick={() => vpInstance?.frameNodes(null)} aria-label="Frame all"><Maximize size={14} /></button>
-        <button className="icon-btn small" data-tip="Frame selection (F)" data-tip-pos="left" onClick={() => { const i = selectionNodeIdx(); vpInstance?.frameNodes(i.length ? i : null); }} aria-label="Frame selection"><Focus size={14} /></button>
-        <button className="icon-btn small" data-tip="Show only the part of the selection (Shift+I)" data-tip-pos="left" onClick={toggleIsolate} aria-label="Part of selection"><Scan size={14} /></button>
-        <div className="view-cube">
-          {([['front', 'F', 'Front (Numpad 1)'], ['back', 'B', 'Back (Ctrl+Numpad 1)'], ['left', 'L', 'Left side (Ctrl+Numpad 3)'], ['right', 'R', 'Right side (Numpad 3)'], ['top', 'T', 'Top (Numpad 7)'], ['bottom', 'U', 'Under (Ctrl+Numpad 7)']] as const).map(([vw, l, tip]) => (
-            <button key={vw} className="view-btn" data-tip={tip} data-tip-pos="left" onClick={() => vpInstance?.setView(vw)}>{l}</button>
-          ))}
-          <button className="view-btn wide" data-tip="Perspective / orthographic (Numpad 5)" data-tip-pos="left" onClick={() => vpInstance?.setOrtho(!vpInstance.isOrtho)}>P/O</button>
-        </div>
       </div>
 
       {tool === 'name' && (
@@ -1244,69 +1207,18 @@ export function ViewportPanel() {
         />
       )}
 
-      <div className="vp-toolbar sliders" onPointerDown={(e) => e.stopPropagation()}>
-        <label className="vp-slider" data-tip-pos="top" data-tip="Node size">
-          <CircleDot size={12} />
-          <input type="range" min={2} max={20} step={0.5} value={s.nodeSize} onChange={(e) => set({ nodeSize: +e.target.value })} />
-        </label>
-        <label className="vp-slider" data-tip-pos="top" data-tip="Beam width">
-          <Minus size={12} />
-          <input type="range" min={0.5} max={6} step={0.25} value={s.beamWidth} onChange={(e) => set({ beamWidth: +e.target.value })} />
-        </label>
-        <label className="vp-slider" data-tip-pos="top" data-tip="Flexbody opacity">
-          <Eye size={12} />
-          <input type="range" min={0} max={1} step={0.02} value={s.meshOpacity} onChange={(e) => set({ meshOpacity: +e.target.value })} />
-        </label>
-        <label className="vp-slider" data-tip-pos="top" data-tip="Triangle opacity">
-          <Shapes size={12} />
-          <input type="range" min={0} max={1} step={0.02} value={s.triOpacity} onChange={(e) => set({ triOpacity: +e.target.value })} />
-        </label>
-      </div>
-
-      <Inspector />
-
-      <div className="vp-status" onPointerDown={(e) => e.stopPropagation()}>
-        {vehicle ? (
-          <>
-            <span>{vehicle.nodes.length} nodes</span>
-            <span>{vehicle.beams.length} beams</span>
-            <span>{vehicle.tris.length} tris</span>
-            <span>{vehicle.flexbodies.length} flexbodies</span>
-            {meshStatus.loading > 0 && <span className="accent-text">loading meshes… ({meshStatus.indexed}/{meshStatus.total} indexed)</span>}
-            {meshStatus.missing.length > 0 && <span className="warn-text" data-tip={meshStatus.missing.slice(0, 30).join('\n')} data-tip-pos="top">{meshStatus.missing.length} meshes not found</span>}
-          </>
-        ) : null}
-      </div>
+      <ViewStats />
+      <ViewLegend />
+      {(meshStatus.loading > 0 || meshStatus.missing.length > 0) && (
+        <div className="vp-meshstatus" onPointerDown={(e) => e.stopPropagation()}>
+          {meshStatus.loading > 0 && <span>loading meshes… {meshStatus.indexed}/{meshStatus.total}</span>}
+          {meshStatus.missing.length > 0 && <span className="warn-text" data-tip={meshStatus.missing.slice(0, 30).join('\n')} data-tip-pos="top">{meshStatus.missing.length} meshes not found</span>}
+        </div>
+      )}
       {!vehicle && <EmptyState />}
     </div>
-  );
-}
-
-/** Part / file / whole-vehicle switch shown at the top centre of the view. */
-function ScopeBar() {
-  const scope = useSel((x) => x.scope);
-  const v = useWs((x) => x.vehicle);
-  const target = useWs((x) => x.target);
-  if (!v) return null;
-  const fileName = (f: string) => f.slice(f.lastIndexOf('/') + 1);
-  const curFile = scope.mode === 'vehicle' ? target?.doc ?? v.root?.def.file ?? '' : scope.file;
-  const curPart = scope.mode === 'part' ? scope.part : target?.part ?? '';
-  const partsInFile = v.parts.filter((p) => p.def.file === curFile);
-  return (
-    <div className="scope-bar" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="segmented small">
-        <button className={'seg' + (scope.mode === 'part' ? ' active' : '')} disabled={!curPart} onClick={() => curPart && ws.focusPart(curPart)} data-tip="Only one part (Shift+I)">Part</button>
-        <button className={'seg' + (scope.mode === 'file' ? ' active' : '')} disabled={!curFile} onClick={() => curFile && ws.setScope({ mode: 'file', file: curFile })} data-tip="All parts of one file">File</button>
-        <button className={'seg' + (scope.mode === 'vehicle' ? ' active' : '')} onClick={() => ws.setScope({ mode: 'vehicle' })} data-tip="Whole assembled vehicle">Vehicle</button>
-      </div>
-      {scope.mode === 'part' && (
-        <select className="select small mono scope-select" value={scope.part} onChange={(e) => ws.focusPart(e.target.value)} onKeyDown={(e) => e.stopPropagation()}>
-          {partsInFile.map((p) => <option key={p.def.name} value={p.def.name}>{p.def.name}</option>)}
-          {!partsInFile.some((p) => p.def.name === scope.part) && <option value={scope.part}>{scope.part}</option>}
-        </select>
-      )}
-      {scope.mode === 'file' && <span className="mono scope-name">{fileName(scope.file)}<span className="faint"> · {partsInFile.length} part{partsInFile.length === 1 ? '' : 's'}</span></span>}
-      {scope.mode === 'vehicle' && <span className="scope-name">{v.parts.length} parts</span>}
+    {inspectorOpen && <Inspector />}
+    </div>
     </div>
   );
 }
@@ -1320,7 +1232,7 @@ function EmptyState() {
         <div className="row" style={{ justifyContent: 'center', marginTop: 12, gap: 8 }}>
           <button className="btn primary" onClick={() => useUi.setState({ dialog: { kind: 'newVehicle' } })}>New vehicle…</button>
           <button className="btn" onClick={() => command('file.openFile')}>Open file…</button>
-          <button className="btn" onClick={() => { ws.refreshVehicleList(); useUi.setState({ activity: 'vehicles', sidebar: true, page: 'workbench', palette: 'vehicles' }); }}>Browse vehicles…</button>
+          <button className="btn" onClick={() => { ws.refreshVehicleList(); useUi.setState({ page: 'workbench', palette: 'vehicles' }); }}>Browse vehicles…</button>
         </div>
       </div>
     </div>
