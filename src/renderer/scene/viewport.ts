@@ -68,17 +68,19 @@ void main() {
 }
 `;
 // Collision triangles: plain fill with a thin dark wireframe on the edges (1 px, anti-aliased);
-// back faces purple.
+// back faces purple. uEdge pushes the line inward past the beam drawn on the same edge, so the
+// outline still shows beside it when beams are visible.
 const TRI_FS = /* glsl */ `
 uniform float uOpacity;
 uniform vec3 uBack;
+uniform float uEdge;
 varying vec4 vColor;
 varying vec3 vBary;
 void main() {
   // distance to the nearest edge in screen pixels
   vec3 px = vBary / max(fwidth(vBary), vec3(1e-6));
   float d = min(min(px.x, px.y), px.z);
-  float line = 1.0 - smoothstep(0.5, 1.5, d);
+  float line = 1.0 - smoothstep(uEdge + 0.5, uEdge + 1.5, d);
   vec3 base = gl_FrontFacing ? vColor.rgb : mix(vColor.rgb, uBack, 0.8);
   vec3 col = mix(base, base * 0.25, line);
   float a = uOpacity * vColor.a;
@@ -229,7 +231,7 @@ export class Viewport {
     this.triMat = new THREE.ShaderMaterial({
       vertexShader: TRI_VS,
       fragmentShader: TRI_FS,
-      uniforms: { uOpacity: { value: s.triOpacity }, uBack: { value: new THREE.Color(s.colorTriBack) } },
+      uniforms: { uOpacity: { value: s.triOpacity }, uBack: { value: new THREE.Color(s.colorTriBack) }, uEdge: { value: 0 } },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -401,6 +403,7 @@ export class Viewport {
     this.beamMat.linewidth = s.beamWidth;
     this.triMat.uniforms.uOpacity.value = s.triOpacity;
     this.triMat.uniforms.uBack.value.set(s.colorTriBack);
+    this.updateTriEdge();
     this.nodeMat.uniforms.uWorld.value = s.nodeWorldScale ? 1 : 0;
     this.nodeMat.depthTest = !s.xray;
     this.beamMat.depthTest = !s.xray;
@@ -440,6 +443,7 @@ export class Viewport {
     this.beamMat.resolution.set(w, h);
     this.railMat.resolution.set(w, h);
     this.nodeMat.uniforms.uPx.value = dpr;
+    this.updateTriEdge();
     this.nodeMat.uniforms.uHeight.value = h * dpr;
     this.projCacheValid = false;
     this.requestRender();
@@ -1265,6 +1269,11 @@ export class Viewport {
   // picking
   // ---------------------------------------------------------------------------------------
 
+  /** Half the beam width (device px) plus a hair when beams are drawn over the triangle edges. */
+  private updateTriEdge() {
+    const s = this.s;
+    this.triMat.uniforms.uEdge.value = s.showBeams ? (s.beamWidth * this.renderer.getPixelRatio()) / 2 + 0.25 : 0;
+  }
   pick(px: number, py: number, mode: PickMode, radius = this.s.pickRadius, allow: { node?: boolean; beam?: boolean; tri?: boolean } = {}): Hover | null {
     const v = this.vehicle;
     if (!v) return null;
