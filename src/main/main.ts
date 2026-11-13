@@ -6,6 +6,8 @@ import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import * as dgram from 'node:dgram';
+import { makeZip } from './zip';
+import { parseJbeamFile } from '../core/jbeam/parts';
 import { Vfs, decodeText, detectBeamNG } from './vfs';
 import type { BlenderExtract, DirEntry, EnvInfo, FileRef } from '../shared/ipc';
 
@@ -225,6 +227,7 @@ function registerIpc(): void {
     userDir: vfs.opts.userDir,
     gameVersion: detected.version,
     appVersion: app.getVersion(),
+    automation: process.env.EDITORNG_AUTOMATION === '1',
     userData: userData(),
     platform: process.platform,
     argv: process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-')),
@@ -252,6 +255,111 @@ function registerIpc(): void {
   h('readTexts', async (files: FileRef[]) => (await vfs.readMany(files)).map(decodeText));
   h('readBinary', async (file: FileRef) => new Uint8Array(await vfs.read(file)));
   h('findFile', (vpath: string) => vfs.find(vpath));
+  h('findAllFiles', (vpath: string) => vfs.findAll(vpath));
+  h('listBackups', async (real: string, backupDir?: string) => {
+    const dir = backupDir || path.join(userData(), 'backups');
+    const base = path.basename(real);
+    const hash = crypto.createHash('sha1').update(path.dirname(real).toLowerCase()).digest('hex').slice(0, 8);
+    const sub = path.join(dir, `${path.basename(path.dirname(real))}-${hash}`);
+    const names = await fsp.readdir(sub).catch(() => [] as string[]);
+    const out: Array<{ path: string; time: number }> = [];
+    for (const n of names) {
+      if (!n.startsWith(base + '.') || !n.endsWith('.bak')) continue;
+      const st = await fsp.stat(path.join(sub, n)).catch(() => null);
+      if (st) out.push({ path: path.join(sub, n), time: st.mtimeMs });
+    }
+    return out.sort((a, b) => b.time - a.time);
+  });
+
+  // ---- mod packing: scan for what moderators reject, then zip
+  let vanillaParts: Map<string, string> | null = null;
+  const vanillaPartNames = async () => {
+    if (vanillaParts) return vanillaParts;
+    const cacheFile = path.join(userData(), 'cache', `vanilla-parts-${(detected.version ?? 'x').replace(/[^\w.]/g, '_')}.json`);
+    const cached = await fsp.readFile(cacheFile, 'utf8').then((t) => JSON.parse(t) as Record<string, string>).catch(() => null);
+    if (cached) return (vanillaParts = new Map(Object.entries(cached)));
+    const files = await vfs.gameJbeams();
+    const bufs = await vfs.readMany(files);
+    const map = new Map<string, string>();
+    files.forEach((f, i) => {
+      try {
+        for (const p of parseJbeamFile(f.vpath, decodeText(bufs[i])).parts) if (!map.has(p.name.toLowerCase())) map.set(p.name.toLowerCase(), f.vpath);
+      } catch {
+        /* unparsable vanilla file */
+      }
+    });
+    await fsp.mkdir(path.dirname(cacheFile), { recursive: true });
+    await fsp.writeFile(cacheFile, JSON.stringify(Object.fromEntries(map)));
+    return (vanillaParts = map);
+  };
+  h('scanMod', async (modDir: string) => {
+    const files: Array<{ rel: string; size: number }> = [];
+    const walkDir = async (dir: string, rel: string) => {
+      for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        const r = rel ? rel + '/' + e.name : e.name;
+        if (e.isDirectory()) await walkDir(p, r);
+        else files.push({ rel: r, size: (await fsp.stat(p)).size });
+      }
+    };
+    await walkDir(modDir, '');
+    const gamePaths = await vfs.gameFilePaths();
+    const vparts = await vanillaPartNames();
+    const issues: Array<{ sev: 'error' | 'warning' | 'info'; msg: string; file?: string }> = [];
+    const name = path.basename(modDir);
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) issues.push({ sev: 'error', msg: `Mod folder / zip name "${name}" may only use A-Z a-z 0-9 - _` });
+    if (/v?\d+(\.\d+)+/i.test(name)) issues.push({ sev: 'warning', msg: 'Leave the version out of the name, so updates replace the old zip' });
+    for (const f of files) {
+      const lc = f.rel.toLowerCase();
+      if (gamePaths.has(lc)) issues.push({ sev: 'error', msg: 'Overrides a game file (give it a unique name or path)', file: f.rel });
+      if (/\.(txt|md|log|bak|blend\d*|psd|xcf|tmp|orig)$/i.test(lc) || /(^|\/)(thumbs\.db|desktop\.ini|\.ds_store)$/i.test(lc) || /(^|\/)\.git\//.test(lc)) issues.push({ sev: 'warning', msg: 'Leftover file: remove notes, logs, backups and sources before release', file: f.rel });
+      if (/\.png$/i.test(lc) && /(^|\/)vehicles\/[^/]+\/.+/.test(lc) && !/\.(color|normal|data)\.png$/i.test(lc) && !/(^|\/)[^/]*(preview|default|thumb|_icon)[^/]*\.png$/i.test(lc)) {
+        issues.push({ sev: 'info', msg: 'Texture not named *.color.png / *.normal.png / *.data.png (the game converts only those to DDS)', file: f.rel });
+      }
+      if (lc.endsWith('.jbeam')) {
+        try {
+          const text = decodeText(await fsp.readFile(path.join(modDir, f.rel)));
+          for (const p of parseJbeamFile(f.rel, text).parts) {
+            const v = vparts.get(p.name.toLowerCase());
+            if (v) issues.push({ sev: 'error', msg: `Part "${p.name}" has the same name as a game part (${v}); it replaces it for every player`, file: f.rel });
+          }
+        } catch {
+          issues.push({ sev: 'warning', msg: 'Could not parse this .jbeam', file: f.rel });
+        }
+      }
+    }
+    // vehicles: info file and preview image
+    const models = new Set(files.map((f) => /^vehicles\/([^/]+)\//i.exec(f.rel)?.[1]).filter((x): x is string => !!x && x.toLowerCase() !== 'common'));
+    for (const m of models) {
+      const inModel = files.filter((f) => f.rel.toLowerCase().startsWith(`vehicles/${m.toLowerCase()}/`));
+      const hasJbeam = inModel.some((f) => f.rel.toLowerCase().endsWith('.jbeam'));
+      const isNewVehicle = hasJbeam && !gamePaths.has(`vehicles/${m.toLowerCase()}/info.json`) && ![...gamePaths].some((p) => p.startsWith(`vehicles/${m.toLowerCase()}/`));
+      if (isNewVehicle) {
+        if (!inModel.some((f) => /\/info[^/]*\.json$/i.test(f.rel))) issues.push({ sev: 'warning', msg: `vehicles/${m}: no info.json (vehicle selector name, brand, type)` });
+        if (!inModel.some((f) => /\/default\.(png|jpg|jpeg)$/i.test(f.rel))) issues.push({ sev: 'warning', msg: `vehicles/${m}: no default.png / default.jpg preview` });
+      }
+    }
+    const total = files.reduce((a, f) => a + f.size, 0);
+    return { name, files: files.map((f) => f.rel), total, issues };
+  });
+  h('packMod', async (modDir: string, outZip: string) => {
+    const files: Array<{ name: string; data: Buffer; mtime: Date }> = [];
+    const walkDir = async (dir: string, rel: string) => {
+      for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        const r = rel ? rel + '/' + e.name : e.name;
+        if (e.isDirectory()) await walkDir(p, r);
+        else {
+          const st = await fsp.stat(p);
+          files.push({ name: r, data: await fsp.readFile(p), mtime: st.mtime });
+        }
+      }
+    };
+    await walkDir(modDir, '');
+    const zip = makeZip(files);
+    await fsp.writeFile(outZip, zip);
+    return { files: files.length, size: zip.length };
+  });
 
   h('readTextFile', async (real: string) => decodeText(await fsp.readFile(real)));
   h('readBinaryFile', async (real: string) => new Uint8Array(await fsp.readFile(real)));

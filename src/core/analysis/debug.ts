@@ -4,6 +4,7 @@
 import type { Vehicle } from '../jbeam/types';
 import { collectRails, offRailSlides } from '../jbeam/rails';
 import { modifierLeaks, RISKY_KEYS } from './modifiers';
+import { unknownPropsOfParts } from '../jbeam/knownProps';
 
 export type CheckSev = 'error' | 'warning' | 'info';
 
@@ -44,6 +45,7 @@ export const CHECKS: Array<{ id: string; title: string; doc: string }> = [
   { id: 'flexGroups', title: 'Flexbody groups without nodes', doc: 'Flexbodies referencing node groups that no node belongs to; the mesh will not be shown.' },
   { id: 'heavyNodes', title: 'Extreme node weights', doc: 'Nodes weighing more than 50 kg or less than 0.05 kg.' },
   { id: 'modLeaks', title: 'Leaking modifiers', doc: 'A {"key": value} modifier row stays in effect for the rest of its section, and the game carries it into the same section of every part assembled after it. Values that are not reset at the end of a part change rows of other parts. Reset them with {"key": ""} (or the default) at the end of the section.' },
+  { id: 'propTypos', title: 'Property typos', doc: 'Modifier and inline option names that are not known to the game but look like a known one (e.g. beamSprng). The game silently ignores them. Names come from the game\'s own JBeam spellchecker.' },
   { id: 'rails', title: 'Rails & slidenodes', doc: 'Rails with unknown nodes, slidenodes on rails that do not exist, and slidenodes that are not on their rail (they jump onto it when the vehicle spawns). Fix with Snap onto rail (Shift+R).' },
 ];
 
@@ -204,6 +206,13 @@ export function runChecks(v: Vehicle, o: CheckOptions, enabled?: Set<string>): F
         msg: `${l.section}: ${l.key} = ${val} from ${l.origin.part} leaks into ${rows.length} row${rows.length > 1 ? 's' : ''} of ${[...l.into.keys()].join(', ')}`,
         nodes: [...nodes], src: { file: l.origin.file, s: l.origin.s, e: l.origin.e },
       });
+    }
+  }
+  if (on('propTypos')) {
+    const defs = [...new Set(v.parts.map((p) => p.def))].filter((d) => !o.editable || o.editable(d.file));
+    for (const u of unknownPropsOfParts(defs)) {
+      const def = defs.find((d) => d.name === u.part);
+      out.push({ check: 'propTypos', sev: 'warning', msg: `${u.part} › ${u.section}: "${u.key}" — did you mean "${u.suggestion}"?`, src: def ? { file: def.file, s: u.s, e: u.e } : undefined });
     }
   }
   if (on('rails')) {

@@ -358,6 +358,63 @@ export class Vfs {
     return out;
   }
 
+  /** Every provider of a virtual path, highest priority first (to compare a copy with the original). */
+  async findAll(vpath: string): Promise<VFile[]> {
+    await this.init();
+    vpath = vpath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const m = /^vehicles\/([^/]+)/i.exec(vpath);
+    const mounts = m ? await this.mountsForModel(m[1]) : this.mounts;
+    const out: VFile[] = [];
+    for (const mount of mounts) {
+      if (mount.isZip) {
+        try {
+          const idx = await this.zipIndex(mount);
+          const e = idx.entries.get(vpath.toLowerCase());
+          if (e) out.push({ vpath: e.fileName, mount: mount.id, size: e.uncompressedSize, writable: false, source: mount.label, kind: mount.kind });
+        } catch {
+          /* ignore */
+        }
+      } else {
+        const real = path.join(mount.root, vpath);
+        const st = await fsp.stat(real).catch(() => null);
+        if (st?.isFile()) out.push({ vpath, mount: mount.id, real, size: st.size, writable: true, source: mount.label, kind: mount.kind });
+      }
+    }
+    return out;
+  }
+
+  /** Lower-cased paths of every file inside the game's own zips (for override checks). */
+  async gameFilePaths(): Promise<Set<string>> {
+    await this.init();
+    const out = new Set<string>();
+    for (const mount of this.mounts) {
+      if (!mount.isZip || mount.kind !== 'game') continue;
+      try {
+        const idx = await this.zipIndex(mount);
+        for (const lc of idx.entries.keys()) out.add(lc);
+      } catch {
+        /* ignore */
+      }
+    }
+    return out;
+  }
+
+  /** .jbeam files of the game's own zips (vpath + mount) for name collision checks. */
+  async gameJbeams(): Promise<VFile[]> {
+    await this.init();
+    const out: VFile[] = [];
+    for (const mount of this.mounts) {
+      if (!mount.isZip || mount.kind !== 'game') continue;
+      try {
+        const idx = await this.zipIndex(mount);
+        for (const [lc, e] of idx.entries) if (lc.endsWith('.jbeam')) out.push({ vpath: e.fileName, mount: mount.id, size: e.uncompressedSize, writable: false, source: mount.label, kind: mount.kind });
+      } catch {
+        /* ignore */
+      }
+    }
+    return out;
+  }
+
   /** Finds the highest-priority provider of a single virtual path. */
   async find(vpath: string): Promise<VFile | null> {
     await this.init();

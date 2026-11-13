@@ -232,6 +232,7 @@ class Workspace {
   /** Opens arbitrary .jbeam files from disk (loose mode). */
   async openFiles(paths: string[]): Promise<void> {
     const token = ++this.openToken;
+    onFilesOpened?.(paths);
     useWs.setState({ loading: 'Loading files…' });
     try {
       const texts = await Promise.all(paths.map((p) => api.readTextFile(p)));
@@ -825,5 +826,11 @@ function flattenTree(tree: any): Record<string, string> {
 }
 
 export let meshFiles: VFile[] = [];
+
+/** set by the UI to record recent files (avoids an import cycle) */
+let onFilesOpened: ((paths: string[]) => void) | null = null;
+export function setOnFilesOpened(fn: (paths: string[]) => void) {
+  onFilesOpened = fn;
+}
 
 export const ws = new Workspace();

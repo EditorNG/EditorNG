@@ -8,6 +8,7 @@ import { useSel, emptySel, beamKey, triKey, rowKey, resolveSel, addToSel, setSel
 import { pathAt } from '@core/sjson';
 import { updateMarkers, contextAt } from './jbeamLang';
 import { openMenu } from '../ui/Menu';
+import { showReferences } from '../ui/Tier2';
 import { api } from '../lib/api';
 import * as ops from '../project/ops';
 
@@ -275,6 +276,28 @@ export function CodeEditor() {
       },
     });
     editor.addAction({
+      id: 'editorng.findRefs',
+      label: 'Find node references',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 2.5,
+      run: (ed) => {
+        const v = ws.vehicle;
+        const dd = docOf(ed);
+        const mm = ed.getModel();
+        const pos = ed.getPosition();
+        if (!dd || !mm || !pos) return;
+        const ctx = contextAt(dd, mm.getOffsetAt(pos));
+        let name = ctx.leaf?.k === 'str' ? ctx.leaf.v : null;
+        if (name && v && !v.nodeIndex.has(name)) name = null;
+        if (!name) {
+          const r = refsAt(ed).find((x) => x.kind === 'node');
+          if (r && v) name = v.nodes[r.idx].name;
+        }
+        if (name) showReferences(name);
+      },
+    });
+    editor.addAction({
       id: 'editorng.mirrorRow',
       label: 'Mirror to the other side',
       contextMenuGroupId: '0_editorng',
@@ -371,6 +394,8 @@ export function CodeEditor() {
                   'sep',
                   { label: 'Show this file in 3D', disabled: ws.vehicle?.parts.some((p) => p.def.file === d.key) ? false : 'No active part in this file', run: () => ws.setScope({ mode: 'file', file: d.key }) },
                   { label: 'Save', key: 'Ctrl+S', disabled: d.writable && dirty ? false : 'No unsaved changes', run: () => ws.save(d.key) },
+                  { label: 'Compare with backup…', disabled: d.writable && d.ref.real ? false : 'Only for editable files on disk', run: () => useUi.setState({ dialog: { kind: 'diff', data: { doc: d.key, against: 'backup' } } }) },
+                  { label: 'Compare with original…', disabled: d.writable ? false : 'This is the original', run: () => useUi.setState({ dialog: { kind: 'diff', data: { doc: d.key, against: 'original' } } }) },
                   { label: 'Reveal in Explorer', disabled: d.ref.real ? false : 'Inside a zip', run: () => d.ref.real && api.reveal(d.ref.real) },
                   { label: 'Copy path', run: () => navigator.clipboard.writeText(d.ref.real ?? d.vpath) },
                 ]);

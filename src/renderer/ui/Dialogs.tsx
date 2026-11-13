@@ -14,6 +14,7 @@ import type { BlenderExtract } from '@shared/ipc';
 import type { AArr } from '@core/sjson';
 import { MirrorPartDialog } from './MirrorPart';
 import { GameLinkDialog } from './GameLink';
+import { DeleteRefsDialog, DiffDialog, PackModDialog } from './Tier2';
 
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; width?: number }) {
   useEffect(() => {
@@ -71,6 +72,12 @@ export function Dialogs() {
       return <ImportDialog close={close} initial={d.data} />;
     case 'mirrorPart':
       return <MirrorPartDialog part={d.data} close={close} />;
+    case 'deleteRefs':
+      return <DeleteRefsDialog close={close} data={d.data} />;
+    case 'diff':
+      return <DiffDialog close={close} data={d.data} />;
+    case 'packMod':
+      return <PackModDialog close={close} />;
     case 'gameLink':
       return <GameLinkDialog close={close} />;
     case 'symmetryCross':

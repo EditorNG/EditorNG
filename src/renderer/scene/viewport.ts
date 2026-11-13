@@ -438,6 +438,20 @@ export class Viewport {
     this.requestRender();
   }
 
+  getCameraState(): { pos: number[]; target: number[]; ortho: boolean } {
+    return { pos: this.camera.position.toArray(), target: this.controls.target.toArray(), ortho: this.isOrtho };
+  }
+
+  setCameraState(c: { pos: number[]; target: number[]; ortho: boolean }) {
+    this.setOrtho(!!c.ortho);
+    this.camera.position.fromArray(c.pos);
+    this.controls.target.fromArray(c.target);
+    if (this.isOrtho) this.updateOrthoFrustum();
+    this.controls.update();
+    this.projCacheValid = false;
+    this.requestRender();
+  }
+
   frameBox(box: THREE.Box3) {
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3());

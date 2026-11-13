@@ -8,6 +8,7 @@ import { CHECKS, massReport, type Finding } from '@core/analysis/debug';
 import { useChecks, runAllChecks, setCheckEnabled } from '../state/checks';
 import { openMenu } from './Menu';
 import { GameLogTab } from './GameLink';
+import { ReferencesTab } from './Tier2';
 import { emptySel, setSel, type Sel } from '../state/selection';
 import { getViewport } from '../scene/ViewportPanel';
 import * as ops from '../project/ops';
@@ -42,6 +43,7 @@ export function BottomPanel() {
         {tabBtn('problems', <>Problems {counts.error > 0 && <span className="badge err">{counts.error}</span>} {counts.warning > 0 && <span className="badge warn">{counts.warning}</span>}</>)}
         {tabBtn('debug', <>Checks <ChecksBadge /></>)}
         {tabBtn('gamelog', 'Game log')}
+        {tabBtn('refs', 'References')}
         {tabBtn('mass', 'Weight')}
         {tabBtn('variables', 'Tuning')}
         {tabBtn('output', 'Output')}
@@ -52,6 +54,7 @@ export function BottomPanel() {
         {tab === 'problems' && <Problems />}
         {tab === 'debug' && <Checks />}
         {tab === 'gamelog' && <GameLogTab />}
+        {tab === 'refs' && <ReferencesTab />}
         {tab === 'mass' && <Mass />}
         {tab === 'variables' && <Variables />}
         {tab === 'output' && <Output />}

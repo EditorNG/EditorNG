@@ -25,6 +25,7 @@ import { meshes, useMeshStatus } from './meshes';
 import { meshFiles } from '../project/workspace';
 import { command } from '../ui/commands';
 import { openMenu, closeMenu, type MenuEntry } from '../ui/Menu';
+import { deleteWithCheck, showReferences, StartPage } from '../ui/Tier2';
 import type { Row } from '@core/jbeam/types';
 
 let vpInstance: Viewport | null = null;
@@ -325,7 +326,7 @@ export function ViewportPanel() {
         { label: 'Show only this part', key: 'Shift+I', run: () => ws.focusPart(row.part.def.name) },
       ];
     };
-    const deleteEntry: MenuEntry[] = ['sep', { label: 'Delete', key: 'X', danger: true, run: () => ops.deleteSelection() }];
+    const deleteEntry: MenuEntry[] = ['sep', { label: 'Delete', key: 'X', danger: true, run: () => deleteWithCheck() }];
     const activeIdx = st.active?.kind === 'node' && nodeIdx.includes(st.active.idx) ? st.active.idx : null;
     const layoutSub: MenuEntry = names.length >= 2 && {
       label: 'Align & distribute', submenu: [
@@ -394,6 +395,7 @@ export function ViewportPanel() {
         selectSub,
         ...multiNode,
         'sep',
+        { label: 'Find references', key: 'Shift+F12', run: () => showReferences(n.name) },
         { label: 'Hide', key: 'H', run: () => ops.hideNodes(nodeIdx.length ? nodeIdx.map((i) => v.nodes[i].name) : [n.name]) },
         ...rowEntries(n.row),
         ...deleteEntry,
@@ -1321,7 +1323,7 @@ export function ViewportPanel() {
       if (matches('edit.delete', e) || matches('edit.deleteAlt', e)) {
         if (selCount(sel)) return run(() => {
           if (settings().confirmDelete && !confirm(`Delete ${selCount(sel)} selected element(s)?`)) return;
-          ops.deleteSelection();
+          deleteWithCheck();
         });
       }
       if (matches('edit.rename', e)) return run(() => {
@@ -1520,15 +1522,7 @@ export function ViewportPanel() {
 function EmptyState() {
   return (
     <div className="vp-empty">
-      <div className="vp-empty-card">
-        <div className="vp-empty-title">No vehicle open</div>
-        <div className="dim">Pick a vehicle on the left, open a .jbeam file, or start a new vehicle.</div>
-        <div className="row" style={{ justifyContent: 'center', marginTop: 12, gap: 8 }}>
-          <button className="btn primary" onClick={() => useUi.setState({ dialog: { kind: 'newVehicle' } })}>New vehicle…</button>
-          <button className="btn" onClick={() => command('file.openFile')}>Open file…</button>
-          <button className="btn" onClick={() => { ws.refreshVehicleList(); useUi.setState({ page: 'workbench', palette: 'vehicles' }); }}>Browse vehicles…</button>
-        </div>
-      </div>
+      <StartPage />
     </div>
   );
 }

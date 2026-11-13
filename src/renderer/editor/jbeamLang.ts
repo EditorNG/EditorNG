@@ -3,6 +3,7 @@
  * rename, outline, folding, inlay hints (beam lengths), diagnostics, quick fixes and table alignment.
  */
 import { monaco } from '../lib/monaco';
+import { unknownProps } from '@core/jbeam/knownProps';
 import { ws, type Doc } from '../project/workspace';
 import { pathAt, LineIndex, type ANode, type AObj, type AArr, type AStr } from '@core/sjson';
 import { SECTIONS, KEYS, BEAM_TYPES, NODE_MATERIALS, COMMON_ACTIONS, GENERIC_ACTIONS } from '@core/jbeam/docs';
@@ -272,6 +273,26 @@ export function registerJbeam(): void {
       if (!md.length && leaf.k === 'num' && ctx.colName) md.push(`\`${ctx.colName}\``);
       if (!md.length) return null;
       return { range: range(leaf), contents: md.map((value) => ({ value })) };
+    },
+  });
+
+  // ---------------------------------------------------------------- quick fix for property typos
+  monaco.languages.registerCodeActionProvider(LANG, {
+    provideCodeActions(model, _range, context) {
+      const actions: monaco.languages.CodeAction[] = [];
+      for (const mk of context.markers) {
+        if (mk.code !== 'unknown-prop') continue;
+        const m = /did you mean "([^"]+)"/.exec(mk.message);
+        if (!m) continue;
+        actions.push({
+          title: `Change to "${m[1]}"`,
+          kind: 'quickfix',
+          diagnostics: [mk],
+          isPreferred: true,
+          edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: { range: new monaco.Range(mk.startLineNumber, mk.startColumn, mk.endLineNumber, mk.endColumn), text: JSON.stringify(m[1]) } }] },
+        });
+      }
+      return { actions, dispose() {} };
     },
   });
 
@@ -666,6 +687,20 @@ export function updateMarkers(d: Doc) {
       endColumn: is.code === 'missing-comma' ? a.column : b.column,
     });
     if (markers.length > 2000) break;
+  }
+  if (d.jfile && d.lang === 'jbeam') {
+    for (const u of unknownProps(d.jfile)) {
+      const a = m.getPositionAt(u.s), b = m.getPositionAt(u.e);
+      markers.push({
+        severity: monaco.MarkerSeverity.Warning,
+        message: `"${u.key}" is not a known ${u.section} property: did you mean "${u.suggestion}"?`,
+        code: 'unknown-prop',
+        startLineNumber: a.lineNumber,
+        startColumn: a.column,
+        endLineNumber: b.lineNumber,
+        endColumn: b.column,
+      });
+    }
   }
   monaco.editor.setModelMarkers(m, 'jbeam', markers);
 }

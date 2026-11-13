@@ -20,6 +20,10 @@ import { getViewport, getGizmo } from './scene/ViewportPanel';
 import { command } from './ui/commands';
 import { meshes, useMeshStatus } from './scene/meshes';
 import { revealRange, getEditor } from './editor/CodeEditor';
+import { loadRecent, addRecentFiles, restoreSession } from './ui/Tier2';
+import { setOnFilesOpened } from './project/workspace';
+import { setKnownProps, parseSpellcheckerLua } from '@core/jbeam/knownProps';
+import knownSnapshot from '@core/jbeam/knownProps.snapshot.json';
 
 function defineThemes() {
   const accent = 'ff7a2e';
@@ -125,9 +129,24 @@ async function boot() {
     }
   });
   ws.refreshVehicleList().catch(() => {});
+  // property names for the typo check: the game's own spellchecker list when available
+  setKnownProps(knownSnapshot as Record<string, string[]>);
+  if (roots.gameDir) {
+    api.readTextFile(roots.gameDir + '/lua/ge/extensions/editor/vehicleEditor/staticEditor/veJBeamSpellchecker.lua')
+      .then((t) => {
+        const lists = parseSpellcheckerLua(t);
+        if (lists) setKnownProps(lists);
+      })
+      .catch(() => {});
+  }
   const env = await api.env();
   log(`EditorNG ${env.appVersion} · game: ${roots.gameDir ?? 'not found'} · user: ${roots.userDir ?? 'not found'}`);
-  if (state.lastVehicle && !(window as any).__noRestore) await ws.openVehicle(state.lastVehicle, state.lastConfig ?? undefined);
+  await loadRecent();
+  setOnFilesOpened(addRecentFiles);
+  if (state.lastVehicle && !(window as any).__noRestore && !env.automation) {
+    await ws.openVehicle(state.lastVehicle, state.lastConfig ?? undefined);
+    await restoreSession(state.lastVehicle).catch(() => {});
+  }
   // automation hooks (used by scripts/shot.mjs and handy in devtools)
   window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor };
 }

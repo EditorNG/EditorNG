@@ -340,6 +340,8 @@ export function fileMenu(x: number, y: number, d: Doc) {
     { label: 'Show this file in 3D', disabled: inVehicle ? false : 'No active part in this file', run: () => ws.setScope({ mode: 'file', file: d.key }) },
     { label: 'Save', key: 'Ctrl+S', disabled: d.writable && ws.isDirty(d) ? false : 'No unsaved changes', run: () => ws.save(d.key) },
     !d.writable && { label: 'Make editable copy…', run: () => useUi.setState({ dialog: { kind: 'makeEditable', data: d.key } }) },
+    { label: 'Compare with backup…', disabled: d.writable && d.ref.real ? false : 'Only for editable files on disk', run: () => useUi.setState({ dialog: { kind: 'diff', data: { doc: d.key, against: 'backup' } } }) },
+    { label: 'Compare with original…', hint: 'game / other mod', disabled: d.writable ? false : 'This is the original', run: () => useUi.setState({ dialog: { kind: 'diff', data: { doc: d.key, against: 'original' } } }) },
     'sep',
     { label: 'Reveal in Explorer', disabled: d.ref.real ? false : 'Inside a zip', run: () => d.ref.real && api.reveal(d.ref.real) },
     { label: 'Copy path', run: () => navigator.clipboard.writeText(d.ref.real ?? d.vpath) },

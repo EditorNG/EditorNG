@@ -2231,3 +2231,83 @@ button.status-item:hover {
   color: var(--text-deco);
   font-style: italic;
 }
+
+/* ---------- start page, references, diff, pack ---------- */
+.start {
+  pointer-events: auto;
+  width: min(760px, calc(100% - 48px));
+  padding: 28px 32px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.start-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.start-actions {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0 20px;
+  flex-wrap: wrap;
+}
+.start-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.start-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  min-width: 0;
+}
+.start-item:hover {
+  background: var(--bg-active);
+  color: var(--text-strong);
+}
+.start-item .ellipsis {
+  flex: 1;
+  text-align: right;
+  min-width: 0;
+}
+.start-empty {
+  padding: 6px 8px;
+}
+.start-foot {
+  margin-top: 20px;
+  font-size: 12px;
+}
+.start-foot .rl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ref-sec {
+  width: 90px;
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.strong-text {
+  color: var(--text-strong);
+}
+.diff-host {
+  height: 68vh;
+  border: 1px solid var(--border);
+}
+.pack-list {
+  max-height: 46vh;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}

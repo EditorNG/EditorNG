@@ -1,4 +1,5 @@
 import { ws, useWs } from '../project/workspace';
+import { showReferences } from './Tier2';
 import { reloadInGame } from './GameLink';
 import { useUi, log } from '../state/ui';
 import { useSettings, settings, keyFor } from '../state/settings';
@@ -70,6 +71,11 @@ export const COMMANDS: Command[] = [
   { id: 'tools.blenderAddon', title: 'Install Blender live-link add-on', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'blenderAddon' } }) },
   { id: 'game.reload', title: 'Reload vehicle in game', group: 'Tools', key: 'game.reload', run: () => reloadInGame(), enabled: hasVehicle },
   { id: 'game.setup', title: 'Set up game link (Reload in game)…', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'gameLink' } }) },
+  { id: 'tools.packMod', title: 'Pack mod (pre-release check + zip)…', group: 'Tools', run: () => useUi.setState({ dialog: { kind: 'packMod' } }) },
+  { id: 'tools.refs', title: 'Find references of the selected node', group: 'Tools', run: () => {
+    const n = [...useSel.getState().sel.nodes][0];
+    if (n) showReferences(n);
+  }, enabled: hasVehicle },
   { id: 'tools.gamelog', title: 'Game log', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'gamelog' }) },
   { id: 'tools.debug', title: 'Run JBeam checks', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'debug' }), enabled: hasVehicle },
   { id: 'tools.mass', title: 'Weight distribution', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'mass' }), enabled: hasVehicle },

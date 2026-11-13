@@ -3,6 +3,8 @@ import type { VFile, VehicleInfo } from '../main/vfs';
 export type { VFile, VehicleInfo };
 
 export interface EnvInfo {
+  /** started by the test scripts: skip session restore */
+  automation?: boolean;
   gameDir?: string;
   userDir?: string;
   gameVersion?: string;
@@ -58,6 +60,11 @@ export interface Api {
   readTexts(files: FileRef[]): Promise<string[]>;
   readBinary(file: FileRef): Promise<Uint8Array>;
   findFile(vpath: string): Promise<VFile | null>;
+  /** every provider of a path, highest priority first */
+  findAllFiles(vpath: string): Promise<VFile[]>;
+  listBackups(real: string, backupDir?: string): Promise<Array<{ path: string; time: number }>>;
+  scanMod(modDir: string): Promise<{ name: string; files: string[]; total: number; issues: Array<{ sev: 'error' | 'warning' | 'info'; msg: string; file?: string }> }>;
+  packMod(modDir: string, outZip: string): Promise<{ files: number; size: number }>;
 
   readTextFile(real: string): Promise<string>;
   readBinaryFile(real: string): Promise<Uint8Array>;

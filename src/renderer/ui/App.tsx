@@ -13,6 +13,7 @@ import { useSel, resolveSel } from '../state/selection';
 import { useChecks, runAllChecks } from '../state/checks';
 import { ReloadInGameButton } from './GameLink';
 import { MenuHost } from './Menu';
+import { useSessionAutosave } from './Tier2';
 import { BottomPanel } from './BottomPanel';
 import { ToolsPanel } from './ToolsPanel';
 import { Palette } from './Palette';
@@ -276,6 +277,7 @@ function StatusBar() {
 }
 
 export function App() {
+  useSessionAutosave();
   const s = useSettings((x) => x.s);
   const page = useUi((x) => x.page);
   const sidebar = useUi((x) => x.sidebar);
