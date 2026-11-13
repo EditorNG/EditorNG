@@ -63,7 +63,9 @@ status bar    problems · target part · selection · symmetry · parts
 ## 3. The 3D view
 
 - Blender mouse layout: **middle-drag** orbits, **Shift+middle-drag** pans, **wheel** zooms,
-  **left-click / left-drag** selects (box), **right-click** opens the menu.
+  **left-click / left-drag** selects (box), **right-click** opens the menu. **Alt+middle-drag**
+  snaps to the nearest orthographic view (front, back, sides, top, bottom) and keeps stepping
+  through them as you drag, like Blender.
 - **Shift** adds to the selection, **Ctrl+drag** removes, **Ctrl+click** selects the shortest beam
   path from the last clicked node, **L** linked, **Ctrl+Numpad +/−** grow / shrink,
   **Ctrl+I** invert. Beams: right-click → Select similar (type, deformGroup, breakGroup).

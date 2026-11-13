@@ -238,6 +238,66 @@ export class Viewport {
     };
     loop();
     this.applySettings(s);
+    this.installAltSnap(container);
+  }
+
+  /**
+   * Blender: Alt + orbit drag snaps the view to the nearest axis view (front, back, sides, top,
+   * bottom) in orthographic. The drag drives a hidden orbit; the camera jumps to the closest of the
+   * six views as that orbit crosses into another one, and stays there on release.
+   */
+  private installAltSnap(container: HTMLElement) {
+    let drag: null | { id: number; x: number; y: number; az: number; el: number; view: string } = null;
+    const orbitButton = () => (this.s.orbitButton === 'middle' ? 1 : 2);
+    const nearest = (az: number, el: number) => {
+      const d = [Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el)];
+      const ax = d.map(Math.abs);
+      const i = ax.indexOf(Math.max(...ax));
+      if (i === 0) return d[0] > 0 ? 'left' : 'right';
+      if (i === 1) return d[1] > 0 ? 'back' : 'front';
+      return d[2] > 0 ? 'top' : 'bottom';
+    };
+    const stop = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    container.addEventListener('pointerdown', (e) => {
+      if (!e.altKey || e.button !== orbitButton() || e.shiftKey || e.ctrlKey) return;
+      stop(e);
+      const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, az: Math.atan2(dir.y, dir.x), el: Math.asin(Math.max(-1, Math.min(1, dir.z))), view: '' };
+      container.setPointerCapture(e.pointerId);
+    }, true);
+    container.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      stop(e);
+      const k = ((2 * Math.PI) / Math.max(1, this.height)) * this.s.orbitSpeed;
+      drag.az -= (e.clientX - drag.x) * k;
+      drag.el = Math.max(-Math.PI / 2 + 1e-3, Math.min(Math.PI / 2 - 1e-3, drag.el + (e.clientY - drag.y) * k));
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      const v = nearest(drag.az, drag.el);
+      if (v !== drag.view) {
+        drag.view = v;
+        this.setView(v as any, true);
+        this.cb.onCameraChange?.();
+      }
+    }, true);
+    const end = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      stop(e);
+      try {
+        container.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      drag = null;
+      this.controls.dispatchEvent({ type: 'end' } as any);
+    };
+    container.addEventListener('pointerup', end, true);
+    container.addEventListener('pointercancel', end, true);
+    // Alt+middle-click must not fall through to the default auto-scroll / paste behaviour
+    container.addEventListener('auxclick', (e) => e.altKey && e.preventDefault(), true);
   }
 
   dispose() {

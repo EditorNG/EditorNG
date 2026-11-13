@@ -515,6 +515,7 @@ function Shortcuts({ close }: { close: () => void }) {
         <div>
           <div className="group-label">Mouse</div>
           <div className="shortcut-row"><span>Orbit</span><span className="kbd">{settings().orbitButton === 'middle' ? 'MMB drag' : 'RMB drag'}</span></div>
+          <div className="shortcut-row"><span>Snap to front / side / top view</span><span className="kbd">{settings().orbitButton === 'middle' ? 'Alt+MMB drag' : 'Alt+RMB drag'}</span></div>
           <div className="shortcut-row"><span>Pan</span><span className="kbd">{settings().orbitButton === 'middle' ? 'Shift+MMB drag' : 'MMB drag'}</span></div>
           <div className="shortcut-row"><span>Context menu</span><span className="kbd">RMB click</span></div>
           <div className="shortcut-row"><span>Zoom</span><span className="kbd">Wheel</span></div>
