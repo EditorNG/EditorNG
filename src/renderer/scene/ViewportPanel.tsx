@@ -51,6 +51,9 @@ type Modal = {
   slides?: Map<number, SlideInfo>;
   primary?: number;
   mouseS0?: number;
+  /** "virtual" cursor: real mouse motion, scaled down while Shift is held (Blender precision) */
+  eff?: { x: number; y: number };
+  last?: { x: number; y: number };
   /** trigger transform (G/R/S with triggers selected) */
   trig?: TriggerPlacement[];
   trigVals?: Map<number, Record<string, any>>;
@@ -692,7 +695,14 @@ export function ViewportPanel() {
     const vp = vpInstance;
     const v = ws.vehicle;
     if (!vp || !v) return;
-    const cur = mouse.current;
+    // Shift: precision, the mouse counts 10x less (Blender); snapping still uses the real cursor
+    const raw = mouse.current;
+    const k = (window as any).__shiftDown ? 0.1 : 1;
+    const eff = m.eff ?? { x: m.start.x, y: m.start.y };
+    const last = m.last ?? { x: m.start.x, y: m.start.y };
+    m.eff = { x: eff.x + (raw.x - last.x) * k, y: eff.y + (raw.y - last.y) * k };
+    m.last = { x: raw.x, y: raw.y };
+    const cur = m.eff;
     const out = new Map<number, [number, number, number]>();
     const num = m.numeric !== '' && m.numeric !== '-' ? parseFloat(m.numeric) : NaN;
     const snap = settings().snapGrid;
@@ -701,9 +711,9 @@ export function ViewportPanel() {
     // Ctrl: snap onto the node under the cursor
     const exclude = new Set<number>([...m.initial.keys(), ...m.shown.keys()]);
     const snapping = ctrl && !Number.isFinite(num) && (m.type === 'move' || m.type === 'railSlide');
-    const target = snapping ? snapTargetAt(cur.x, cur.y, exclude) : null;
+    const target = snapping ? snapTargetAt(raw.x, raw.y, exclude) : null;
     // no node under the cursor: snap to the nearest flexbody vertex (fitting a jbeam to a body)
-    const meshP = snapping && target === null ? layersInstance?.meshVertexAt(cur.x, cur.y) ?? null : null;
+    const meshP = snapping && target === null ? layersInstance?.meshVertexAt(raw.x, raw.y) ?? null : null;
     const tp = target !== null ? new THREE.Vector3(vp.pos[target * 3], vp.pos[target * 3 + 1], vp.pos[target * 3 + 2]) : meshP;
     const snapLabel = target !== null ? v.nodes[target].name : meshP ? 'mesh vertex' : '';
     if (m.type === 'railSlide') {
@@ -1014,6 +1024,7 @@ export function ViewportPanel() {
     mouse.current = { x: p.x, y: p.y, inside: true };
     (window as any).__ctrlDown = e.ctrlKey;
     (window as any).__altDown = e.altKey;
+    (window as any).__shiftDown = e.shiftKey;
     if (gizmoInstance?.dragging) {
       gizmoInstance.setSnap(e.altKey, settings().snapGrid);
       return;
@@ -1183,9 +1194,10 @@ export function ViewportPanel() {
         e.preventDefault();
         e.stopPropagation();
         const k = e.key.toLowerCase();
-        if (e.key === 'Control' || e.key === 'Alt') {
+        if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift') {
           (window as any).__ctrlDown = e.ctrlKey;
           (window as any).__altDown = e.altKey;
+          (window as any).__shiftDown = e.shiftKey;
           updateModal(m);
         } else if (k === 'escape') cancelModal();
         else if (k === 'enter') confirmModal();
@@ -1355,7 +1367,8 @@ export function ViewportPanel() {
     const onKeyUp = (e: KeyboardEvent) => {
       (window as any).__ctrlDown = e.ctrlKey;
       (window as any).__altDown = e.altKey;
-      if (modalRef.current && (e.key === 'Control' || e.key === 'Alt')) {
+      (window as any).__shiftDown = e.shiftKey;
+      if (modalRef.current && (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift')) {
         e.preventDefault();
         updateModal(modalRef.current);
       }
@@ -1487,7 +1500,7 @@ export function ViewportPanel() {
 
       {pickReq && <div className="vp-hint modal">Click a node for: <b>{pickReq.label}</b> <span className="dim">· Esc cancels</span></div>}
       {!pickReq && toolHint[tool] && !modal && <div className="vp-hint">{toolHint[tool]}</div>}
-      {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">{modal.type === 'railSlide' ? '· type metres · Ctrl snap to node or mesh · Alt increments · G free move' : `· X/Y/Z axis · type a value · Ctrl snap to node or mesh · Alt increments${modal.type === 'move' ? ' · G again: slide on rail' : ''}`} · Enter/LMB confirm · Esc/RMB cancel</span></div>}
+      {modal && <div className="vp-hint modal">{modal.info || modal.type} <span className="dim">{modal.type === 'railSlide' ? '· type metres · Ctrl snap to node or mesh · Alt increments · Shift precise · G free move' : `· X/Y/Z axis · type a value · Ctrl snap to node or mesh · Alt increments · Shift precise${modal.type === 'move' ? ' · G again: slide on rail' : ''}`} · Enter/LMB confirm · Esc/RMB cancel</span></div>}
       {box && <div className="box-select" style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }} />}
 
       {nameInput && (

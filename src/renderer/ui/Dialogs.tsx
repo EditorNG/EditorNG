@@ -6,7 +6,7 @@ import { useSettings, settings, DEFAULT_KEYMAP, keyFor } from '../state/settings
 import { api } from '../lib/api';
 import { toast } from '../state/toast';
 import { parseObj, planImport, type MeshData, type ImportOptions } from '@core/import/mesh';
-import { DEFAULT_HEADERS, fmtRow, insertRows, rowFromRecord } from '@core/jbeam/edit';
+import { DEFAULT_HEADERS, fmtRow, insertRows, rowFromRecord, insertKey, indentUnitOf, eolOf } from '@core/jbeam/edit';
 import { targetPart, EditSet, selectNodesByName, moveNodes, setSymmetryCrossPolicy, type SymmetryResult } from '../project/ops';
 import { beamKey, triKey } from '../state/selection';
 import { openFolder } from './commands';
@@ -282,7 +282,50 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
     groupPrefix: false,
   });
   useEffect(() => setEnabled(new Set(meshes.map((m) => m.name))), [meshes]);
-  const target = targetPart();
+
+  // ---- destination: a new part (default) or an existing one
+  const docs = useWs((x) => x.docs);
+  const model = useWs((x) => x.model);
+  const writableDocs = [...docs.values()].filter((d) => d.writable && !d.isCommon && d.lang === 'jbeam' && !d.binary);
+  const writableParts = writableDocs.flatMap((d) => (d.jfile?.parts ?? []).map((p) => ({ key: d.key + '#' + p.name, doc: d, part: p })));
+  const rootDoc = v?.root ? ws.doc(v.root.def.file) : undefined;
+  const homeDoc = rootDoc?.writable && !rootDoc.isCommon ? rootDoc : writableDocs[0];
+  const objName = (meshes.find((m) => enabled.has(m.name)) ?? meshes[0])?.name ?? 'part';
+  const baseName = objName.replace(/\.(jbeam|obj|blend)$/i, '').replace(/[^A-Za-z0-9_\-]+/g, '_').replace(/^_+|_+$/g, '') || 'part';
+  const suggested = model && !baseName.toLowerCase().startsWith(model.toLowerCase() + '_') ? `${model}_${baseName}` : baseName;
+  const [mode, setMode] = useState<'new' | 'existing'>('new');
+  const [partName, setPartName] = useState('');
+  const [slotType, setSlotType] = useState('');
+  const [slotTouched, setSlotTouched] = useState(false);
+  const [display, setDisplay] = useState('');
+  const [value, setValue] = useState(100);
+  const [fileKey, setFileKey] = useState(''); // '' = new file
+  const [newFile, setNewFile] = useState('');
+  const [plugInto, setPlugInto] = useState<string>(v?.root && homeDoc === rootDoc ? v.root.def.name : '');
+  const [existingKey, setExistingKey] = useState(() => {
+    const t = targetPart();
+    return t ? t.doc.key + '#' + t.part.name : '';
+  });
+  // defaults follow the Blender object until the user types
+  useEffect(() => {
+    setPartName(suggested);
+    setDisplay(baseName.replace(/_/g, ' '));
+    setNewFile(baseName + '.jbeam');
+    if (!slotTouched) setSlotType(suggested);
+    // re-sending an object that was imported before: update that part
+    api.stateLoad().then((st) => {
+      const prev = st.importTargets?.[objName];
+      const hit = prev && writableParts.find((p) => p.part.name === prev);
+      if (hit) {
+        setMode('existing');
+        setExistingKey(hit.key);
+      }
+    });
+  }, [objName]);
+  const existing = writableParts.find((p) => p.key === existingKey);
+  const target = mode === 'existing' ? (existing ? { doc: existing.doc, part: existing.part } : null) : null;
+  const nameTaken = mode === 'new' && !!partName && !!ws.partDef(partName);
+  const nameBad = mode === 'new' && !/^[A-Za-z0-9_\-]+$/.test(partName);
 
   const plan = useMemo(() => {
     const chosen = meshes.filter((m) => enabled.has(m.name));
@@ -329,7 +372,99 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
     }
   };
 
+  const rowsFor = (h: Record<string, string[]>) => {
+    const dec = settings().decimals;
+    return {
+      nodes: plan!.newNodes.map((n) => fmtRow(rowFromRecord(h.nodes, { id: n.name, posX: r(n.x, dec), posY: r(n.y, dec), posZ: r(n.z, dec), ...(n.group && opts.groupPrefix === false ? { group: n.group } : {}) }), dec)),
+      beams: plan!.beams.map(([a, b]) => fmtRow(rowFromRecord(h.beams, { 'id1:': a, 'id2:': b }))),
+      tris: plan!.tris.map(([a, b, c]) => fmtRow(rowFromRecord(h.triangles, { 'id1:': a, 'id2:': b, 'id3:': c }))),
+    };
+  };
+
+  /** A new part: information + slotType + the imported tables, at the given indentation. */
+  const partBody = (ind: string, unit: string, eol: string) => {
+    const i1 = ind + unit, i2 = i1 + unit;
+    const rows = rowsFor(DEFAULT_HEADERS as any);
+    const table = (key: string, header: string[], list: string[]) => (list.length ? [i1 + JSON.stringify(key) + ': [', i2 + fmtRow(header) + ',', ...list.map((x) => i2 + x + ','), i1 + '],'] : []);
+    return [
+      '{',
+      i1 + '"information":{',
+      i2 + '"authors":' + JSON.stringify(s.modAuthor || 'me') + ',',
+      i2 + '"name":' + JSON.stringify(display || partName) + ',',
+      i2 + '"value":' + (Number.isFinite(value) ? value : 0) + ',',
+      i1 + '},',
+      i1 + '"slotType" : ' + JSON.stringify(slotType || partName) + ',',
+      ...table('nodes', DEFAULT_HEADERS.nodes, rows.nodes),
+      ...table('beams', DEFAULT_HEADERS.beams, rows.beams),
+      ...table('triangles', DEFAULT_HEADERS.triangles, rows.tris),
+      ind + '}',
+    ].join(eol);
+  };
+
+  const remember = async (part: string) => {
+    const st = await api.stateLoad();
+    const map = { ...(st.importTargets ?? {}) };
+    for (const m of meshes) if (enabled.has(m.name)) map[m.name] = part;
+    await api.stateSave({ ...st, importTargets: map });
+  };
+
+  const applyNew = async () => {
+    if (!plan || nameBad || nameTaken) return;
+    const es = new EditSet();
+    const display2 = display || partName;
+    let fileDoc = fileKey ? ws.doc(fileKey) : undefined;
+    if (fileDoc) {
+      const t = fileDoc.text;
+      const unit = indentUnitOf(t);
+      const rootObj = fileDoc.jfile?.root;
+      if (!rootObj || rootObj.k !== 'obj') {
+        toast('error', `${fileDoc.name} has no top-level object to add a part to`);
+        return;
+      }
+      es.add(fileDoc.key, insertKey(t, rootObj, partName, (ind) => partBody(ind, unit, eolOf(t))));
+    } else {
+      if (!homeDoc?.ref.real) {
+        toast('warn', 'No editable vehicle folder: open a mod vehicle (or make a file editable) first');
+        return;
+      }
+      const fname = /\.jbeam$/i.test(newFile) ? newFile : newFile + '.jbeam';
+      const dirReal = homeDoc.ref.real.replace(/[\\/][^\\/]*$/, '');
+      const dirV = homeDoc.vpath.replace(/\/[^/]*$/, '');
+      if (ws.doc(dirV + '/' + fname)) {
+        toast('warn', `${fname} already exists: pick it under "File" instead`);
+        return;
+      }
+      const text = '{\n    ' + JSON.stringify(partName) + ': ' + partBody('    ', '    ', '\n') + ',\n}\n';
+      fileDoc = await ws.createFile(dirV + '/' + fname, dirReal + '\\' + fname, text, true);
+    }
+    // plug it into a parent part so it shows up in the vehicle
+    const parent = plugInto ? ws.partDef(plugInto) : undefined;
+    const parentDoc = parent ? ws.doc(parent.file) : undefined;
+    if (parent && parentDoc) {
+      const useV1 = parent.sections.has('slots') && !parent.sections.has('slots2');
+      const sec = useV1 ? 'slots' : 'slots2';
+      const t = parent.sections.get(sec);
+      const header = t && t.k === 'arr' && t.items[0]?.k === 'arr' ? (t.items[0] as AArr).items.map((x) => (x.k === 'str' ? x.v : '')) : useV1 ? ['type', 'default', 'description'] : DEFAULT_HEADERS.slots2;
+      const rec = useV1 ? { type: slotType || partName, default: partName, description: display2 } : { name: slotType || partName, allowTypes: [slotType || partName], denyTypes: [], default: partName, description: display2 };
+      es.add(parentDoc.key, insertRows(parentDoc.text, parent, sec, header, [fmtRow(rowFromRecord(header, rec))]));
+    }
+    if (es.size) es.apply(`New part ${partName}`);
+    else ws.assemble();
+    await remember(partName);
+    set({ importMergeTolerance: opts.mergeTol, importMakeBeams: opts.makeBeams, importMakeTris: opts.makeTris, namingPrefix: opts.prefix });
+    toast('ok', `Created ${partName}: ${plan.newNodes.length} nodes, ${plan.beams.length} beams, ${plan.tris.length} triangles${fileKey ? '' : ' (new file, unsaved)'}`);
+    close();
+    setTimeout(() => {
+      if (!ws.focusPart(partName) && fileDoc) ws.setScope({ mode: 'file', file: fileDoc.key });
+      selectNodesByName(plan.newNodes.map((n) => n.name));
+    }, 50);
+  };
+
   const apply = () => {
+    if (mode === 'new') {
+      applyNew();
+      return;
+    }
     if (!plan || !target) return;
     const { doc, part } = target;
     const text = doc.text;
@@ -356,6 +491,7 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
       toast('ok', `Imported ${plan.newNodes.length} nodes, ${plan.beams.length} beams, ${plan.tris.length} triangles into ${part.name}`);
       selectNodesByName(plan.newNodes.map((n) => n.name));
       set({ importMergeTolerance: opts.mergeTol, importMakeBeams: opts.makeBeams, importMakeTris: opts.makeTris, namingPrefix: opts.prefix });
+      remember(part.name);
       close();
     }
   };
@@ -363,9 +499,13 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
   const o = (patch: Partial<ImportOptions>) => setOpts({ ...opts, ...patch });
   return (
     <Modal title="Import from Blender / OBJ" width={640} onClose={close} footer={<>
-      <span className="grow dim small-text">Target: {target ? <span className="mono">{target.part.name}</span> : <span className="warn-text">no writable part — open a mod vehicle</span>}</span>
+      <span className="grow dim small-text">
+        {mode === 'new'
+          ? nameBad ? <span className="warn-text">Part names: letters, digits, _ and - only</span> : nameTaken ? <span className="warn-text">A part named {partName} already exists</span> : <>Creates <span className="mono">{partName}</span>{fileKey ? <> in <span className="mono">{ws.doc(fileKey)?.name}</span></> : <> in a new <span className="mono">{newFile}</span></>}</>
+          : <>Into <span className="mono">{target ? target.part.name : '—'}</span></>}
+      </span>
       <button className="btn" onClick={close}>Cancel</button>
-      <button className="btn primary" disabled={!plan || !target || (!plan.newNodes.length && !plan.beams.length && !plan.tris.length)} onClick={apply}>Import</button>
+      <button className="btn primary" disabled={!plan || (mode === 'existing' ? !target : nameBad || nameTaken || (!fileKey && !homeDoc)) || (!plan.newNodes.length && !plan.beams.length && !plan.tris.length)} onClick={apply}>{mode === 'new' ? 'Create part' : 'Import'}</button>
     </>}>
       <div className="row" style={{ gap: 8, marginBottom: 12 }}>
         <button className="btn" onClick={loadObj}><FileUp size={14} /> OBJ file…</button>
@@ -389,6 +529,45 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
           ))}
         </div>
       )}
+      <div className="import-dest">
+        <div className="segmented">
+          <button className={'seg' + (mode === 'new' ? ' active' : '')} onClick={() => setMode('new')}>New part</button>
+          <button className={'seg' + (mode === 'existing' ? ' active' : '')} onClick={() => setMode('existing')} disabled={!writableParts.length}>Add to an existing part</button>
+        </div>
+        {mode === 'new' ? (
+          <div className="grid2">
+            <Field label="Part name"><input className={'input mono' + (nameBad || nameTaken ? ' invalid' : '')} value={partName} onChange={(e) => { setPartName(e.target.value); if (!slotTouched) setSlotType(e.target.value); }} onKeyDown={(e) => e.stopPropagation()} /></Field>
+            <Field label="Slot type" hint="What slot it fits (usually the part name)"><input className="input mono" value={slotType} onChange={(e) => { setSlotType(e.target.value); setSlotTouched(true); }} onKeyDown={(e) => e.stopPropagation()} /></Field>
+            <Field label="Display name"><input className="input" value={display} onChange={(e) => setDisplay(e.target.value)} onKeyDown={(e) => e.stopPropagation()} /></Field>
+            <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+              <Field label="Authors"><input className="input" value={s.modAuthor} placeholder="your name" onChange={(e) => set({ modAuthor: e.target.value })} onKeyDown={(e) => e.stopPropagation()} /></Field>
+              <Field label="Value"><input className="input" type="number" style={{ width: 90 }} value={value} onChange={(e) => setValue(+e.target.value)} onKeyDown={(e) => e.stopPropagation()} /></Field>
+            </div>
+            <Field label="File">
+              <select className="select" value={fileKey} onChange={(e) => setFileKey(e.target.value)}>
+                <option value="">New file…</option>
+                {writableDocs.map((d) => <option key={d.key} value={d.key}>{d.name}</option>)}
+              </select>
+            </Field>
+            {!fileKey ? (
+              <Field label="New file name" hint={homeDoc ? `next to ${homeDoc.name}` : 'open a mod vehicle first'}><input className="input mono" value={newFile} onChange={(e) => setNewFile(e.target.value)} onKeyDown={(e) => e.stopPropagation()} /></Field>
+            ) : <div />}
+            <Field label="Plug into" hint="Adds a slot for it in this part, so it shows up in the vehicle">
+              <select className="select" value={plugInto} onChange={(e) => setPlugInto(e.target.value)}>
+                <option value="">Nothing (no slot added)</option>
+                {writableParts.map((p) => <option key={p.key} value={p.part.name}>{p.part.name}</option>)}
+              </select>
+            </Field>
+          </div>
+        ) : (
+          <Field label="Part">
+            <select className="select" value={existingKey} onChange={(e) => setExistingKey(e.target.value)}>
+              {!existing && <option value="">— pick a part —</option>}
+              {writableParts.map((p) => <option key={p.key} value={p.key}>{p.part.name} · {p.doc.name}</option>)}
+            </select>
+          </Field>
+        )}
+      </div>
       <div className="grid2">
         <Field label="Name prefix"><input className="input mono" value={opts.prefix} onChange={(e) => o({ prefix: e.target.value })} /></Field>
         <Field label="Start number"><input className="input" type="number" value={opts.start} onChange={(e) => o({ start: +e.target.value | 0 })} /></Field>

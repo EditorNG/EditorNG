@@ -453,18 +453,64 @@ function registerIpc(): void {
   h('blenderExtract', blenderExtract);
   h('installBlenderAddon', async (exe: string) => {
     const src = resourcePath('blender', 'editorng_link.py');
-    return new Promise<{ ok: boolean; message: string }>((resolve) => {
-      const expr = [
-        'import bpy, sys',
-        `bpy.ops.preferences.addon_install(filepath=r"${src}", overwrite=True)`,
-        'bpy.ops.preferences.addon_enable(module="editorng_link")',
-        'bpy.ops.wm.save_userpref()',
-      ].join('; ');
-      execFile(exe, ['-b', '--python-exit-code', '1', '--python-expr', expr], { timeout: 120000, windowsHide: true }, (err, stdout, stderr) => {
-        if (err) resolve({ ok: false, message: String(stderr || stdout || err.message).slice(-800) });
-        else resolve({ ok: true, message: 'Add-on installed and enabled. Find it in the 3D viewport sidebar (N) under "EditorNG".' });
-      });
-    });
+    const run = (args: string[]) =>
+      new Promise<{ err: Error | null; out: string }>((resolve) =>
+        execFile(exe, args, { timeout: 120000, windowsHide: true }, (err, stdout, stderr) => resolve({ err, out: String(stdout) + String(stderr) })),
+      );
+    const expr = [
+      'import bpy',
+      `bpy.ops.preferences.addon_install(filepath=r"${src}", overwrite=True)`,
+      'bpy.ops.preferences.addon_enable(module="editorng_link")',
+      'bpy.ops.wm.save_userpref()',
+      'print("ENG_SCRIPTS=" + bpy.utils.user_resource("SCRIPTS"))',
+    ].join('; ');
+    const r = await run(['-b', '--python-exit-code', '1', '--python-expr', expr]);
+    if (r.err) return { ok: false, message: r.out.slice(-800) || r.err.message };
+    // An open Blender writes its own preferences when it quits, which can undo the "enabled" flag
+    // saved above. A one-shot startup script enables the add-on at the next start, then removes itself.
+    const m = /ENG_SCRIPTS=(.+)/.exec(r.out);
+    if (m) {
+      const startup = path.join(m[1].trim(), 'startup');
+      await fsp.mkdir(startup, { recursive: true });
+      await fsp.writeFile(
+        path.join(startup, 'editorng_enable_link.py'),
+        [
+          '# Written by EditorNG: enables the "EditorNG Link" add-on once, then deletes itself.',
+          'import os',
+          'import bpy',
+          'import addon_utils',
+          '',
+          'def _enable():',
+          '    try:',
+          '        addon_utils.enable("editorng_link", default_set=True, persistent=True)',
+          '        bpy.ops.wm.save_userpref()',
+          '    except Exception as e:',
+          '        print("EditorNG: could not enable editorng_link:", e)',
+          '    try:',
+          '        os.remove(__file__)',
+          '    except Exception:',
+          '        pass',
+          '    return None',
+          '',
+          'def register():',
+          '    bpy.app.timers.register(_enable, first_interval=0.5)',
+          '',
+          'def unregister():',
+          '    pass',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+    }
+    const open = await new Promise<boolean>((resolve) =>
+      execFile('tasklist', ['/FI', 'IMAGENAME eq blender.exe', '/NH'], { windowsHide: true }, (_e, out) => resolve(/blender.exe/i.test(String(out)))),
+    );
+    return {
+      ok: true,
+      message: open
+        ? 'Add-on installed. Blender is open: restart it once and the add-on enables itself (or enable "EditorNG Link" in Edit → Preferences → Add-ons now). Then find it in the 3D viewport sidebar (N) under "EditorNG".'
+        : 'Add-on installed and enabled. Find it in the 3D viewport sidebar (N) under "EditorNG".',
+    };
   });
 
   h('watch', (dirs: string[]) => setWatch(dirs));

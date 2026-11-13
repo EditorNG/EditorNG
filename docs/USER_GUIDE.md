@@ -90,7 +90,7 @@ status bar    problems · target part · selection · symmetry · parts
 
 | Key | Action |
 |---|---|
-| **G** / **S** / **R** | Move / scale / rotate selected nodes **or triggers**. Then **X/Y/Z** to lock an axis, type a value (`G Z 0.05`, `S X -1` mirrors), hold **Ctrl** to snap onto the node under the cursor — or, with no node there, the nearest **flexbody vertex** (fitting a jbeam to a body) — only along the locked axis if one is set; hold **Alt** for grid / 5° / 0.1 increments. **Enter/click** confirms, **Esc/right-click** cancels. |
+| **G** / **S** / **R** | Move / scale / rotate selected nodes **or triggers**. Then **X/Y/Z** to lock an axis, type a value (`G Z 0.05`, `S X -1` mirrors), hold **Ctrl** to snap onto the node under the cursor — or, with no node there, the nearest **flexbody vertex** (fitting a jbeam to a body) — only along the locked axis if one is set; hold **Alt** for grid / 5° / 0.1 increments, hold **Shift** for precision (the mouse moves things 10× less, like Blender). **Enter/click** confirms, **Esc/right-click** cancels. |
 | **G G** | Slide selected slidenodes along their rail (Blender's edge slide). |
 | **Shift+R** | Snap slidenodes onto their rail. |
 | **Shift+X** | X symmetry: moves also apply to mirror twins (by `l`/`r` name or mirrored position). Twins in another part (`fender_R` → `fender_L`) ask first. |
@@ -157,9 +157,20 @@ click jumping to the part or file a message names.
 ## 7. Importing from Blender
 
 Model nodes/beams/triangles as **vertices / edges / faces** in vehicle coordinates (+X left, −Y
-front, +Z up). **Tools → Import from Blender / OBJ…**: live link add-on (N panel → EditorNG →
+front, +Z up). **Tools → Import from Blender / OBJ…**: the live link add-on (N panel → EditorNG →
 Send), a `.blend` file, or an OBJ (Up: Z, Forward: Y). New nodes are named automatically;
 re-importing keeps existing names and skips existing beams/triangles.
+
+**Live link add-on**: *Tools → Install Blender live-link add-on* installs and enables it. If Blender
+is open while installing, restart it once: the add-on enables itself at the next start.
+
+**Where it goes**:
+- **New part** (default): pick the part name, slot type, display name, authors and value. Put it
+  in a **new file** (a basic part with `information` and `slotType`, saved next to your vehicle
+  when you save) or in an existing editable `.jbeam`. **Plug into** adds a `slots2` row in a
+  parent part (the main part by default) so the new part shows up in the vehicle straight away.
+- **Add to an existing part**: the nodes, beams and triangles go into a part you choose.
+- Sending the same Blender object again defaults to the part it went into last time.
 
 ## 8. Create & place (hammer icon)
 

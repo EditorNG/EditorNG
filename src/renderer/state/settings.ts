@@ -185,6 +185,8 @@ export interface Settings {
   blenderAxis: 'z-up' | 'y-up';
   importMergeTolerance: number;
   importMakeTris: boolean;
+  /** "authors" written into new parts */
+  modAuthor: string;
   importMakeBeams: boolean;
   importUseGroups: boolean;
   linkPort: number;
@@ -311,6 +313,7 @@ export const DEFAULT_SETTINGS: Settings = {
   blenderAxis: 'z-up',
   importMergeTolerance: 0.001,
   importMakeTris: true,
+  modAuthor: '',
   importMakeBeams: true,
   importUseGroups: true,
   linkPort: 46790,

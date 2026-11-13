@@ -782,10 +782,12 @@ class Workspace {
     return true;
   }
 
-  async createFile(vpath: string, real: string, text: string): Promise<Doc> {
-    await api.writeTextFile(real, text);
+  async createFile(vpath: string, real: string, text: string, deferWrite = false): Promise<Doc> {
+    if (!deferWrite) await api.writeTextFile(real, text);
     const d = this.addDoc({ vpath, real, size: text.length }, text, false);
     d.writable = true;
+    // deferred: the file only exists once saved (shows as unsaved until then)
+    if (deferWrite) d.savedText = '';
     this.assemble();
     this.watch();
     return d;
