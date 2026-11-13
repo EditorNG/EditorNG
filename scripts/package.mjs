@@ -25,7 +25,7 @@ const [appDir] = await packager({
   overwrite: true,
   asar: true,
   icon: path.join(root, 'build', 'icon.ico'),
-  extraResource: [path.join(root, 'blender'), path.join(root, 'game'), path.join(root, 'build')],
+  extraResource: [path.join(root, 'blender'), path.join(root, 'game'), path.join(root, 'build'), path.join(root, 'licenses')],
   appVersion: pkg.version,
   win32metadata: { CompanyName: 'EditorNG', FileDescription: 'EditorNG — JBeam editor for BeamNG.drive', ProductName: 'EditorNG', OriginalFilename: 'EditorNG.exe' },
   // only the built app goes in: everything is bundled, node_modules are not needed at runtime

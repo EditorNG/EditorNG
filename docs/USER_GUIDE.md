@@ -8,217 +8,188 @@ formatting stay as they are.
 Run `EditorNG.exe`. No install, no admin rights. Settings, layout and caches are stored in
 `%APPDATA%\EditorNG`.
 
+**Right-click is the main tool.** Whatever is under the cursor (a node, beam, triangle, trigger,
+mesh, a file or part in the tree, a code tab, a problem row, an inspector value) has a menu with
+everything you can do with it, and each entry shows its shortcut.
+
 ---
 
 ## 1. Opening things
 
 | Want to… | Do |
 |---|---|
-| Edit a mod you already have | **Vehicles** (car icon, left). Mods in `mods/unpacked` and the user folder are listed first. Click one. |
-| Look at a vanilla vehicle | Same list, **BeamNG vehicles** group (read-only, straight from the game zips). |
-| Open a mod folder anywhere | **File → Open mod / vehicle folder…** (a folder containing `vehicles/<name>`, or the vehicle folder itself). |
+| Pick up where you left off | The last vehicle reopens at start, with the same part/file view, open code tabs and camera. |
+| Open a vehicle (mod or vanilla) | Start page → **Open vehicle…**, the car icon in the Structure panel, or the palette (Ctrl+Shift+P → "Open vehicle"). Mods are listed first. |
+| Reopen something recent | The start page lists recent vehicles and recent `.jbeam` files. |
+| Open a mod folder anywhere | **File → Open mod / vehicle folder…** |
 | Open a single `.jbeam` | **File → Open .jbeam file(s)…** — parts are shown side by side without slot resolution. |
 | Start from scratch | **File → New vehicle…** creates `mods/unpacked/<mod>/vehicles/<id>/` with a spawnable box. |
 
-The BeamNG install and user folder are detected automatically (from `BeamNG.drive.ini`); change
-them in **Settings → Files & game**. The last vehicle reopens at the next start.
+The BeamNG install and user folder are detected automatically; change them in **Settings → Files & game**.
 
-**How the vehicle is assembled.** EditorNG uses the same rules as the game: slots/slots2, the
-selected `.pc` configuration (or default parts), variables and `$=` expressions, `$components`,
-`nodeOffset` / `nodeMove` / `nodeRotate`, modifier rows, file override priority (user folder →
-unpacked mods → zipped mods → game). What you see is what the game builds.
+**How the vehicle is assembled.** EditorNG uses the game's rules: slots/slots2, the selected `.pc`
+configuration (or default parts), variables and `$=` expressions, `$components`, `nodeOffset` /
+`nodeMove` / `nodeRotate`, modifier rows (including how they carry over between parts), file
+override priority (user folder → unpacked mods → zipped mods → game).
 
-**Read-only files.** Files from the game or from zipped mods are read-only. Right-click one in
-**Files → Make editable copy…** to copy it into an unpacked mod, where it overrides the original.
+**Read-only files.** Files from the game or zipped mods are read-only. Right-click one →
+**Make editable copy…** puts a copy in an unpacked mod, where it overrides the original.
 
-## 2. Working part by part
+## 2. The window
 
-The sidebar opens on **Files**: every `.jbeam` file of the vehicle, each one expandable to the
-parts it defines (switch to **All** to see textures, configs and Lua too).
+```
+title bar     menus · vehicle › config · [Check] [Reload in game]
+left          Structure / Create sidebar
+centre        viewport bar (scope › file › part · pick · views · display) + 3D view + inspector
+right         code editor with a "part › section › row" breadcrumb
+bottom        Problems · Checks · Game log · References · Weight · Tuning · Output
+status bar    problems · target part · selection · symmetry · parts
+```
 
-- Click a **file** → the 3D view shows only that file's parts.
-- Click a **part** → the view shows only that part, its code is revealed, and it becomes the
-  target for new elements. Nodes of other parts that it attaches to stay visible, greyed out, so
-  you can still connect beams to them.
-- The bar at the bottom of the view switches between **Part**, **File** and **Vehicle** (the whole
-  assembled vehicle). In File view, switching code tabs switches the 3D view too.
-- Parts that the current configuration doesn't use are greyed out in the list; clicking one installs
-  it in a compatible slot for viewing (not saved, nothing is written).
-
-**Auto-mirror.** When the part you're on has a side in its name (`_R`, `_L`, `_FR`, `_RL`…) and the
-other side does not exist yet, a green **Mirror to …** button appears in the status bar. It creates
-the other part right after this one in the same file: node names l↔r with X mirrored, links to other
-parts' nodes mirrored, triangle winding flipped, slot types / slots / groups / deform and break
-groups / trigger ids / display name swapped, flexbody meshes switched when a mirrored mesh exists,
-global positions and bulb positions mirrored. It lists everything it could not decide (kept meshes,
-links without a mirror node, triggers and props to check) before you confirm. Tested against
-vanilla: mirroring BeamNG's right-hand parts reproduces their left-hand parts' nodes and triangles.
+- **Structure** (tree icon): every file → its parts → their sections, with counts. Click a file or
+  part to show only it in 3D; click a section (e.g. `beams 18`) to select everything it defines.
+  The **Files | Slots** switch turns the panel into the slot tree (swap parts, pick the `.pc`).
+- **Create** (hammer icon): placers for triggers, bulbs, occupants, wheels, rails, subdivide, and
+  the Blender / OBJ import.
+- **Viewport bar**: the breadcrumb `vehicle › file › part` changes what the view shows (Shift+I
+  isolates the part of the selection); pick filter (All / Nodes / Beams / Tris); views (Persp, Top,
+  Front, Side; numpad keys work too); flexbodies and x-ray toggles; the **eye** opens Display
+  (every layer, sizes, opacity, labels, beam colours); symmetry; inspector on/off.
+- **Inspector**: a column on the right of the view (it floats over the view when the window is
+  narrow). With nothing selected it summarises what is in view.
+- **Target part** (status bar): where new nodes, beams, triangles… are written. It follows the
+  part you last clicked or where your code cursor is; click it to pick one explicitly.
 
 ## 3. The 3D view
 
 - Blender mouse layout: **middle-drag** orbits, **Shift+middle-drag** pans, **wheel** zooms,
-  **left-click / left-drag** selects (box select), **right-click** opens the context menu.
-  (Settings → Camera & mouse has an alternative right-mouse-orbit layout.)
-- **Select** click; **Shift** adds, **Ctrl** toggles; **drag** on empty space for a box select.
-- **Shift+A** (or right-click → **Add…**) opens the Add menu: node here, beam / triangle from the
-  selection, trigger here, light bulb here, occupant seat, pressure wheel here, subdivide, import
-  from Blender. Placers open pre-filled with the point under the cursor and the selected (or
-  nearest) nodes.
+  **left-click / left-drag** selects (box), **right-click** opens the menu.
+- **Shift** adds to the selection, **Ctrl+drag** removes, **Ctrl+click** selects the shortest beam
+  path from the last clicked node, **L** linked, **Ctrl+Numpad +/−** grow / shrink,
+  **Ctrl+I** invert. Beams: right-click → Select similar (type, deformGroup, breakGroup).
+- **H** hides the selected nodes, **Shift+H** everything else, **Alt+H** shows all again.
 - **Alt+click** picks flexbodies, props and triggers instead of nodes/beams.
-- Pick filter (top bar): All / Nodes (1) / Beams (2) / Tris (3).
-- Views: Numpad 1 / 3 / 7 (Ctrl for the opposite side), Numpad 5 ortho, **F** frame selection,
-  **Home** frame all. **Shift+I** shows only the part of the selected element.
-- Bottom-right sliders: **node size, beam width, flexbody opacity, triangle opacity**. They are
-  remembered between sessions, like every display toggle.
-- Triangles: front faces use the triangle colour, back faces are tinted red, so flipped collision
-  triangles stand out. Turn on normals in Settings → 3D view.
-- Clicking any element jumps to its line in the code editor; putting the cursor on a row (or on a
-  node name inside a row) highlights it in 3D. Putting the cursor on a section name highlights the
-  whole section.
+- Bottom-left: what is in view and what is selected; with 2 nodes selected the distance (and Δx,
+  Δy, Δz), with 3 the angle at the last clicked one. Top-right: what the beam colours mean.
+- Triangles: back faces are tinted red, so flipped collision triangles stand out.
+- Clicking an element jumps to its line in code; the selected rows (and the beams of a selected
+  node) are highlighted in the editor. Putting the cursor on a row highlights it in 3D.
 
 ## 4. Editing
 
-All tools write into the **target part** shown in the status bar ("target: …"). It follows the
-part you last clicked in 3D or the part your code cursor is in; pin it with the ◎ button in
-**Parts**.
-
 | Key | Action |
 |---|---|
-| **G** / **S** / **R** | Move / scale / rotate selected nodes **or triggers** (Blender style). Then **X/Y/Z** to lock an axis, type a value (e.g. `G Z 0.05`, `S X -1` mirrors), hold **Ctrl** to snap onto the node under the cursor (only along the locked axis if one is set), hold **Alt** for grid/5°/0.1 increments, **Enter/click** confirms, **Esc/right-click** cancels. Triggers rotate about their centre; `S X` on a trigger box resizes it along its own X axis. |
-| **G G** | Slide the selected slidenodes along their rail (like Blender's edge slide). Drag, or type a distance in metres; Ctrl snaps to a pointed node, G again goes back to a free move. Off-rail slidenodes land on the rail. |
-| **Shift+R** | Snap the selected slidenodes onto the closest point of their rail. |
-| **Shift+X** | X symmetry on/off (button next to the view toggles). While on, moving/rotating/scaling a node also moves its mirror twin (by `l`/`r` name, else by mirrored position); centre-line nodes stay on x = 0. When the twin lives in another part (e.g. `fender_R` → `fender_L`) a popup asks before moving it. |
-| **N** | Add-node tool: click to place on the view plane; a name box appears with the next free name. With "name mirror twin" on, the other side is created too. |
-| **B** | Beam chain: click nodes one after another. Shift+click starts a new chain. |
-| **T** | Triangle tool: click 3 nodes; it keeps going as a strip with consistent winding. |
-| **F** | 2 selected nodes → beam, 3 → triangle, more → beam chain (in selection order). |
-| **Ctrl+F** | Flip the selected triangles (swap id2/id3). |
-| **E** | Quick naming: set a prefix and start number, then click nodes — they are renamed `f1l`, `f1r`… by side, and the mirror twin gets the same number. Alt+click to type a name. |
-| **F2** / double-click | Rename a node. **Tab** commits and moves to the next selected node. Every reference in every editable file is updated (beams, triangles, props, triggers, wheels, slot variables like `$nodeRef`…). |
-| **Ctrl+M** | Mirror the selection to the other side (creates or moves the `l`/`r` twins, mirrors beams and triangles with correct winding). |
-| **Shift+D** | Duplicate selected nodes (and the beams between them), then move. |
-| **X** / Delete | Delete the selection (nodes also remove their beams and triangles — Settings). |
-| **Ctrl+Z / Ctrl+Y** | Undo / redo. Works across files; in the code editor it is the editor's own undo. |
+| **G** / **S** / **R** | Move / scale / rotate selected nodes **or triggers**. Then **X/Y/Z** to lock an axis, type a value (`G Z 0.05`, `S X -1` mirrors), hold **Ctrl** to snap onto the node under the cursor — or, with no node there, the nearest **flexbody vertex** (fitting a jbeam to a body) — only along the locked axis if one is set; hold **Alt** for grid / 5° / 0.1 increments. **Enter/click** confirms, **Esc/right-click** cancels. |
+| **G G** | Slide selected slidenodes along their rail (Blender's edge slide). |
+| **Shift+R** | Snap slidenodes onto their rail. |
+| **Shift+X** | X symmetry: moves also apply to mirror twins (by `l`/`r` name or mirrored position). Twins in another part (`fender_R` → `fender_L`) ask first. |
+| **E** | Extrude: new nodes on top of the selected ones, beams back to them and between them, then move. |
+| **M** | Merge the selected nodes into the last clicked one (references rewritten, collapsed beams/triangles removed). |
+| **N** | Add-node tool. **B** beam chain. **T** triangle strip. **Shift+N** quick naming (`f1l`, `f1r`…). |
+| **F** | 2 nodes → beam, 3 → triangle, more → chain. |
+| **Ctrl+F** | Flip the selected triangles. |
+| **F2** / double-click | Rename a node everywhere it is used. |
+| **Ctrl+M** | Mirror the selection to the other side. |
+| **Shift+D** | Duplicate (with the beams between them), then move. |
+| **X** / Delete | Delete. If a node is still used by other parts you get the list first. |
+| **Ctrl+Z / Ctrl+Y** | Undo / redo across files; multi-step tools (extrude, bridge…) undo in one step. |
 
-**Gizmo**: the three buttons under the tools on the left switch on a move / rotate / scale gizmo for the selection (nodes or triggers; a single trigger box gets its own axes). Drag an arrow, a plane or a ring; hold Alt for increments.
+More on right-click:
+- **Several nodes**: connect, rail from selection, extrude, **bridge two chains** (rungs, cross
+  bracing and optionally triangles facing outward), merge, **align X/Y/Z** (to the last clicked
+  node or the average), **distribute evenly**.
+- **Beams**: **convert to** normal / bounded / support / pressured / anisotropic / l-beam (adds the
+  fields the type needs), **copy / paste properties**.
+- **Triggers**: move/rotate/resize, duplicate, **mirror to the other side** (box reflected
+  correctly), convert to global position.
 
-The **inspector** (top-right card) shows the selection and lets you type exact positions (arrow
-keys nudge 1 mm, Shift 1 cm). For nodes inside a part with `nodeOffset`/`nodeMove`/`nodeRotate`
-the inspector shows final positions and writes back the raw value that produces them.
+**Gizmo**: the three buttons under the tools on the left switch on a move / rotate / scale gizmo
+for nodes or triggers.
 
-**Saving**: Ctrl+S saves the current file, Ctrl+Shift+S everything. A backup of the previous
-version is kept (Settings → Editing). Files changed by another program are reloaded automatically
-unless you have unsaved edits there.
+**Inspector**: exact positions (arrow keys nudge 1 mm, Shift 1 cm; nodes in parts with
+`nodeOffset`/`nodeMove`/`nodeRotate` show final positions and write back the raw value). Every
+row value shows **where it comes from** — the row, inline options, or a modifier row (click to
+jump; orange when it leaks in from another part). With several nodes or beams selected it becomes
+a **batch editor**: equal values are shown, different ones say "mixed"; type a value to write it
+into every row, or choose **modifier** to wrap a contiguous block in `{"key": value}` … reset rows.
 
-## 5. The code editor
+**Saving**: Ctrl+S saves the file, Ctrl+Shift+S everything; a backup of the previous version is
+kept. Right-click a file or tab → **Compare with backup…** or **Compare with original…** (the game
+or mod file your copy overrides) opens a side-by-side diff.
 
-A full code editor (the one inside VS Code) with JBeam support:
+## 5. Testing in the game
 
-- syntax colouring, bracket pairs, folding, sticky part/section headers, minimap, multi-cursor;
-- **hover** a node name to see its position, part and beam count; hover a beam row for its length
-  and stiffness; hover a `$variable` for its value; hover section and option keys for a description;
-- **completion** for node names (inside link columns), section names (with ready-made headers),
-  option keys, part names in slots and `.pc` files, mesh names, groups, `$variables`, actions;
-- **F12** go to a node/part/variable definition, **Shift+F12** find all references,
-  **F2** rename a node everywhere;
-- optional **beam lengths** at the end of beam rows (off by default; Settings → Code editor), and always in the hover;
-- **Shift+Alt+F** aligns the columns of every table (or just the selection);
-- errors and warnings from the game's loading rules are underlined (missing nodes that the game
-  would silently discard, duplicate definitions, failed expressions, wrong slot types,
-  missing commas — with a quick fix).
+**Reload in game** (title bar, **F5**) saves everything and makes the running BeamNG reload the
+vehicle — or spawn it with the current configuration if another vehicle is loaded. It needs a
+tiny helper mod, `editorng_bridge`, which EditorNG installs into your `mods/unpacked` folder the
+first time you click (it shows exactly which two files it writes). It only listens on this
+computer. Restart the game (or press Ctrl+L in game) after installing. To remove it, delete
+`mods/unpacked/editorng_bridge`.
 
-## 6. Importing from Blender
+The **Game log** tab follows `beamng.log`: errors and warnings that mention your vehicle, with a
+click jumping to the part or file a message names.
 
-Model the node/beam layout in Blender with **vertices (nodes), edges (beams) and faces (collision
-triangles)**, in vehicle coordinates (BeamNG: +X = left, −Y = front, +Z = up — the same as Blender's
-axes for a car facing −Y).
+## 6. The code editor
 
-Three ways in (all open the same import dialog — **Tools → Import from Blender / OBJ…**):
+- syntax colouring, folding, sticky headers, a **breadcrumb** (`part › section › row`), minimap;
+- **hover** a node name for its position and beams, a beam row for length and stiffness, any row
+  for the **modifiers in effect** and where each was set;
+- **completion** for node names, sections (with headers), option keys, parts, meshes, groups,
+  `$variables`, actions;
+- **F12** go to definition, **Shift+F12** find references (also in the References tab),
+  **F2** rename; right-click → **Select in 3D**, **Mirror to the other side**;
+- **Shift+Alt+F** aligns table columns;
+- underlines for what the game's loader would complain about, and for **property typos**
+  (`beamSprng`) using the game's own list of valid names, with a one-click fix.
 
-1. **Live link** (best): *Tools → Install Blender live-link add-on*. In Blender press **N →
-   EditorNG → Send to EditorNG**, or turn on **Auto-send** and every change is pushed.
-2. **.blend file**: EditorNG runs Blender in the background to read it.
-3. **OBJ**: export with "Up: Z, Forward: Y" (or set "OBJ files are Y up" in Settings).
+## 7. Importing from Blender
 
-The dialog names new nodes automatically (prefix + number + `l`/`r` by side; mirror twins share
-the number; centre-line nodes get no suffix; or use the vertex group name as prefix). **Re-importing
-is safe**: vertices at an existing node's position keep that node's name, and beams/triangles that
-already exist are skipped — so you can keep modelling in Blender and re-send.
+Model nodes/beams/triangles as **vertices / edges / faces** in vehicle coordinates (+X left, −Y
+front, +Z up). **Tools → Import from Blender / OBJ…**: live link add-on (N panel → EditorNG →
+Send), a `.blend` file, or an OBJ (Up: Z, Forward: Y). New nodes are named automatically;
+re-importing keeps existing names and skips existing beams/triangles.
 
-## 7. Create & place (hammer icon)
+## 8. Create & place (hammer icon)
 
-- **Trigger (triggers2)** — box or sphere, three reference nodes, position in vehicle coordinates
-  (`baseTranslationGlobal`), colour or highlight mesh, action wiring (`common:` actions, generic door/hood/trunk
-  actions, or your own). Adds `triggerEventLinks2` and `actionsEnabled` rows as needed.
-- **Light bulb** — modular `slots2` bulb (`headlightBulb_halogen_55W`, `incandescent_red_21W`…),
-  electrics value, node frame, deform group, position and direction presets (forward, rearward,
-  down, side markers, corners, plate lights). Bulbs show in 3D as markers with an arrow.
-- **Occupant seat (0.40)** — `seat_occupant` slot with the six attach nodes, recline and camera
-  pitch, plus the rigidifier node and its beams. Offers to enable `occupantSystem` in the main part.
-- **Pressure wheels** — axle node pair + `pressureWheels` row (vanilla node order and `wheelDir`),
-  mirrored pair optional. Tyre values are placeholders: copy real ones from a vanilla tyre.
-- **Subdivide** — evenly spaced nodes between two selected nodes (and mirrored).
-- **Rails & slidenodes** — create a rail from the selected nodes (in click order, or ordered along the
-  path), looped/capped; turn selected nodes into slidenodes on a rail (vanilla defaults, optional snap
-  onto the rail); list of all rails with their slidenodes and how far off they are. Rails draw as
-  magenta lines, an orange line shows how far a slidenode is off its rail. The inspector of a slidenode
-  shows its rail, its position along it (editable) and Snap / Slide buttons.
+- **Trigger (triggers2)**, **Light bulb**, **Occupant seat (0.40)**, **Pressure wheels**,
+  **Subdivide**, **Rails & slidenodes** — select nodes first and press **From selection**; the ⌖
+  button next to a node field lets you click the node in 3D. Shift+A (or right-click → Add) opens
+  them pre-filled at the cursor.
 
-Select elements first and press **From selection** to fill node fields and positions; the ⌖ button
-next to a node field lets you click the node in 3D.
+## 9. Checks and the bottom panel
 
-**Props & triggers editor**: Alt+click a prop or trigger; the inspector edits its translation,
-rotation and size with live feedback in 3D.
+- **Check** (title bar) runs every enabled check and shows the count.
+- **Checks**: duplicate / zero-length beams, orphan and under-connected nodes, coincident nodes,
+  duplicate / degenerate triangles, left/right asymmetry, side suffix on the wrong side, flexbody
+  groups without nodes, extreme weights, rails & slidenodes, **leaking modifiers** (a
+  `{"beamSpring": …}` not reset at the end of a part changes the next parts' rows — only leaks
+  that touch your own files are listed), **property typos**. Right-click a finding to fix it or to
+  stop running that check.
+- **References**: every use of a node (rows of any part, slot variables like `$nodeRef`).
+- **Weight**, **Tuning** (variables as live sliders; save as `.pc`), **Output**.
 
-## 8. Checks, weight and tuning (bottom panel)
+## 10. Releasing
 
-- **Problems** — everything the loader found, click to jump.
-- **Checks** — duplicate beams (with one-click removal), zero/short beams, nodes without beams,
-  under-connected nodes, coincident nodes, duplicate/degenerate triangles, left/right asymmetry,
-  side suffix on the wrong side, flexbody groups without nodes, extreme node weights, rails & slidenodes
-  (unknown rail nodes, missing rails, slidenodes off their rail — one-click snap). Click a
-  finding to select it in 3D and in code.
-- **Weight** — total node mass, centre of gravity, front/rear and left/right split, mass per part.
-- **Tuning** — every tuning variable as a slider; the 3D view updates live. Save the result as a
-  `.pc` with *File → Save part configuration*.
+**Tools → Pack mod…** checks a mod folder against the game's modding rules
+(`NOTE_FOR_MODDERS.md`) and zips it:
+zip name characters, no version in the name, files that override game files, part names that
+clash with vanilla parts, leftover notes/logs/backups/sources, texture naming
+(`*.color.png`, `*.normal.png`, `*.data.png`), and an `info.json` and preview for new vehicles.
 
-The **Parts** panel shows the slot tree: swap parts in any slot, switch `.pc` configurations,
-isolate a part in 3D, set the target part.
+## 11. Suspension analysis (wave icon)
 
-## 9. Suspension analysis (wave icon)
+The suspension is solved from the beams, so it works for any design: camber, toe, caster, KPI,
+scrub radius, trail, roll centre, heave sweeps (camber gain, bump steer, RC migration), steering
+and Ackermann, motion ratios and wheel rates, anti-dive / anti-squat, with live tuning variables.
 
-The suspension is solved from the beams themselves, so it works for any design (double wishbone,
-strut, multi-link, solid axle, leaf spring, trailing arm, home-made or procedural):
+## 12. Settings
 
-- nodes of suspension-like parts move, the body is fixed; stiff beams are rigid links, springs,
-  dampers and bump stops are ignored, steering hydros are driven by the steering input;
-- **static**: camber, toe, caster, KPI, scrub radius, mechanical trail (from `steerAxisUp/Down` when
-  the wheel defines them, else from the hub motion), front-view instant centres, roll centre;
-- **heave sweep**: camber gain, bump steer, roll centre migration, track change;
-- **steering**: wheel angles over the full steering range, inner wheel vs ideal Ackermann,
-  Ackermann percentage;
-- **springs**: motion ratio and wheel rate for every spring/damper/stop acting on each wheel;
-- anti-dive / anti-squat from the side-view instant centres;
-- a front-view diagram with instant-centre lines and the roll centre;
-- tuning variables (camber/toe/caster adjust, springs, ride height…) update everything live.
+**Settings** (gear icon, Ctrl+,): theme and accent, UI scale, 3D colours and sizes, labels,
+camera, code editor, number precision, backups, naming, folders, Blender, check thresholds,
+suspension model and a full **keymap** editor (F1 lists every shortcut).
 
-If the solver reports a large residual or a part moves that should not (or the other way round),
-open **Moving parts → edit** and tick/untick parts, or change the rigid-beam threshold.
+## 13. Good to know
 
-## 10. Settings
-
-Everything is in **Settings** (gear icon, Ctrl+,): theme (dark/light/system) and accent colour, UI
-scale, every 3D colour, node/beam sizes, label behaviour, camera controls, code editor font and
-features, number precision, backups, l/r suffixes and naming defaults, game/user/mod folders,
-Blender path and import defaults, check thresholds, suspension model, and a full **keymap** editor.
-Settings can be exported/imported as a JSON file.
-
-## 11. Good to know
-
-- Nothing is written to disk until you save. The title bar shows how many files are unsaved, and
-  closing the app asks before discarding.
+- Nothing is written to disk until you save; closing asks before discarding.
 - Positions written by tools use 3 decimals by default (Settings → Editing).
-- When a new section is needed (e.g. a part without `triangles`), it is added at the end of the part
-  with the standard header.
-- Bulb, trigger, occupant and wheel tools follow the 0.40-era conventions; positions/rotations are
-  meant as a starting point — check them in game (Ctrl+R reloads the vehicle in BeamNG).
+- Bulb, trigger, occupant and wheel tools follow 0.40-era conventions; check placements in game.

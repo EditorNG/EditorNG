@@ -6,6 +6,7 @@ import { revealRange } from '../editor/CodeEditor';
 import * as ops from '../project/ops';
 import { getViewport, getLayers, startRailSlide } from './ViewportPanel';
 import { openMenu } from '../ui/Menu';
+import { isResetValue } from '@core/analysis/modifiers';
 import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
 import type { Row } from '@core/jbeam/types';
 import type { AArr, AObj } from '@core/sjson';
@@ -55,7 +56,7 @@ function RowOptions({ row }: { row: Row }) {
   const inline = node.k === 'arr' && node.items.length > header.length && node.items[node.items.length - 1]?.k === 'obj' ? (node.items[node.items.length - 1] as AObj) : null;
   const inlineKeys = new Set(inline ? inline.keys.map((k) => k.v) : []);
   const mods = row.mods ?? {};
-  const keys = [...new Set([...OPT_KEYS.filter((k) => row.v[k] !== undefined && row.v[k] !== ''), ...Object.keys(mods).filter((k) => row.v[k] !== undefined && row.v[k] !== '' && k !== 'partOrigin' && k !== 'partPath'), ...inlineKeys])].filter((k) => !header.includes(k));
+  const keys = [...new Set([...OPT_KEYS.filter((k) => row.v[k] !== undefined && row.v[k] !== ''), ...Object.keys(mods).filter((k) => row.v[k] !== undefined && k !== 'partOrigin' && k !== 'partPath' && !isResetValue(row.src.section, k, row.v[k])), ...inlineKeys])].filter((k) => !header.includes(k));
   if (!keys.length) return null;
   const line = (file: string, off: number) => {
     const d = ws.doc(file);
