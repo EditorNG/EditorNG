@@ -75,8 +75,9 @@ status bar    problems · target part · selection · symmetry · parts
   - **Shaded**: the game's own materials from every `*.materials.json` (vehicle and common
     folders): PBR colour / normal / roughness / metallic / AO / opacity maps, read straight from the
     game's DDS or your PNGs, the vehicle paint (from the `.pc`'s `paints` when it has one, else a
-    neutral metallic), lit by a built-in studio. Settings → 3D view → *Shaded: environment .hdr*
-    lets you use your own HDRI.
+    neutral metallic), lit by a built-in studio. Settings → 3D view → *Shaded: environment*
+    lets you use your own HDRI (equirectangular `.hdr` or `.exr`; its brightness is normalised,
+    and *environment brightness* / the Display popover's "Light" slider adjust it).
 - **H** hides the selected nodes, **Shift+H** everything else, **Alt+H** shows all again.
 - **Alt+click** picks flexbodies, props and triggers instead of nodes/beams.
 - Bottom-left: what is in view and what is selected; with 2 nodes selected the distance (and Δx,

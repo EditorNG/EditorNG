@@ -168,7 +168,7 @@ export function ViewportPanel() {
 
   useEffect(() => {
     if (s.showMeshes && vehicle) layersInstance?.setVehicle(vehicle);
-  }, [s.showMeshes, s.meshColorByPart, s.meshShading, s.shadedEnvHdr, s.showOccupants]);
+  }, [s.showMeshes, s.meshColorByPart, s.meshShading, s.shadedEnvHdr, s.shadedEnvBrightness, s.showOccupants]);
 
   // chain preview labels
   useEffect(() => {

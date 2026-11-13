@@ -15,7 +15,7 @@ type Field =
   | { key: K; label: string; type: 'select'; options: Array<[string, string]>; hint?: string }
   | { key: K; label: string; type: 'color'; hint?: string }
   | { key: K; label: string; type: 'text'; hint?: string; mono?: boolean }
-  | { key: K; label: string; type: 'path'; dir?: boolean; hint?: string }
+  | { key: K; label: string; type: 'path'; dir?: boolean; hint?: string; filters?: Array<{ name: string; extensions: string[] }> }
   | { key: K; label: string; type: 'list'; hint?: string };
 
 interface Group {
@@ -43,7 +43,8 @@ const GROUPS: Group[] = [
       { key: 'showTriNormals', label: 'Show triangle normals', type: 'bool', hint: 'Back faces are also tinted red, to spot flipped collision triangles.' },
       { key: 'meshOpacity', label: 'Flexbody opacity', type: 'range', min: 0, max: 1, step: 0.02 },
       { key: 'meshShading', label: 'Flexbody shading', type: 'select', options: [['wireframe', 'Wireframe: see-through with wire overlay (opacity above)'], ['solid', 'Solid: opaque grey-white'], ['shaded', 'Shaded: game materials (PBR, textures)']], hint: 'Z in the 3D view cycles the three.' },
-      { key: 'shadedEnvHdr', label: 'Shaded: environment .hdr', type: 'path', hint: 'Equirectangular .hdr used for lighting and reflections in Shaded. Empty: built-in studio.' },
+      { key: 'shadedEnvHdr', label: 'Shaded: environment (.hdr / .exr)', type: 'path', filters: [{ name: 'HDR images', extensions: ['hdr', 'exr'] }, { name: 'All files', extensions: ['*'] }], hint: 'Equirectangular .hdr or .exr used for lighting and reflections in Shaded. Empty: built-in studio. Its brightness is normalised, so any HDRI works.' },
+      { key: 'shadedEnvBrightness', label: 'Shaded: environment brightness', type: 'range', min: 0.25, max: 3, step: 0.05 },
       { key: 'meshColorByPart', label: 'Colour flexbodies by part', type: 'bool' },
       { key: 'showOccupants', label: 'Show occupants (0.40 seat occupants)', type: 'bool', hint: 'Torso and head placed like in game: seat nodeMove / nodeRotate applied.' },
       { key: 'showLabels', label: 'Node labels', type: 'select', options: [['off', 'Off'], ['hover', 'Hovered & selected'], ['selected', 'Selected only'], ['all', 'All']] },
@@ -289,7 +290,7 @@ function FieldRow({ f }: { f: Field }) {
         <div className="row" style={{ gap: 6 }}>
           <input className="input small mono" value={v as string} onChange={(e) => upd(e.target.value)} style={{ width: 340 }} />
           <button className="btn small" onClick={async () => {
-            const p = f.dir ? await api.pickFolder(f.label, (v as string) || undefined) : await api.pickFile({ title: f.label, defaultPath: (v as string) || undefined });
+            const p = f.dir ? await api.pickFolder(f.label, (v as string) || undefined) : await api.pickFile({ title: f.label, defaultPath: (v as string) || undefined, filters: f.filters });
             if (p) upd(p);
           }}><FolderOpen size={13} /></button>
         </div>

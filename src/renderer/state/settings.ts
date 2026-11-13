@@ -87,6 +87,8 @@ export interface Settings {
   meshShading: 'wireframe' | 'solid' | 'shaded';
   /** equirectangular .hdr for the Shaded view (empty: built-in studio) */
   shadedEnvHdr: string;
+  /** brightness of the Shaded environment (studio or HDRI, which is normalised first) */
+  shadedEnvBrightness: number;
   meshColorByPart: boolean;
   showNodes: boolean;
   showBeams: boolean;
@@ -215,6 +217,7 @@ export const DEFAULT_SETTINGS: Settings = {
   meshWireframe: false,
   meshShading: 'wireframe',
   shadedEnvHdr: '',
+  shadedEnvBrightness: 1,
   meshColorByPart: false,
   showNodes: true,
   showBeams: true,

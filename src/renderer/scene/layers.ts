@@ -211,6 +211,7 @@ export class Layers {
       const env = await shading.environment();
       if (this.s.meshShading !== 'shaded') return;
       this.vp.scene.environment = env;
+      this.vp.scene.environmentIntensity = this.s.shadedEnvHdr ? 1 : this.s.shadedEnvBrightness;
     } else this.vp.scene.environment = null;
     this.vp.requestRender();
   }

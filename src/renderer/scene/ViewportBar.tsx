@@ -125,6 +125,7 @@ function DisplayPopover() {
       {slider('beamWidth', 'Beam width', 0.5, 6, 0.25)}
       {slider('meshOpacity', 'Flexbody opacity', 0, 1, 0.02)}
       {slider('triOpacity', 'Triangle opacity', 0, 1, 0.02)}
+      {s.meshShading === 'shaded' && slider('shadedEnvBrightness', 'Light (Shaded)', 0.25, 3, 0.05)}
       <div className="ctx-sep" />
       <label className="disp-row">
         <span className="dim">Flexbodies</span>

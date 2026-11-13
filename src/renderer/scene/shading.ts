@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { toast } from '../state/toast';
 import { api } from '../lib/api';
 import { ws, useWs } from '../project/workspace';
 import { settings } from '../state/settings';
@@ -194,21 +196,27 @@ class Shading {
     const r = this.renderer;
     if (!r) return null;
     const hdr = settings().shadedEnvHdr;
-    const key = hdr || 'room';
+    const key = hdr ? hdr + '|' + settings().shadedEnvBrightness : 'room|' + settings().shadedEnvBrightness;
     if (this.env?.key === key) return this.env.tex;
     const pm = new THREE.PMREMGenerator(r);
     let tex: THREE.Texture | null = null;
     if (hdr) {
       try {
         const bytes = await api.readBinaryFile(hdr);
-        const data = new HDRLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer) as any;
-        const dt = new THREE.DataTexture(data.data, data.width, data.height, THREE.RGBAFormat, data.type);
+        const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        // .exr (OpenEXR) or .hdr (Radiance), by extension
+        const data = (/.exr$/i.test(hdr) ? new EXRLoader().setDataType(THREE.FloatType).parse(buf) : new HDRLoader().setDataType(THREE.FloatType).parse(buf)) as any;
+        if (!data?.data?.length) throw new Error('no image data');
+        normalizeHdr(data.data as Float32Array, data.format === THREE.RedFormat ? 1 : data.format === THREE.RGFormat ? 2 : 4, settings().shadedEnvBrightness);
+        const dt = new THREE.DataTexture(data.data, data.width, data.height, data.format ?? THREE.RGBAFormat, THREE.FloatType);
+        dt.colorSpace = THREE.LinearSRGBColorSpace;
         dt.mapping = THREE.EquirectangularReflectionMapping;
         dt.needsUpdate = true;
         tex = pm.fromEquirectangular(dt).texture;
         dt.dispose();
-      } catch {
+      } catch (e: any) {
         tex = null;
+        toast('warn', `Could not read ${hdr.split(/[\/]/).pop()} (${e?.message ?? e}); using the built-in studio`);
       }
     }
     if (!tex) tex = pm.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -229,3 +237,37 @@ class Shading {
 }
 
 export const shading = new Shading();
+
+/**
+ * HDRIs come at their real-world brightness (a sunny sky is thousands of times brighter than a
+ * studio). Scale pixels so the average luminance lands where the built-in studio sits, times the
+ * user's brightness. The sun is clamped first so a tiny hot spot does not decide the average.
+ */
+export function normalizeHdr(px: Float32Array, channels: number, brightness: number) {
+  let sum = 0, n = 0;
+  const lum = (i: number) => (channels >= 3 ? 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] : px[i]);
+  // median-ish reference: mean of luminance clamped at 50× a rough first mean
+  let rough = 0;
+  for (let i = 0; i < px.length; i += channels * 7) {
+    const l = lum(i);
+    if (Number.isFinite(l)) {
+      rough += l;
+      n++;
+    }
+  }
+  rough = n ? rough / n : 1;
+  n = 0;
+  for (let i = 0; i < px.length; i += channels) {
+    const l = lum(i);
+    if (!Number.isFinite(l)) continue;
+    sum += Math.min(l, rough * 50);
+    n++;
+  }
+  const mean = n ? sum / n : 1;
+  const k = mean > 0 ? (0.5 * brightness) / mean : 1;
+  for (let i = 0; i < px.length; i++) {
+    if (channels === 4 && i % 4 === 3) continue;
+    const v = px[i] * k;
+    px[i] = Number.isFinite(v) ? Math.min(v, 64) : 0;
+  }
+}
