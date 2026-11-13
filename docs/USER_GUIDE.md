@@ -79,10 +79,12 @@ status bar    problems · target part · selection · symmetry · parts
     lets you use your own HDRI (equirectangular `.hdr` or `.exr`; its brightness is normalised,
     and *environment brightness* / the Display popover's "Light" slider adjust it).
 - **H** hides the selected nodes, **Shift+H** everything else, **Alt+H** shows all again.
-- **Alt+click** picks flexbodies, props and triggers instead of nodes/beams.
+- **Selectable** (Display popover): what a plain click or box select can pick — Nodes, Beams,
+  Tris, Triggers, Flexbodies, Props. Flexbodies and props are off by default so they never get in
+  the way; **Alt+click** always picks flexbodies, props and triggers.
 - Bottom-left: what is in view and what is selected; with 2 nodes selected the distance (and Δx,
   Δy, Δz), with 3 the angle at the last clicked one. Top-right: what the beam colours mean.
-- Triangles: back faces are tinted red, so flipped collision triangles stand out.
+- Triangles: back faces are tinted purple, so flipped collision triangles stand out.
 - Clicking an element jumps to its line in code; the selected rows (and the beams of a selected
   node) are highlighted in the editor. Putting the cursor on a row highlights it in 3D.
 
@@ -124,6 +126,12 @@ row value shows **where it comes from** — the row, inline options, or a modifi
 jump; orange when it leaks in from another part). With several nodes or beams selected it becomes
 a **batch editor**: equal values are shown, different ones say "mixed"; type a value to write it
 into every row, or choose **modifier** to wrap a contiguous block in `{"key": value}` … reset rows.
+
+**Where new rows go**: click a line in the code editor (an orange ▸ marks it in the gutter) and
+new rows from the tools — add node, beam chain, triangles, placers, imports into an existing part —
+go right below it when that line is inside the section they write to, e.g. under `//widthwise`.
+Several additions in a row follow each other there. Anywhere else they are appended at the end of
+the section. Selecting things in 3D moves the editor cursor but not this mark.
 
 **Saving**: Ctrl+S saves the file, Ctrl+Shift+S everything; a backup of the previous version is
 kept. Right-click a file or tab → **Compare with backup…** or **Compare with original…** (the game

@@ -3,8 +3,9 @@
  */
 import { ws, useWs, type Doc } from './workspace';
 import {
-  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, insertRowsAfter, setRowCellsText, indentAt, type TextEdit,
+  DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, insertRowsAfter, setRowCellsText, indentAt, insertRowsAtLine, type TextEdit,
 } from '@core/jbeam/edit';
+import { insertMarkOffset, moveInsertMark } from '../editor/insertMark';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import type { ANode, AArr } from '@core/sjson';
 import type { ActivePart, PartDef, Row, Vehicle } from '@core/jbeam/types';
@@ -15,6 +16,24 @@ import { placeTriggers, mirroredTriggerValues, worldAlignedAxes, triggerValues }
 import { swapSideTokens } from '@core/jbeam/mirror';
 import { toast } from '../state/toast';
 import { useSel, emptySel, beamKey, triKey, cloneSel, resolveSel, setSel } from '../state/selection';
+
+/**
+ * Like insertRows, but when the code insertion point (the user's last click in the code editor) is inside
+ * that section of that part, the rows go right below it; consecutive additions follow each other there.
+ * Otherwise the rows are appended at the end of the section.
+ */
+export function insertRowsHere(text: string, part: PartDef, section: string, header: string[], rows: string[]): TextEdit[] {
+  const m = ws.doc(part.file)?.model;
+  const cur = m && !m.isDisposed() && m.getValueLength() === text.length ? insertMarkOffset(m) : null;
+  if (m && cur != null) {
+    const r = insertRowsAtLine(text, part, section, rows, cur);
+    if (r) {
+      moveInsertMark(m, r.at);
+      return r.edits;
+    }
+  }
+  return insertRows(text, part, section, header, rows);
+}
 
 class EditSet {
   map = new Map<string, TextEdit[]>();
@@ -116,7 +135,7 @@ export function addNodes(nodes: Array<{ name: string; x: number; y: number; z: n
     return fmtRow(rowFromRecord(header, rec), dec());
   });
   const es = new EditSet();
-  es.add(t.doc.key, insertRows(t.doc.text, t.part, 'nodes', header, rows));
+  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'nodes', header, rows));
   if (!es.apply(label)) return [];
   return nodes.map((n) => n.name);
 }
@@ -251,7 +270,7 @@ export function addBeams(pairs: Array<[string, string]>, opts?: Record<string, a
   const header = headerOf(t.part.sections.get('beams'), 'beams');
   const rows = list.map(([a, b]) => fmtRow(rowFromRecord(header, { 'id1:': a, 'id2:': b, ...(opts ?? {}) }), dec()));
   const es = new EditSet();
-  es.add(t.doc.key, insertRows(t.doc.text, t.part, 'beams', header, rows));
+  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'beams', header, rows));
   return es.apply(label) ? list.length : 0;
 }
 
@@ -268,7 +287,7 @@ export function addTris(tris: Array<[string, string, string]>, label = 'Add tria
   const header = headerOf(t.part.sections.get('triangles'), 'triangles');
   const rows = list.map(([a, b, c]) => fmtRow(rowFromRecord(header, { 'id1:': a, 'id2:': b, 'id3:': c }), dec()));
   const es = new EditSet();
-  es.add(t.doc.key, insertRows(t.doc.text, t.part, 'triangles', header, rows));
+  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'triangles', header, rows));
   return es.apply(label) ? list.length : 0;
 }
 
@@ -536,7 +555,7 @@ export function insertSectionRows(doc: Doc, part: PartDef, section: string, recs
   const h = header ?? headerOf(part.sections.get(section), section);
   const rows = recs.map((r) => fmtRow(rowFromRecord(h, r), dec()));
   const es = new EditSet();
-  es.add(doc.key, insertRows(doc.text, part, section, h, rows));
+  es.add(doc.key, insertRowsHere(doc.text, part, section, h, rows));
   return es.apply(label);
 }
 
@@ -544,7 +563,7 @@ export function insertSectionRows(doc: Doc, part: PartDef, section: string, recs
 export function insertRawRows(doc: Doc, part: PartDef, section: string, header: string[], rows: string[], label = 'Insert rows'): boolean {
   if (!writableDoc(doc.key)) return false;
   const es = new EditSet();
-  es.add(doc.key, insertRows(doc.text, part, section, header, rows));
+  es.add(doc.key, insertRowsHere(doc.text, part, section, header, rows));
   return es.apply(label);
 }
 
@@ -720,7 +739,7 @@ export function addSlidenodes(nodes: string[], rail: string, snap: boolean, spri
     fmtRow(rowFromRecord(header, { 'id:': n, railName: rail, attached: true, fixToRail: true, tolerance: 0, spring, strength: 'FLT_MAX', capStrength: 'FLT_MAX' }), dec()),
   );
   const es = new EditSet();
-  es.add(t.doc.key, insertRows(t.doc.text, t.part, 'slidenodes', header, rows));
+  es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'slidenodes', header, rows));
   if (!es.apply(`Add ${fresh.length} slidenode(s) on ${rail}`)) return false;
   if (snap && ws.vehicle) {
     const w = ws.vehicle;

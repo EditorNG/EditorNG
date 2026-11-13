@@ -1265,13 +1265,13 @@ export class Viewport {
   // picking
   // ---------------------------------------------------------------------------------------
 
-  pick(px: number, py: number, mode: PickMode, radius = this.s.pickRadius): Hover | null {
+  pick(px: number, py: number, mode: PickMode, radius = this.s.pickRadius, allow: { node?: boolean; beam?: boolean; tri?: boolean } = {}): Hover | null {
     const v = this.vehicle;
     if (!v) return null;
     const s = this.s;
     const proj = this.projectAll();
     const vis = this.nodeVis;
-    if ((mode === 'nodes' || mode === 'all') && s.showNodes) {
+    if ((mode === 'nodes' || mode === 'all') && s.showNodes && allow.node !== false) {
       let best = -1;
       let bestD = radius * radius;
       let bestZ = 2;
@@ -1292,7 +1292,7 @@ export class Viewport {
       }
       if (best >= 0) return { kind: 'node', idx: best };
     }
-    if ((mode === 'beams' || mode === 'all') && s.showBeams) {
+    if ((mode === 'beams' || mode === 'all') && s.showBeams && allow.beam !== false) {
       let best = -1;
       let bestD = (radius * 0.7) ** 2;
       let bestZ = 2;
@@ -1316,7 +1316,7 @@ export class Viewport {
       }
       if (best >= 0) return { kind: 'beam', idx: best };
     }
-    if ((mode === 'tris' || mode === 'all') && s.showTris && this.triMesh && this.drawTris.length) {
+    if ((mode === 'tris' || mode === 'all') && s.showTris && allow.tri !== false && this.triMesh && this.drawTris.length) {
       const r = this.ray(px, py);
       const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), hit = new THREE.Vector3();
       let best = -1;
@@ -1340,7 +1340,7 @@ export class Viewport {
   }
 
   /** Element indices inside a screen rectangle (in-scope elements only). */
-  boxSelect(x0: number, y0: number, x1: number, y1: number, mode: PickMode): { nodes: number[]; beams: number[]; tris: number[] } {
+  boxSelect(x0: number, y0: number, x1: number, y1: number, mode: PickMode, allow: { node?: boolean; beam?: boolean; tri?: boolean } = {}): { nodes: number[]; beams: number[]; tris: number[] } {
     const v = this.vehicle;
     const out = { nodes: [] as number[], beams: [] as number[], tris: [] as number[] };
     if (!v) return out;
@@ -1353,9 +1353,13 @@ export class Viewport {
       const x = proj[i * 3], y = proj[i * 3 + 1];
       if (x >= minX && x <= maxX && y >= minY && y <= maxY) inside[i] = 1;
     }
-    if (mode === 'nodes' || mode === 'all') for (let i = 0; i < inside.length; i++) if (inside[i] && this.nodeVis[i] === 2) out.nodes.push(i);
-    if (mode === 'beams') for (const i of this.drawBeams) if (inside[v.beams[i].a] && inside[v.beams[i].b]) out.beams.push(i);
-    if (mode === 'tris') for (const i of this.drawTris) {
+    const nodesOk = allow.node !== false;
+    // in 'all' mode with nodes not selectable, the box falls through to beams, then triangles
+    const beamsOk = allow.beam !== false && (mode === 'beams' || (mode === 'all' && !nodesOk));
+    const trisOk = allow.tri !== false && (mode === 'tris' || (mode === 'all' && !nodesOk && allow.beam === false));
+    if ((mode === 'nodes' || mode === 'all') && nodesOk) for (let i = 0; i < inside.length; i++) if (inside[i] && this.nodeVis[i] === 2) out.nodes.push(i);
+    if (beamsOk) for (const i of this.drawBeams) if (inside[v.beams[i].a] && inside[v.beams[i].b]) out.beams.push(i);
+    if (trisOk) for (const i of this.drawTris) {
       const t = v.tris[i];
       if (inside[t.a] && inside[t.b] && inside[t.c]) out.tris.push(i);
     }

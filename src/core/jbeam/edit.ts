@@ -413,3 +413,44 @@ function setRowOptionsMany(text: string, arr: AArr, headerLen: number, opts: Rec
   const end = arr.e - 1;
   return [{ s: end, e: end, text: (arr.items.length ? ', ' : '') + fmtValue(opts, decimals) }];
 }
+
+/**
+ * Inserts rows into a part's array section right after the line `lineEnd` belongs to (an offset in that line,
+ * usually the code cursor). Returns null when that line is not inside the section, so the caller can append
+ * at the end instead. `at` is the offset (in the old text) where the new rows' text goes.
+ */
+export function insertRowsAtLine(text: string, part: PartDef, section: string, rows: string[], cursor: number): { edits: TextEdit[]; at: number } | null {
+  if (!rows.length) return null;
+  const sec = part.sections.get(section);
+  if (!sec || sec.k !== 'arr' || !sec.items.length) return null;
+  const closeOff = sec.e - 1;
+  const lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
+  const lineEnd = lineEndOff(text, cursor);
+  // the line must lie between the section's opening bracket line and its closing bracket
+  if (lineEnd < sec.s || lineEnd >= closeOff || lineStart > closeOff) return null;
+  const items = sec.items;
+  let anchor = items[0];
+  for (const it of items) if (it.s < lineEnd) anchor = it;
+  const eol = eolOf(text);
+  const unit = indentUnitOf(text);
+  const ind = onlyWsBefore(text, anchor.s) ? indentAt(text, anchor.s) : indentAt(text, sec.s) + unit;
+  const body = rows.map((r) => eol + ind + r.replace(/\r?\n/g, eol + ind).replace(/\t/g, unit) + ',').join('');
+  let j = anchor.e;
+  while (j < text.length && (text[j] === ' ' || text[j] === '\t')) j++;
+  const hasComma = text[j] === ',';
+  let at: number;
+  if (anchor.e < lineStart) {
+    // the cursor sits on a blank or comment line between rows: insert right below it
+    at = lineEnd;
+  } else {
+    const after = hasComma ? j + 1 : anchor.e;
+    const le = lineEndOff(text, after);
+    const rest = text.slice(after, le).trim();
+    at = rest && !rest.startsWith('//') ? after : le;
+  }
+  // the anchor's missing comma: in the same edit when it is at the same spot (edit order would swap them)
+  const edits: TextEdit[] = [];
+  if (!hasComma && at !== anchor.e) edits.push({ s: anchor.e, e: anchor.e, text: ',' });
+  edits.push({ s: at, e: at, text: (!hasComma && at === anchor.e ? ',' : '') + body });
+  return { edits, at };
+}

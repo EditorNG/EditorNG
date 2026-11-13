@@ -484,15 +484,16 @@ export class Layers {
   }
 
   /** Ray pick against meshes, props and triggers. */
-  pick(px: number, py: number): Hover | null {
+  pick(px: number, py: number, allow: { trigger?: boolean; flex?: boolean; prop?: boolean } = {}): Hover | null {
     const rc = new THREE.Raycaster();
     rc.ray.copy(this.vp.ray(px, py));
     const targets: THREE.Object3D[] = [];
-    if (this.s.showTriggers) targets.push(this.trigGroup);
+    if (this.s.showTriggers && allow.trigger !== false) targets.push(this.trigGroup);
     if (this.s.showMeshes) {
-      if (this.s.showProps) targets.push(this.propGroup);
-      targets.push(this.flexGroup);
+      if (this.s.showProps && allow.prop !== false) targets.push(this.propGroup);
+      if (allow.flex !== false) targets.push(this.flexGroup);
     }
+    if (!targets.length) return null;
     const hits = rc.intersectObjects(targets, true);
     for (const h of hits) {
       const ud = h.object.userData;

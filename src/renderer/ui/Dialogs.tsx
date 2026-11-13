@@ -6,8 +6,8 @@ import { useSettings, settings, DEFAULT_KEYMAP, keyFor } from '../state/settings
 import { api } from '../lib/api';
 import { toast } from '../state/toast';
 import { parseObj, planImport, type MeshData, type ImportOptions } from '@core/import/mesh';
-import { DEFAULT_HEADERS, fmtRow, insertRows, rowFromRecord, insertKey, indentUnitOf, eolOf } from '@core/jbeam/edit';
-import { targetPart, EditSet, selectNodesByName, moveNodes, setSymmetryCrossPolicy, type SymmetryResult } from '../project/ops';
+import { DEFAULT_HEADERS, fmtRow, rowFromRecord, insertKey, indentUnitOf, eolOf } from '@core/jbeam/edit';
+import { targetPart, EditSet, insertRowsHere, selectNodesByName, moveNodes, setSymmetryCrossPolicy, type SymmetryResult } from '../project/ops';
 import { beamKey, triKey } from '../state/selection';
 import { openFolder } from './commands';
 import type { BlenderExtract } from '@shared/ipc';
@@ -446,7 +446,7 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
       const t = parent.sections.get(sec);
       const header = t && t.k === 'arr' && t.items[0]?.k === 'arr' ? (t.items[0] as AArr).items.map((x) => (x.k === 'str' ? x.v : '')) : useV1 ? ['type', 'default', 'description'] : DEFAULT_HEADERS.slots2;
       const rec = useV1 ? { type: slotType || partName, default: partName, description: display2 } : { name: slotType || partName, allowTypes: [slotType || partName], denyTypes: [], default: partName, description: display2 };
-      es.add(parentDoc.key, insertRows(parentDoc.text, parent, sec, header, [fmtRow(rowFromRecord(header, rec))]));
+      es.add(parentDoc.key, insertRowsHere(parentDoc.text, parent, sec, header, [fmtRow(rowFromRecord(header, rec))]));
     }
     if (es.size) es.apply(`New part ${partName}`);
     else ws.assemble();
@@ -477,15 +477,15 @@ function ImportDialog({ close, initial }: { close: () => void; initial?: { blend
     const dec = settings().decimals;
     if (plan.newNodes.length) {
       const h = hdr('nodes');
-      es.add(doc.key, insertRows(text, part, 'nodes', h, plan.newNodes.map((n) => fmtRow(rowFromRecord(h, { id: n.name, posX: r(n.x, dec), posY: r(n.y, dec), posZ: r(n.z, dec), ...(n.group && opts.groupPrefix === false ? { group: n.group } : {}) }), dec))));
+      es.add(doc.key, insertRowsHere(text, part, 'nodes', h, plan.newNodes.map((n) => fmtRow(rowFromRecord(h, { id: n.name, posX: r(n.x, dec), posY: r(n.y, dec), posZ: r(n.z, dec), ...(n.group && opts.groupPrefix === false ? { group: n.group } : {}) }), dec))));
     }
     if (plan.beams.length) {
       const h = hdr('beams');
-      es.add(doc.key, insertRows(text, part, 'beams', h, plan.beams.map(([a, b]) => fmtRow(rowFromRecord(h, { 'id1:': a, 'id2:': b })))));
+      es.add(doc.key, insertRowsHere(text, part, 'beams', h, plan.beams.map(([a, b]) => fmtRow(rowFromRecord(h, { 'id1:': a, 'id2:': b })))));
     }
     if (plan.tris.length) {
       const h = hdr('triangles');
-      es.add(doc.key, insertRows(text, part, 'triangles', h, plan.tris.map(([a, b, c]) => fmtRow(rowFromRecord(h, { 'id1:': a, 'id2:': b, 'id3:': c })))));
+      es.add(doc.key, insertRowsHere(text, part, 'triangles', h, plan.tris.map(([a, b, c]) => fmtRow(rowFromRecord(h, { 'id1:': a, 'id2:': b, 'id3:': c })))));
     }
     if (es.apply(`Import ${source || 'mesh'}`)) {
       toast('ok', `Imported ${plan.newNodes.length} nodes, ${plan.beams.length} beams, ${plan.tris.length} triangles into ${part.name}`);
@@ -704,7 +704,7 @@ function Shortcuts({ close }: { close: () => void }) {
           <div className="shortcut-row"><span>Snap to node / mesh vertex while moving</span><span className="kbd">hold Ctrl</span></div>
           <div className="shortcut-row"><span>Box select</span><span className="kbd">LMB drag</span></div>
           <div className="shortcut-row"><span>Rename node</span><span className="kbd">Double-click</span></div>
-          <div className="shortcut-row"><span>Pick meshes / props / triggers</span><span className="kbd">Alt+click</span></div>
+          <div className="shortcut-row"><span>Pick meshes / props (always) — plain click picks what Display › Selectable allows</span><span className="kbd">Alt+click</span></div>
         </div>
       </div>
       <div className="faint small-text" style={{ marginTop: 10 }}>All shortcuts can be changed in Settings → Keymap. Defaults: {Object.keys(DEFAULT_KEYMAP).length} actions.</div>

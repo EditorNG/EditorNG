@@ -29,6 +29,16 @@ const DISPLAY_TOGGLES: Array<[keyof Settings, string]> = [
   ['xray', 'X-ray (Alt+Z)'],
 ];
 
+/** what a plain click / box select may pick; Alt+click still reaches meshes, props and triggers */
+const SELECTABLE: Array<[keyof Settings, string]> = [
+  ['selNodes', 'Nodes'],
+  ['selBeams', 'Beams'],
+  ['selTris', 'Tris'],
+  ['selTriggers', 'Triggers'],
+  ['selFlex', 'Flexbodies'],
+  ['selProps', 'Props'],
+];
+
 export function ViewportBar() {
   const s = useSettings((x) => x.s);
   const set = useSettings((x) => x.set);
@@ -117,6 +127,15 @@ function DisplayPopover() {
             <input type="checkbox" checked={!!s[k]} onChange={(e) => set({ [k]: e.target.checked } as any)} />
             {label}
           </label>
+        ))}
+      </div>
+      <div className="ctx-sep" />
+      <div className="ctx-title" title="What a plain click or box select can pick. Alt+click always picks flexbodies, props and triggers.">Selectable <span className="faint">· Alt+click picks meshes</span></div>
+      <div className="disp-chips">
+        {SELECTABLE.map(([k, label]) => (
+          <button key={k} className={'disp-chip' + (s[k] ? ' on' : '')} onClick={() => set({ [k]: !s[k] } as any)}>
+            {label}
+          </button>
         ))}
       </div>
       <div className="ctx-sep" />

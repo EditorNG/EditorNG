@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Lock, Circle } from 'lucide-react';
 import { monaco } from '../lib/monaco';
+import { setInsertMark } from './insertMark';
 import { ws, useWs } from '../project/workspace';
 import { useUi, openTab, closeTab } from '../state/ui';
 import { useSettings, settings } from '../state/settings';
@@ -210,6 +211,8 @@ export function CodeEditor() {
       const mm = editor?.getModel();
       const dd = mm ? [...ws.docs.values()].find((x) => x.model === mm) : undefined;
       if (mm && dd) crumbRef.current(crumbsAt(dd.key, mm.getOffsetAt(e.selection.getStartPosition())));
+      // the insertion point follows the user's own clicks / typing only
+      if (mm && dd && (e.source === 'mouse' || e.source === 'keyboard') && !suppressCursor) setInsertMark(mm, mm.getOffsetAt(e.selection.getPosition()));
       if (suppressCursor) return;
       if (t) clearTimeout(t);
       t = setTimeout(highlightFromCursor, 60);

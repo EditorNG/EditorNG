@@ -190,10 +190,16 @@ export function ViewportPanel() {
   const pickAt = useCallback((x: number, y: number, alt = false): Hover | null => {
     const vp = vpInstance;
     if (!vp) return null;
-    if (alt) return layersInstance?.pick(x, y) ?? vp.pick(x, y, useSel.getState().mode);
-    const hit = vp.pick(x, y, useSel.getState().mode);
+    const mode = useSel.getState().mode;
+    // Alt+click reaches everything: flexbodies, props and triggers first
+    if (alt) return layersInstance?.pick(x, y) ?? vp.pick(x, y, mode);
+    // creation tools only care about nodes / structure
+    if (useUi.getState().tool !== 'select') return vp.pick(x, y, mode);
+    const s = settings();
+    const hit = vp.pick(x, y, mode, undefined, { node: s.selNodes, beam: s.selBeams, tri: s.selTris });
     if (hit) return hit;
-    return useSel.getState().mode === 'all' ? layersInstance?.pick(x, y) ?? null : null;
+    if (mode !== 'all' || !(s.selTriggers || s.selFlex || s.selProps)) return null;
+    return layersInstance?.pick(x, y, { trigger: s.selTriggers, flex: s.selFlex, prop: s.selProps }) ?? null;
   }, []);
 
   const revealHit = (hit: Hover) => {
@@ -1071,7 +1077,8 @@ export function ViewportPanel() {
     const t = useUi.getState().tool;
     if (box) {
       const vp = vpInstance!;
-      const r = vp.boxSelect(box.x0, box.y0, box.x1, box.y1, useSel.getState().mode);
+      const ss = settings();
+      const r = vp.boxSelect(box.x0, box.y0, box.x1, box.y1, useSel.getState().mode, { node: ss.selNodes, beam: ss.selBeams, tri: ss.selTris });
       setBox(null);
       const s = d.shift || d.ctrl ? cloneSel(useSel.getState().sel) : emptySel();
       const apply = (kind: 'node' | 'beam' | 'tri', list: number[]) => {

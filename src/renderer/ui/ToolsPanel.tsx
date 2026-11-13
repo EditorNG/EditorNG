@@ -5,7 +5,7 @@ import { useUi, requestPick } from '../state/ui';
 import { useSel, resolveSel, selNodeIdx } from '../state/selection';
 import { settings } from '../state/settings';
 import { toast } from '../state/toast';
-import { targetPart, insertRawRows, addNodes, EditSet, addRail, addSlidenodes, snapToRails, selectNodesByName } from '../project/ops';
+import { targetPart, insertRowsHere, insertRawRows, addNodes, EditSet, addRail, addSlidenodes, snapToRails, selectNodesByName } from '../project/ops';
 import { offRailSlides } from '@core/jbeam/rails';
 import { getViewport, startRailSlide } from '../scene/ViewportPanel';
 import { COMMON_ACTIONS, GENERIC_ACTIONS, BULB_TYPES } from '@core/jbeam/docs';
@@ -13,7 +13,7 @@ import {
   triggerRow, triggerLinkRows, needsActionsEnabled, bulbSlotRow, BULB_ROT_PRESETS, occupantSlotRow, rigidifierPosition, rigidifierBeams, wheelNodes, wheelRow,
   wheelModifierRows, type V3, type WheelSpec,
 } from '@core/jbeam/generators';
-import { DEFAULT_HEADERS, fmtRow, insertKey, insertRows, rowFromRecord } from '@core/jbeam/edit';
+import { DEFAULT_HEADERS, fmtRow, insertKey, rowFromRecord } from '@core/jbeam/edit';
 import type { AArr } from '@core/sjson';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
 import { PanelHeader } from './SidePanels';
@@ -162,11 +162,11 @@ function TriggerTool() {
     const spec = { id, idRef: ref, idX: nx, idY: ny, type, size, pos: { x: raw.x, y: raw.y, z: raw.z }, mesh: mesh || undefined, action: action || undefined, action2: action2 || undefined };
     const es = new EditSet();
     const text = t.doc.text;
-    es.add(t.doc.key, insertRows(text, t.part, 'triggers2', headerOf(t, 'triggers2'), [triggerRow(spec)]));
+    es.add(t.doc.key, insertRowsHere(text, t.part, 'triggers2', headerOf(t, 'triggers2'), [triggerRow(spec)]));
     const links = triggerLinkRows(spec);
-    if (links.length) es.add(t.doc.key, insertRows(text, t.part, 'triggerEventLinks2', headerOf(t, 'triggerEventLinks2'), links));
+    if (links.length) es.add(t.doc.key, insertRowsHere(text, t.part, 'triggerEventLinks2', headerOf(t, 'triggerEventLinks2'), links));
     const enable = [action, action2].filter((a) => needsActionsEnabled(a));
-    if (enable.length) es.add(t.doc.key, insertRows(text, t.part, 'actionsEnabled', headerOf(t, 'actionsEnabled'), enable.map((a) => fmtRow([a]))));
+    if (enable.length) es.add(t.doc.key, insertRowsHere(text, t.part, 'actionsEnabled', headerOf(t, 'actionsEnabled'), enable.map((a) => fmtRow([a]))));
     if (es.apply(`Add trigger ${id}`)) {
       toast('ok', `Trigger ${id} added${enable.length ? ' (+ actionsEnabled)' : ''}`);
       setId(id.replace(/\d+$/, (m) => String(+m + 1)));
@@ -242,7 +242,7 @@ function BulbTool() {
     if (pattern) extra.$lightPattern = pattern;
     const row = bulbSlotRow({ slotName: slot, bulb, description: desc, electric, nodeRef: ref, nodeX: nx, nodeY: ny, deformGroup: dg, pos, rot, shadow, extra });
     const es = new EditSet();
-    es.add(t.doc.key, insertRows(t.doc.text, t.part, 'slots2', headerOf(t, 'slots2'), [row]));
+    es.add(t.doc.key, insertRowsHere(t.doc.text, t.part, 'slots2', headerOf(t, 'slots2'), [row]));
     if (t.part.sections.has('slots') && !t.part.sections.has('slots2')) toast('warn', 'This part uses old "slots"; the game ignores slots2 when slots exists. Convert it first.');
     if (es.apply(`Add bulb ${slot}`)) toast('ok', `Bulb slot ${slot} added`);
   };
@@ -337,7 +337,7 @@ function OccupantTool() {
     if (findSlot(slotName)) return toast('warn', `${slotName} already exists`);
     const es = new EditSet();
     const text = t.doc.text;
-    es.add(t.doc.key, insertRows(text, t.part, 'slots2', headerOf(t, 'slots2'), [occupantSlotRow({
+    es.add(t.doc.key, insertRowsHere(text, t.part, 'slots2', headerOf(t, 'slots2'), [occupantSlotRow({
       slotName, description: `${seatID} Seat Occupant`, seatID, highlightMesh: mesh, nodeMove: move, recline, attach: att, rigidifier: rig, dragCoef: 1, noSelfCol,
     })]));
     if (makeRig && !ws.vehicle?.nodeIndex.has(rig)) {
@@ -345,8 +345,8 @@ function OccupantTool() {
       const h = headerOf(t, 'nodes');
       const dec = settings().decimals;
       const r = (x: number) => Math.round(x * 10 ** dec) / 10 ** dec;
-      es.add(t.doc.key, insertRows(text, t.part, 'nodes', h, [fmtRow(rowFromRecord(h, { id: rig, posX: r(pos.x), posY: r(pos.y), posZ: r(pos.z), collision: false, selfCollision: false, group: '', nodeWeight: 1 }), dec)]));
-      es.add(t.doc.key, insertRows(text, t.part, 'beams', headerOf(t, 'beams'), rigidifierBeams(rig, att)));
+      es.add(t.doc.key, insertRowsHere(text, t.part, 'nodes', h, [fmtRow(rowFromRecord(h, { id: rig, posX: r(pos.x), posY: r(pos.y), posZ: r(pos.z), collision: false, selfCollision: false, group: '', nodeWeight: 1 }), dec)]));
+      es.add(t.doc.key, insertRowsHere(text, t.part, 'beams', headerOf(t, 'beams'), rigidifierBeams(rig, att)));
     }
     if (es.apply(`Add occupant ${seatID}`)) {
       toast('ok', `Occupant ${seatID} added`);
@@ -423,9 +423,9 @@ function WheelTool() {
     if (spec.createNodes && newNodes.length) {
       const h = headerOf(t, 'nodes');
       const r = (x: number) => Math.round(x * 10 ** dec) / 10 ** dec;
-      es.add(t.doc.key, insertRows(text, t.part, 'nodes', h, newNodes.map((n) => fmtRow(rowFromRecord(h, { id: n.name, posX: r(n.x), posY: r(n.y), posZ: r(n.z) }), dec))));
+      es.add(t.doc.key, insertRowsHere(text, t.part, 'nodes', h, newNodes.map((n) => fmtRow(rowFromRecord(h, { id: n.name, posX: r(n.x), posY: r(n.y), posZ: r(n.z) }), dec))));
     }
-    es.add(t.doc.key, insertRows(text, t.part, 'pressureWheels', headerOf(t, 'pressureWheels'), [...wheelModifierRows(spec), ...list.map(wheelRow)]));
+    es.add(t.doc.key, insertRowsHere(text, t.part, 'pressureWheels', headerOf(t, 'pressureWheels'), [...wheelModifierRows(spec), ...list.map(wheelRow)]));
     if (es.apply('Add pressure wheels')) toast('ok', `Added ${list.map((w) => w.name).join(' + ')} — tune the placeholder tyre values in code`);
   };
   return (

@@ -102,6 +102,13 @@ export interface Settings {
   symmetryX: boolean;
   gizmo: 'none' | 'translate' | 'rotate' | 'scale';
   showTriggers: boolean;
+  /** what a plain click / box select can pick (Alt+click always reaches meshes, props and triggers) */
+  selNodes: boolean;
+  selBeams: boolean;
+  selTris: boolean;
+  selTriggers: boolean;
+  selFlex: boolean;
+  selProps: boolean;
   showGrid: boolean;
   showAxes: boolean;
   showGround: boolean;
@@ -235,6 +242,12 @@ export const DEFAULT_SETTINGS: Settings = {
   symmetryX: false,
   gizmo: 'none',
   showTriggers: true,
+  selNodes: true,
+  selBeams: true,
+  selTris: true,
+  selTriggers: true,
+  selFlex: false,
+  selProps: false,
   showGrid: true,
   showAxes: true,
   showGround: false,
