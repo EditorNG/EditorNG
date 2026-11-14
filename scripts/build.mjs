@@ -12,7 +12,7 @@ export async function buildMain() {
     platform: 'node',
     target: 'node22',
     format: 'cjs',
-    external: ['electron'],
+    external: ['electron', 'original-fs'],
     sourcemap: false,
     logLevel: 'warning',
   };

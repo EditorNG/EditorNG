@@ -23,6 +23,7 @@ import { shading } from './scene/shading';
 import { revealRange, getEditor } from './editor/CodeEditor';
 import { loadRecent, addRecentFiles, restoreSession } from './ui/Tier2';
 import { setOnFilesOpened } from './project/workspace';
+import { updateOnBoot, useUpdate, checkForUpdates, installUpdate } from './state/update';
 import { setKnownProps, parseSpellcheckerLua } from '@core/jbeam/knownProps';
 import knownSnapshot from '@core/jbeam/knownProps.snapshot.json';
 
@@ -142,6 +143,7 @@ async function boot() {
   }
   const env = await api.env();
   log(`EditorNG ${env.appVersion} · game: ${roots.gameDir ?? 'not found'} · user: ${roots.userDir ?? 'not found'}`);
+  updateOnBoot(env);
   await loadRecent();
   setOnFilesOpened(addRecentFiles);
   if (state.lastVehicle && !(window as any).__noRestore && !env.automation) {
@@ -149,7 +151,7 @@ async function boot() {
     await restoreSession(state.lastVehicle).catch(() => {});
   }
   // automation hooks (used by scripts/shot.mjs and handy in devtools)
-  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, layers: getLayers, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading };
+  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, layers: getLayers, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading, useUpdate, checkForUpdates, installUpdate };
 }
 
 boot().catch((e) => {

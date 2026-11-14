@@ -6,7 +6,7 @@ const invokeNames = [
   'walkDir', 'mkdirp', 'copyFromVfs', 'pickFolder', 'pickFile', 'saveDialog', 'reveal', 'openExternal', 'cacheRead',
   'cacheWrite', 'cacheClear', 'blenderFind', 'blenderExtract', 'installBlenderAddon', 'watch', 'blenderLinkPort',
   'windowAction', 'setTitleBarColors', 'gameSend', 'gameBridgeStatus', 'gameBridgeInstall', 'gameLogRead',
-  'findAllFiles', 'listBackups', 'scanMod', 'packMod',
+  'findAllFiles', 'listBackups', 'scanMod', 'packMod', 'updateCheck', 'updateDownload', 'updateInstall', 'updateWhatsNew',
 ];
 
 const api: Record<string, unknown> = {};
@@ -25,6 +25,7 @@ api.onFsChange = on('fs:change');
 api.onMenu = on('menu');
 api.onBlenderLink = on('blender:link');
 api.onCloseRequest = on('close-request');
+api.onUpdateProgress = on('update:progress');
 api.confirmClose = (ok: boolean) => ipcRenderer.send('confirmClose', ok);
 
 contextBridge.exposeInMainWorld('api', api);

@@ -186,6 +186,10 @@ export interface Settings {
   loadCommonFolder: boolean;
   watchFiles: boolean;
   reloadOnExternalChange: 'merge' | 'ask' | 'always' | 'never';
+  /** look for a new EditorNG release at startup */
+  updateCheck: boolean;
+  /** version the user chose to skip ("" = none) */
+  updateSkip: string;
 
   // blender
   blenderExe: string;
@@ -321,6 +325,8 @@ export const DEFAULT_SETTINGS: Settings = {
   loadCommonFolder: true,
   watchFiles: true,
   reloadOnExternalChange: 'merge',
+  updateCheck: true,
+  updateSkip: '',
 
   blenderExe: '',
   blenderAxis: 'z-up',

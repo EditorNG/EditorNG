@@ -19,6 +19,7 @@ import { ToolsPanel } from './ToolsPanel';
 import { Palette } from './Palette';
 import { Toasts } from './Toasts';
 import { Dialogs } from './Dialogs';
+import { UpdateDialog, UpdatePill } from './UpdateDialog';
 import { MirrorButton } from './MirrorPart';
 import { COMMANDS, command, commandKey } from './commands';
 import { api } from '../lib/api';
@@ -266,6 +267,7 @@ function StatusBar() {
       {v && <TargetPicker />}
       <SelectionSummary />
       <div className="grow" />
+      <UpdatePill />
       <MirrorButton />
       {v && (
         <button className={'status-item' + (sym ? ' on' : '')} onClick={() => useSettings.getState().set({ symmetryX: !sym })} data-tip="X symmetry (Shift+X)" data-tip-pos="top">
@@ -413,6 +415,7 @@ export function App() {
       <StatusBar />
       <Palette />
       <Dialogs />
+      <UpdateDialog />
       <Toasts />
       <MenuHost />
     </div>

@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import * as dgram from 'node:dgram';
 import { makeZip } from './zip';
+import { checkForUpdates, downloadUpdate, startInstall, otherInstances, takeWhatsNew, updateLogTail, type UpdateCheck } from './updater';
 import { assertTextWritable } from './binaryGuard';
 import { parseJbeamFile } from '../core/jbeam/parts';
 import { Vfs, decodeText, detectBeamNG } from './vfs';
@@ -28,6 +29,12 @@ const cacheDir = () => path.join(userData(), 'cache');
 
 function resourcePath(...p: string[]): string {
   return app.isPackaged ? path.join(process.resourcesPath, ...p) : path.join(app.getAppPath(), ...p);
+}
+
+/** "--name=value" from the command line (the updater restarts EditorNG with these). */
+function argValue(name: string): string | undefined {
+  const a = process.argv.find((x) => x.startsWith(name + '='));
+  return a ? a.slice(name.length + 1) : undefined;
 }
 
 async function readJson(file: string): Promise<Record<string, any>> {
@@ -233,7 +240,40 @@ function registerIpc(): void {
     platform: process.platform,
     argv: process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-')),
     isPackaged: app.isPackaged,
+    updatedFrom: argValue('--updated-from'),
+    updateFailed: argValue('--update-failed'),
+    updateLog: argValue('--update-failed') ? updateLogTail() : undefined,
   }));
+
+  // ---- self-update
+  let lastCheck: UpdateCheck | null = null;
+  h('updateCheck', async () => (lastCheck = await checkForUpdates()));
+  h('updateDownload', async (version: string) => {
+    const rel = lastCheck?.releases.find((r) => r.version === version);
+    if (!rel) return { ok: false, error: 'Check for updates again first.' };
+    try {
+      const staged = await downloadUpdate(rel, (p) => win?.webContents.send('update:progress', p));
+      return { ok: true, staged };
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  });
+  h('updateInstall', async (version: string, staged: string, notes: unknown) => {
+    const rel = lastCheck?.releases.find((r) => r.version === version);
+    if (!rel) return { ok: false, error: 'Check for updates again first.' };
+    const others = await otherInstances();
+    if (others > 0) return { ok: false, error: `Close the other EditorNG window${others > 1 ? 's' : ''} first: ${others > 1 ? 'they lock' : 'it locks'} the files being replaced.` };
+    try {
+      startInstall(staged, rel, notes);
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+    // the updater script waits for this process to exit
+    allowClose = true;
+    setTimeout(() => app.quit(), 150);
+    return { ok: true };
+  });
+  h('updateWhatsNew', () => takeWhatsNew());
   h('settingsLoad', () => readJson(settingsFile()));
   h('settingsSave', (v) => writeJsonAtomic(settingsFile(), v));
   h('stateLoad', () => readJson(stateFile()));

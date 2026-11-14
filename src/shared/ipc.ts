@@ -14,6 +14,12 @@ export interface EnvInfo {
   /** Vehicle / file requested on the command line, if any. */
   argv: string[];
   isPackaged: boolean;
+  /** started by the updater after a successful update, from this version */
+  updatedFrom?: string;
+  /** started by the updater after a failed update: busy | backup | copy */
+  updateFailed?: string;
+  /** last lines of the updater log, when it failed */
+  updateLog?: string;
 }
 
 export type FileRef = Pick<VFile, 'vpath' | 'mount' | 'real'>;
@@ -106,4 +112,9 @@ export interface Api {
   setTitleBarColors(colors: { color: string; symbolColor: string }): Promise<void>;
   confirmClose(ok: boolean): void;
   onCloseRequest(cb: () => void): () => void;
+  updateCheck(): Promise<import('../main/updater').UpdateCheck>;
+  updateDownload(version: string): Promise<{ ok: boolean; staged?: string; error?: string }>;
+  updateInstall(version: string, staged: string, notes: unknown): Promise<{ ok: boolean; error?: string }>;
+  updateWhatsNew(): Promise<unknown>;
+  onUpdateProgress(cb: (p: import('../main/updater').UpdateProgress) => void): () => void;
 }

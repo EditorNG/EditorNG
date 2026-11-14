@@ -8,6 +8,7 @@ import { toast } from '../state/toast';
 import { getViewport } from '../scene/ViewportPanel';
 import { meshes } from '../scene/meshes';
 import { useSel } from '../state/selection';
+import { checkForUpdates } from '../state/update';
 
 export interface Command {
   id: string;
@@ -103,6 +104,7 @@ export const COMMANDS: Command[] = [
   { id: 'app.openVehicle', title: 'Open vehicle…', group: 'File', run: () => { ws.refreshVehicleList(); useUi.setState({ palette: 'vehicles' }); } },
   { id: 'app.gotoNode', title: 'Go to node…', group: 'Go', key: 'app.gotoNode', run: () => useUi.setState({ palette: 'nodes' }), enabled: hasVehicle },
   { id: 'help.shortcuts', title: 'Keyboard shortcuts', group: 'Help', key: 'F1', run: () => useUi.setState({ dialog: { kind: 'shortcuts' } }) },
+  { id: 'help.checkUpdates', title: 'Check for updates…', group: 'Help', run: () => checkForUpdates(true) },
   { id: 'help.devtools', title: 'Toggle developer tools', group: 'Help', run: () => api.windowAction('devtools') },
   { id: 'help.cacheClear', title: 'Clear mesh index cache', group: 'Help', run: async () => {
     await api.cacheClear();

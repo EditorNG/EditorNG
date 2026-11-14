@@ -198,6 +198,16 @@ is open while installing, restart it once: the add-on enables itself at the next
   **Both sides** adds the mirrored bulb too. The electrics menu lists the vehicle's own values and
   **Breaks with** its deform groups.
 
+## Updates
+
+When a new version is out, EditorNG shows what it brings when it starts. **Update and restart**
+downloads it, checks it, replaces the program files and restarts; your settings and files are
+not touched. If anything goes wrong while replacing the files, the previous version is put back.
+**Later** keeps a reminder in the status bar; **Skip this version** stops the reminders until the
+next one. Help → **Check for updates** checks at any time, and Settings → Files & game turns the
+check at startup off. A copy in a protected folder (like Program Files) cannot update itself: move
+the EditorNG folder somewhere like Documents.
+
 ## Files changed by another program
 
 With unsaved edits, a file changed on disk (VS Code, Blender…) is **merged** like git does: changes
