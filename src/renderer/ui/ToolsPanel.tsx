@@ -396,7 +396,10 @@ function LightTool() {
   const electric = elecOv ?? sideElec(role.electric, side);
   const bulb = bulbOv ?? role.bulb;
   const isShort = short ?? !!role.small;
-  const prefix = (ws.model ?? targetPart()?.part.name.split('_')[0] ?? 'car').toLowerCase();
+  // name prefix of the part being worked on (an "ardente_" part in the vivace keeps "ardente"), else the vehicle
+  const scope = useSel.getState().scope;
+  const workPart = useWs.getState().target?.part ?? (scope.mode === 'part' ? scope.part : undefined);
+  const prefix = (workPart?.split('_')[0] ?? ws.model ?? 'car').toLowerCase();
   const autoName = (s: Side) => `${prefix}_${role.token}${s === 'C' ? '' : '_' + s}_bulb`;
   const slotName = (s: Side) => (nameOv !== null && s === side ? nameOv : nameOv !== null ? swapSideTokens(nameOv) : autoName(s));
   const descOf = (s: Side) => {

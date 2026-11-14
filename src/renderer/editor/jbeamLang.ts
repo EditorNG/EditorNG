@@ -141,7 +141,7 @@ export function registerJbeam(): void {
       root: [
         [/\/\/.*$/, 'comment'],
         [/\/\*/, 'comment', '@comment'],
-        [/"(\$=)([^"]*)"/, ['string.expr', 'string.expr']],
+        [/(")(\$=)([^"]*)(")/, ['string.expr', 'string.expr', 'string.expr', 'string.expr']],
         [/"\$[^"]*"/, 'variable'],
         [/"\|[^"]*"/, 'type.flag'],
         [/"(nodes|beams|triangles|quads|hydros|torsionbars|flexbodies|props|slots2?|information|slotType|variables|refNodes|pressureWheels|hubWheels|wheels|rotators|triggers2?|triggerEventLinks2?|actionsEnabled|controller|powertrain|rails|slidenodes|glowMap|sounds|components|cameraExternal|camerasInternal|occupantSystem|thrusters|ropes|soundscape)"(?=\s*:)/, 'keyword.section'],
