@@ -47,6 +47,23 @@ export function triggerLinkRows(t: TriggerSpec): string[] {
   return out;
 }
 
+/** Legacy "triggers" row: the label column after the id, otherwise like triggers2. */
+export function legacyTriggerRow(t: TriggerSpec & { label: string }): string {
+  const r = triggerRow(t);
+  const head = `[${JSON.stringify(t.id)}, `;
+  return head + `${JSON.stringify(t.label)}, ` + r.slice(head.length);
+}
+
+/** Legacy "triggerEventLinks" row: trigger -> event of the "events" section. */
+export function legacyLinkRow(id: string, event: string): string {
+  return `[${JSON.stringify(id)}, "action0", ${JSON.stringify(event)}]`;
+}
+
+/** Legacy "events" row: what the trigger runs (Lua on press). */
+export function legacyEventRow(id: string, title: string, onDown: string): string {
+  return `[${JSON.stringify(id)}, ${JSON.stringify(title)}, ${JSON.stringify(title)}, {"onDown":${JSON.stringify(onDown)}}]`;
+}
+
 /** Actions that need an actionsEnabled entry (everything except common: built-ins). */
 export function needsActionsEnabled(action: string | undefined): boolean {
   return !!action && !action.startsWith('common:');

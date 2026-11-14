@@ -107,38 +107,66 @@ class Shading {
       side: THREE.DoubleSide,
       depthWrite: !sp.transparent,
       clearcoat: sp.clearcoat,
-      clearcoatRoughness: 0.08,
+      clearcoatRoughness: sp.clearcoatRoughness,
     });
     m.name = sp.name;
-    if (sp.paint) {
-      const pt = this.paint();
+    const pt = sp.paint ? this.paint() : null;
+    // layered (paint stage over a base stage): paint colour / metal / roughness are blended in by
+    // the mask in the shader, and the mask also limits the clear coat (clearcoatMap)
+    const layered = !!(pt && sp.paintMask);
+    const paintU = {
+      paintColor: { value: pt ? pt.color.clone() : new THREE.Color(1, 1, 1) },
+      paintMetal: { value: pt?.metallic ?? 0.55 },
+      paintRough: { value: pt?.roughness ?? 0.32 },
+    };
+    // the mask rides on clearcoatMap, which three only binds when the clear coat is on
+    if (layered && m.clearcoat === 0) m.clearcoat = 1e-4;
+    if (pt && !layered) {
       m.color.multiply(pt.color);
       if (pt.metallic !== undefined && !sp.metallicMap) m.metalness = pt.metallic;
       if (pt.roughness !== undefined && !sp.roughnessMap) m.roughness = pt.roughness;
     }
     // BeamNG data maps are single channel (BC4 / greyscale): sample .r where three expects .g/.b,
     // and normal maps are two-channel (BC5): rebuild z.
+    const rebuildZ = (chunk: string, v: string) => chunk.replace(new RegExp('(vec3 ' + v + ' = [^;]*;)'), `$1 ${v}.z = sqrt( max( 0.0, 1.0 - dot( ${v}.xy, ${v}.xy ) ) );`);
     m.onBeforeCompile = (sh) => {
       const C = THREE.ShaderChunk;
+      Object.assign(sh.uniforms, paintU);
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <roughnessmap_fragment>', C.roughnessmap_fragment.replace('texelRoughness.g', 'texelRoughness.r'))
-        .replace('#include <metalnessmap_fragment>', C.metalnessmap_fragment.replace('texelMetalness.b', 'texelMetalness.r'))
-        .replace('#include <alphamap_fragment>', C.alphamap_fragment.replace('vAlphaMapUv ).g', 'vAlphaMapUv ).r'))
         .replace(
-          '#include <normal_fragment_maps>',
-          C.normal_fragment_maps.replace(
-            'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
-            'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0; mapN.z = sqrt( max( 0.0, 1.0 - dot( mapN.xy, mapN.xy ) ) );',
-          ),
-        );
+          '#include <metalnessmap_fragment>',
+          C.metalnessmap_fragment.replace('texelMetalness.b', 'texelMetalness.r') +
+            (layered
+              ? `
+#ifdef USE_CLEARCOATMAP
+  float paintMask = texture2D( clearcoatMap, vClearcoatMapUv ).r;
+  diffuseColor.rgb = mix( diffuseColor.rgb, paintColor, paintMask );
+  metalnessFactor = mix( metalnessFactor, paintMetal, paintMask );
+  roughnessFactor = mix( roughnessFactor, paintRough, paintMask );
+#endif`
+              : ''),
+        )
+        .replace('#include <alphamap_fragment>', C.alphamap_fragment.replace('vAlphaMapUv ).g', 'vAlphaMapUv ).r'))
+        .replace('#include <normal_fragment_maps>', rebuildZ(C.normal_fragment_maps, 'mapN'))
+        // the clear coat follows the normal map too: without it the glossy layer reflects the
+        // light as if the panel were perfectly flat, hiding the detail exactly where it is lit
+        .replace('#include <clearcoat_normal_fragment_maps>', rebuildZ(C.clearcoat_normal_fragment_maps, 'clearcoatMapN'));
+      if (layered) sh.fragmentShader = 'uniform vec3 paintColor;\nuniform float paintMetal;\nuniform float paintRough;\n' + sh.fragmentShader;
     };
-    m.customProgramCacheKey = () => 'beamng-pbr';
-    const set = (slot: 'map' | 'normalMap' | 'roughnessMap' | 'metalnessMap' | 'aoMap' | 'alphaMap', p: string | undefined, srgb: boolean) => {
+    m.customProgramCacheKey = () => 'beamng-pbr' + (layered ? '-layered' : '');
+    const set = (slot: 'map' | 'normalMap' | 'roughnessMap' | 'metalnessMap' | 'aoMap' | 'alphaMap' | 'clearcoatMap', p: string | undefined, srgb: boolean) => {
       if (!p) return;
       this.texture(p, srgb).then((t) => {
         if (!t) return;
         (m as any)[slot] = t;
-        if (slot === 'normalMap') m.normalScale.set(1, -1);
+        if (slot === 'normalMap') {
+          m.normalScale.set(1, -1);
+          if (m.clearcoat > 0) {
+            m.clearcoatNormalMap = t;
+            m.clearcoatNormalScale.set(1, -1);
+          }
+        }
         if (slot === 'roughnessMap') m.roughness = 1;
         if (slot === 'metalnessMap') m.metalness = 1;
         m.needsUpdate = true;
@@ -151,6 +179,7 @@ class Shading {
     set('metalnessMap', sp.metallicMap, false);
     set('aoMap', sp.aoMap, false);
     set('alphaMap', sp.opacityMap, false);
+    if (layered) set('clearcoatMap', sp.paintMask, false);
     return m;
   }
 

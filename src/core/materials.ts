@@ -28,7 +28,13 @@ export interface PbrSpec {
   opacityMap?: string;
   /** tinted with the vehicle paint */
   paint: boolean;
+  /**
+   * Layered material (paint stage above the base stage): the paint stage's opacity map, where 1 =
+   * paint (and its clear coat), 0 = the base stage shows through.
+   */
+  paintMask?: string;
   clearcoat: number;
+  clearcoatRoughness: number;
   transparent: boolean;
   alphaTest: number;
   doubleSided: boolean;
@@ -79,6 +85,7 @@ export function pbrOf(d: MatDef): PbrSpec {
     roughness: 0.6,
     paint: false,
     clearcoat: 0,
+    clearcoatRoughness: 0.08,
     transparent: raw.translucent === true,
     alphaTest: raw.alphaTest === true ? Math.max(0.05, num(raw.alphaRef, 127) / 255) : 0,
     doubleSided: raw.doubleSided === true,
@@ -102,6 +109,12 @@ export function pbrOf(d: MatDef): PbrSpec {
     // paint: instanceDiffuse / instanceBaseColor, or a colour palette map on any stage
     spec.paint = st.some((x) => x.instanceDiffuse === true || x.instanceBaseColor === true || !!x.colorPaletteMap);
     spec.clearcoat = Math.max(0, ...st.map((x) => num(x.clearCoatFactor, 0)));
+    const ccr = st.map((x) => x.clearCoatRoughnessFactor).find((x) => typeof x === 'number' && x < 1);
+    if (typeof ccr === 'number') spec.clearcoatRoughness = Math.max(0.02, ccr);
+    // a paint layer over the base stage, masked by its opacity map (activeLayers ≥ 2)
+    const pi = st.findIndex((x) => x.instanceDiffuse === true || x.instanceBaseColor === true || !!x.colorPaletteMap);
+    const layers = num(raw.activeLayers, st.filter((x) => Object.keys(x).length).length);
+    if (pi > 0 && pi < layers && path(st[pi].opacityMap)) spec.paintMask = path(st[pi].opacityMap);
   } else {
     // older stage format: base colour from the paint stage when there is one, else the first map
     const paintStage = st.find((x) => x.instanceDiffuse === true);

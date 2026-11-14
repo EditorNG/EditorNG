@@ -15,6 +15,7 @@ import type { AArr } from '@core/sjson';
 import { MirrorPartDialog } from './MirrorPart';
 import { GameLinkDialog } from './GameLink';
 import { DeleteRefsDialog, DiffDialog, PackModDialog } from './Tier2';
+import { MergeDialog } from './MergeDialog';
 
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; width?: number }) {
   useEffect(() => {
@@ -76,6 +77,8 @@ export function Dialogs() {
       return <DeleteRefsDialog close={close} data={d.data} />;
     case 'diff':
       return <DiffDialog close={close} data={d.data} />;
+    case 'merge':
+      return <MergeDialog close={close} data={d.data} />;
     case 'packMod':
       return <PackModDialog close={close} />;
     case 'gameLink':

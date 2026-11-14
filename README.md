@@ -47,3 +47,7 @@ zips) stays read-only until copied into a mod.
 Note for Git Bash on Windows: run vitest from a path with an uppercase drive letter
 (`cd /C/Users/...`); a lowercase `c:` path makes vitest fail with "Cannot read properties of
 undefined (reading 'config')".
+
+## License
+
+MIT, see [LICENSE](LICENSE). Bundled fonts and libraries keep their own licenses, in [licenses/](licenses/).

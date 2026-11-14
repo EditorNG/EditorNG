@@ -121,13 +121,13 @@ async function boot() {
   api.blenderLinkPort(s.linkPort).catch(() => {});
   createRoot(document.getElementById('root')!).render(<App />);
   api.onFsChange(async (paths) => {
-    const changed = await ws.onExternalChange(paths);
-    if (changed.length) {
-      log(`Changed on disk: ${changed.join(', ')}`);
-      const dirtyOnes = changed.filter((n) => [...ws.docs.values()].some((d) => d.name === n && ws.isDirty(d)));
-      if (dirtyOnes.length) toast('warn', `${dirtyOnes.join(', ')} changed on disk but has unsaved edits here`, { label: 'Reload', run: () => ws.reloadFromDisk() });
-      else toast('info', `Reloaded ${changed.join(', ')}`, undefined, 1800);
-    }
+    const r = await ws.onExternalChange(paths);
+    const all = [...r.reloaded, ...r.merged, ...r.conflicts, ...r.kept];
+    if (!all.length) return;
+    log(`Changed on disk: ${all.join(', ')}`);
+    if (r.merged.length) toast('ok', `Merged the disk changes of ${r.merged.join(', ')} with your unsaved edits`, undefined, 3500);
+    if (r.kept.length) toast('warn', `${r.kept.join(', ')} changed on disk but has unsaved edits here`, { label: 'Reload', run: () => ws.reloadFromDisk() });
+    if (r.reloaded.length) toast('info', `Reloaded ${r.reloaded.join(', ')}`, undefined, 1800);
   });
   ws.refreshVehicleList().catch(() => {});
   // property names for the typo check: the game's own spellchecker list when available

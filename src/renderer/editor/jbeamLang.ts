@@ -7,6 +7,9 @@ import { unknownProps } from '@core/jbeam/knownProps';
 import { ws, type Doc } from '../project/workspace';
 import { pathAt, LineIndex, type ANode, type AObj, type AArr, type AStr } from '@core/sjson';
 import { SECTIONS, KEYS, BEAM_TYPES, NODE_MATERIALS, COMMON_ACTIONS, GENERIC_ACTIONS } from '@core/jbeam/docs';
+import * as luaGrammar from 'monaco-esm/languages/definitions/lua/lua.js';
+import * as mdGrammar from 'monaco-esm/languages/definitions/markdown/markdown.js';
+import * as iniGrammar from 'monaco-esm/languages/definitions/ini/ini.js';
 import { findNodeTokens, isLinkKey } from '@core/jbeam/edit';
 import type { PartDef, Vehicle } from '@core/jbeam/types';
 import { settings } from '../state/settings';
@@ -106,6 +109,14 @@ const GOOD_TYPES = new Set(['beams', 'hydros']);
 export function registerJbeam(): void {
   monaco.languages.register({ id: LANG, extensions: ['.jbeam', '.pc'], aliases: ['JBeam'] });
   monaco.languages.register({ id: 'lua', extensions: ['.lua'], aliases: ['Lua'] });
+  monaco.languages.setMonarchTokensProvider('lua', luaGrammar.language);
+  monaco.languages.setLanguageConfiguration('lua', luaGrammar.conf);
+  monaco.languages.register({ id: 'markdown', extensions: ['.md'], aliases: ['Markdown'] });
+  monaco.languages.setMonarchTokensProvider('markdown', mdGrammar.language);
+  monaco.languages.setLanguageConfiguration('markdown', mdGrammar.conf);
+  monaco.languages.register({ id: 'ini', extensions: ['.ini'], aliases: ['INI'] });
+  monaco.languages.setMonarchTokensProvider('ini', iniGrammar.language);
+  monaco.languages.setLanguageConfiguration('ini', iniGrammar.conf);
   monaco.languages.setLanguageConfiguration(LANG, {
     comments: { lineComment: '//', blockComment: ['/*', '*/'] },
     brackets: [

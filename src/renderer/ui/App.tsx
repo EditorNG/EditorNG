@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import {
   ListTree, Hammer, Activity as ActivityIcon, Settings as SettingsIcon, Sun, Moon, Save, Undo2, Redo2, Code2, PanelBottom, PanelLeft,
-  Command as CommandIcon, Loader2, ShieldCheck, ChevronUp, FlipHorizontal2, Target,
+  Command as CommandIcon, Loader2, ShieldCheck, ChevronUp, FlipHorizontal2, Target, Search,
 } from 'lucide-react';
 import { ws, useWs } from '../project/workspace';
 import { useUi, PERSISTED_UI, type Activity } from '../state/ui';
-import { useSettings, settings, matches, eventKey } from '../state/settings';
+import { useSettings, settings, matches, eventKey, keyFor } from '../state/settings';
 import { ViewportPanel } from '../scene/ViewportPanel';
 import { CodeEditor } from '../editor/CodeEditor';
 import { StructurePanel } from './SidePanels';
@@ -103,15 +103,18 @@ function TitleBar() {
         ))}
       </div>
       <div className="title-center">
-        {loading ? (
-          <span className="dim row"><Loader2 size={13} className="spin" /> {loading}</span>
-        ) : model ? (
-          <span>
-            <span className="title-vehicle">{model}</span>
-            {config && <span className="faint"> › {config}</span>}
-            {dirty > 0 && <span className="dim"> · {dirty} unsaved</span>}
-          </span>
-        ) : mode === 'loose' ? <span>Loose files{dirty > 0 && <span className="dim"> · {dirty} unsaved</span>}</span> : <span className="dim">No vehicle</span>}
+        <button className="title-search" onClick={() => useUi.setState({ palette: 'files' })} data-tip={`Search files, commands (>), nodes (@), parts (#)…  ${keyFor('app.quickOpen')}`}>
+          <Search size={13} className="faint" />
+          {loading ? (
+            <span className="dim row ellipsis"><Loader2 size={12} className="spin" /> {loading}</span>
+          ) : (
+            <span className="ellipsis">
+              {model ? <span className="title-vehicle">{model}</span> : mode === 'loose' ? 'Loose files' : <span className="dim">EditorNG</span>}
+              {config && <span className="faint"> › {config}</span>}
+              {dirty > 0 && <span className="dim"> · {dirty} unsaved</span>}
+            </span>
+          )}
+        </button>
       </div>
       <div className="title-actions">
         <CheckButton />
@@ -163,8 +166,8 @@ function ActivityBar() {
     <div className="activitybar">
       {item('structure', <ListTree size={20} />, 'Structure: files, parts, slots')}
       {item('create', <Hammer size={20} />, 'Create & place')}
-      <div className="grow" />
       {pageBtn('suspension', <ActivityIcon size={20} />, 'Suspension analysis')}
+      <div className="grow" />
       {pageBtn('settings', <SettingsIcon size={20} />, 'Settings (Ctrl+,)')}
     </div>
   );

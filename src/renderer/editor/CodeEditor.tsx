@@ -19,6 +19,8 @@ import { openMenu } from '../ui/Menu';
 import { showReferences } from '../ui/Tier2';
 import { api } from '../lib/api';
 import * as ops from '../project/ops';
+import { BinaryView } from './BinaryView';
+import { fileIconFor } from '../ui/fileIcons';
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let selDecos: monaco.editor.IEditorDecorationsCollection | null = null;
@@ -349,7 +351,7 @@ export function CodeEditor() {
     const prevDoc = prev ? [...ws.docs.values()].find((d) => d.model === prev) : undefined;
     if (prevDoc) viewStates.set(prevDoc.key, editor.saveViewState());
     const d = ws.doc(active);
-    if (!d) {
+    if (!d || d.binary) {
       editor.setModel(null);
       return;
     }
@@ -413,8 +415,9 @@ export function CodeEditor() {
                 ]);
               }}
             >
-              {!d.writable && <Lock size={11} className="faint" />}
+              {fileIconFor(d.name, 13)}
               <span className="ellipsis">{d.name}</span>
+              {!d.writable && <Lock size={11} className="faint" />}
               <button
                 className={'tab-close' + (dirty ? ' dirty' : '')}
                 onMouseDown={(e) => e.stopPropagation()}
@@ -439,6 +442,7 @@ export function CodeEditor() {
         </div>
       )}
       <div className="editor-host" ref={host} />
+      {active && ws.doc(active)?.binary && <BinaryView doc={ws.doc(active)!} />}
       {!active && (
         <div className="editor-empty">
           <div className="dim">Click any node, beam or triangle to jump to its line,</div>

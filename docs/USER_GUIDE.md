@@ -187,10 +187,32 @@ is open while installing, restart it once: the add-on enables itself at the next
 
 ## 8. Create & place (hammer icon)
 
-- **Trigger (triggers2)**, **Light bulb**, **Occupant seat (0.40)**, **Pressure wheels**,
-  **Subdivide**, **Rails & slidenodes** — select nodes first and press **From selection**; the ⌖
-  button next to a node field lets you click the node in 3D. Shift+A (or right-click → Add) opens
-  them pre-filled at the cursor.
+- **Triggers**, **Lights**, **Occupant**, **Rails & slidenodes**, **Subdivide** — select nodes
+  first and press **From selection**; the ⌖ button next to a node field lets you click the node in
+  3D. Shift+A (or right-click → Add) opens them pre-filled at the cursor.
+- **Triggers**: pick the format (`triggers2`, or the old `triggers` with a label and an event
+  running Lua). Actions come from a menu of every common and generic action of the game, or
+  **Custom action…** for one of your interaction file; `actionsEnabled` is filled in when needed.
+- **Lights**: pick what the light is (low beam, tail / brake, plate…); the bulb, electrics value,
+  direction, slot name and description follow from it and from the side (taken from the position).
+  **Both sides** adds the mirrored bulb too. The electrics menu lists the vehicle's own values and
+  **Breaks with** its deform groups.
+
+## Files changed by another program
+
+With unsaved edits, a file changed on disk (VS Code, Blender…) is **merged** like git does: changes
+on different lines are combined at once (one undo step; your edits stay unsaved), and where both
+changed the same lines a dialog lets you keep yours, take the disk version, or keep both.
+Settings → Files & game → *On external change* has the older behaviours.
+
+## Code editor
+
+- Deleting whole node rows asks whether to delete the beams and triangles that use them too (one
+  undo step), like Delete in the 3D view.
+- The explorer lists every file of the vehicle. Lua, JSON, `.pc` and Markdown open as text with
+  highlighting; images (PNG, JPG, DDS) open in a viewer tab; other files open in their default app.
+- The search box in the title bar (Ctrl+P) finds files; type `>` for commands, `@` nodes, `#`
+  parts, `:` a line, `%` text in all files.
 
 ## 9. Checks and the bottom panel
 

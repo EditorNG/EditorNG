@@ -13,6 +13,7 @@ import { PartLibrary, assembleLoose, buildVehicle, resolveTree } from '@core/jbe
 import { normalizeConfig } from '@core/jbeam/config';
 import { parseSjson, toJs, type ANode } from '@core/sjson';
 import type { TextEdit } from '@core/jbeam/edit';
+import { merge3, mergedText } from '@core/merge';
 import type { JFile, PartDef, Vehicle, VehicleConfig } from '@core/jbeam/types';
 import type { FileRef, VFile, VehicleInfo } from '@shared/ipc';
 import { settings } from '../state/settings';
@@ -304,30 +305,83 @@ class Workspace {
     api.watch(roots);
   }
 
-  /** Called when files change on disk outside the editor. */
-  async onExternalChange(paths: string[]): Promise<string[]> {
+  /**
+   * Called when files change on disk outside the editor (VS Code, Blender…). Without unsaved
+   * edits the file is reloaded. With unsaved edits, by default (policy "merge") the disk changes
+   * and the edits are combined like a git merge: clean merges apply at once (one undo step, the
+   * edits stay unsaved), overlapping changes open the merge dialog.
+   */
+  async onExternalChange(paths: string[]): Promise<ExternalChangeResult> {
     const changed: Doc[] = [];
     const set = new Set(paths.map((p) => p.toLowerCase().replace(/\//g, '\\')));
     for (const d of this.docs.values()) {
       if (d.binary || !isTextPath(d.vpath)) continue;
       if (d.ref.real && set.has(d.ref.real.toLowerCase().replace(/\//g, '\\'))) changed.push(d);
     }
-    const out: string[] = [];
+    const out: ExternalChangeResult = { reloaded: [], merged: [], conflicts: [], kept: [] };
+    const policy = settings().reloadOnExternalChange;
+    if (policy === 'never') return out;
     for (const d of changed) {
       const text = await api.readTextFile(d.ref.real!).catch(() => null);
       if (text === null || text === d.savedText) continue;
-      const dirty = this.isDirty(d);
-      const policy = settings().reloadOnExternalChange;
-      if (policy === 'never') continue;
-      if (dirty && policy === 'ask') {
-        out.push(d.name);
+      this.flush();
+      if (!this.isDirty(d) || policy === 'always') {
+        d.savedText = text;
+        this.replaceText(d, text, false);
+        out.reloaded.push(d.name);
         continue;
       }
-      d.savedText = text;
-      this.replaceText(d, text, false);
-      out.push(d.name);
+      if (text === d.text) {
+        // saved elsewhere with the same content: nothing left unsaved
+        d.savedText = text;
+        this.publish();
+        out.reloaded.push(d.name);
+        continue;
+      }
+      if (policy === 'ask') {
+        out.kept.push(d.name);
+        continue;
+      }
+      const r = merge3(d.savedText, d.text, text);
+      if (r.conflicts === 0) {
+        this.applyMerge(d, mergedText(r), text);
+        out.merged.push(d.name);
+      } else {
+        out.conflicts.push(d.name);
+        this.mergeQueue.set(d.key, text);
+      }
     }
+    if (out.conflicts.length) this.nextMerge();
     return out;
+  }
+
+  /** Files whose disk change overlaps unsaved edits, waiting for the merge dialog (key -> disk text). */
+  private mergeQueue = new Map<string, string>();
+
+  /** Opens the merge dialog for the next file with conflicts. */
+  nextMerge() {
+    if (useUi.getState().dialog?.kind === 'merge') return;
+    for (const [key, theirs] of this.mergeQueue) {
+      this.mergeQueue.delete(key);
+      const d = this.doc(key);
+      if (!d || theirs === d.savedText) continue;
+      useUi.setState({ dialog: { kind: 'merge', data: { doc: d.key, base: d.savedText, ours: d.text, theirs } } });
+      return;
+    }
+  }
+
+  /**
+   * Puts the merged text in the document (one undo step, cursor kept: only the changed middle is
+   * replaced) and records the disk text as the saved state, so the user's own edits stay unsaved.
+   */
+  applyMerge(d: Doc, merged: string, disk: string) {
+    this.flush();
+    if (merged !== d.text) {
+      const e = minimalEdit(d.text, merged);
+      this.applyEdits(`Merge ${d.name} with the changes on disk`, new Map([[d.key, [e]]]));
+    }
+    d.savedText = disk;
+    this.publish();
   }
 
   // ---------------------------------------------------------------------------------------
@@ -539,12 +593,15 @@ class Workspace {
     const uri = monaco.Uri.from({ scheme: 'beamng', path: '/' + d.vpath.replace(/^\/+/, '').replace(/:/g, '') });
     const existing = monaco.editor.getModel(uri);
     existing?.dispose();
-    const lang = d.lang === 'json' ? 'jbeam' : d.lang === 'csv' ? 'plaintext' : d.lang === 'text' ? 'plaintext' : d.lang;
+    const lang = d.lang === 'json' ? 'jbeam' : d.lang === 'csv' ? 'plaintext' : d.lang === 'text' ? (/\.md$/i.test(d.name) ? 'markdown' : /\.ini$/i.test(d.name) ? 'ini' : 'plaintext') : d.lang;
     const model = monaco.editor.createModel(d.text, lang, uri);
     model.setEOL(d.text.includes('\r\n') ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF);
     d.model = model;
     this.lastAlt.set(d.key, model.getAlternativeVersionId());
-    model.onDidChangeContent(() => {
+    model.onDidChangeContent((ev) => {
+      // whole node rows deleted by hand: offer to remove their beams / triangles (after reparse)
+      const removed = !this.internal ? this.removedNodeRows(d, ev.changes) : [];
+      if (removed.length && onTypedNodeDelete) setTimeout(() => onTypedNodeDelete?.(d.key, removed), 0);
       const before = this.lastAlt.get(d.key) ?? 0;
       const after = model.getAlternativeVersionId();
       this.lastAlt.set(d.key, after);
@@ -567,6 +624,40 @@ class Workspace {
       }
     });
     return model;
+  }
+
+  /**
+   * Node names whose whole row lies inside a range removed by these editor changes. Only when the
+   * last parse matches the text the changes apply to (nothing pending for this document).
+   */
+  private removedNodeRows(d: Doc, changes: Array<{ rangeOffset: number; rangeLength: number; text: string }>): string[] {
+    const v = this.vehicle;
+    if (!v || d.lang !== 'jbeam' || this.pending.has(d.key)) return [];
+    const cuts = changes.filter((c) => c.rangeLength > 0);
+    if (!cuts.length) return [];
+    const out: string[] = [];
+    for (const n of v.nodes) {
+      if (n.row.src.file !== d.key) continue;
+      const r = n.row.src.node;
+      if (cuts.some((c) => r.s >= c.rangeOffset && r.e <= c.rangeOffset + c.rangeLength && !c.text.includes(`"${n.name}"`))) out.push(n.name);
+    }
+    return out;
+  }
+
+  /** Merges the last `n` undo groups into one (a follow-up edit that belongs to the previous one). */
+  mergeLastUndo(n: number, label: string) {
+    if (this.undoStack.length < n || n < 2) return;
+    const added = this.undoStack.splice(this.undoStack.length - n);
+    const by = new Map<string, HistGroup['entries'][number]>();
+    for (const g of added) {
+      for (const e of g.entries) {
+        const p = by.get(e.key);
+        if (p) p.after = e.after;
+        else by.set(e.key, { ...e });
+      }
+    }
+    this.undoStack.push({ label, entries: [...by.values()], time: Date.now() });
+    this.publish();
   }
 
   private schedule(key: string, delay: number) {
@@ -603,7 +694,10 @@ class Workspace {
     const model = this.ensureModel(d);
     this.internal++;
     try {
-      model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
+      // replace only the part that differs, so the cursor and scroll position survive a reload
+      const e = minimalEdit(model.getValue(), text);
+      const a = model.getPositionAt(e.s), b = model.getPositionAt(e.e);
+      model.pushEditOperations([], [{ range: new monaco.Range(a.lineNumber, a.column, b.lineNumber, b.column), text: e.text }], () => null);
       if (!record) model.pushStackElement();
     } finally {
       this.internal--;
@@ -831,6 +925,27 @@ class Workspace {
   }
 }
 
+export interface ExternalChangeResult {
+  /** taken from disk (no unsaved edits, or policy "always") */
+  reloaded: string[];
+  /** disk changes merged with the unsaved edits */
+  merged: string[];
+  /** overlapping changes: the merge dialog asks */
+  conflicts: string[];
+  /** unsaved edits kept, disk change not applied (policy "ask") */
+  kept: string[];
+}
+
+/** One edit turning `a` into `b`: the differing middle between their common prefix and suffix. */
+export function minimalEdit(a: string, b: string): TextEdit {
+  let p = 0;
+  const n = Math.min(a.length, b.length);
+  while (p < n && a.charCodeAt(p) === b.charCodeAt(p)) p++;
+  let s = 0;
+  while (s < n - p && a.charCodeAt(a.length - 1 - s) === b.charCodeAt(b.length - 1 - s)) s++;
+  return { s: p, e: a.length - s, text: b.slice(p, b.length - s) };
+}
+
 function flattenTree(tree: any): Record<string, string> {
   const out: Record<string, string> = {};
   const walk = (n: any) => {
@@ -846,6 +961,12 @@ function flattenTree(tree: any): Record<string, string> {
 }
 
 export let meshFiles: VFile[] = [];
+
+/** set by ops: node rows were deleted by typing in the code editor */
+let onTypedNodeDelete: ((file: string, names: string[]) => void) | null = null;
+export function setOnTypedNodeDelete(fn: (file: string, names: string[]) => void) {
+  onTypedNodeDelete = fn;
+}
 
 /** set by the UI to record recent files (avoids an import cycle) */
 let onFilesOpened: ((paths: string[]) => void) | null = null;

@@ -1,7 +1,7 @@
 /**
  * Editing operations used by the 3D tools. Each produces minimal text edits.
  */
-import { ws, useWs, type Doc } from './workspace';
+import { ws, useWs, setOnTypedNodeDelete, type Doc } from './workspace';
 import {
   DEFAULT_HEADERS, deleteNodes, fmtNum, fmtRow, fmtValue, insertRows, rowFromRecord, setRowOption, findNodeTokens, insertKey, eolOf, indentUnitOf, insertRowsAfter, setRowCellsText, indentAt, insertRowsAtLine, type TextEdit,
 } from '@core/jbeam/edit';
@@ -590,6 +590,51 @@ export function deleteSelection(): boolean {
   if (ok) setSel(emptySel());
   return ok;
 }
+
+/**
+ * Node rows deleted in the code editor: like Delete in the 3D view, their beams and triangles go
+ * too (Settings: deleteRelated), after a confirmation, as part of the same undo step.
+ */
+function cleanupTypedNodeDelete(_file: string, names: string[]) {
+  if (!settings().deleteRelated) return;
+  ws.flush();
+  const v = ws.vehicle;
+  const gone = new Set(names.filter((n) => !v?.nodeIndex.has(n)));
+  if (!gone.size) return;
+  const rows = new Map<string, ANode[]>();
+  let beams = 0, tris = 0;
+  for (const d of ws.docs.values()) {
+    if (!d.jfile || !d.writable || d.isCommon) continue;
+    for (const p of d.jfile.parts) {
+      for (const [sec, cnt] of [['beams', 2], ['triangles', 3], ['quads', 4]] as const) {
+        const t = p.sections.get(sec);
+        if (!t || t.k !== 'arr') continue;
+        for (const it of t.items) {
+          if (it.k !== 'arr') continue;
+          const ids = it.items.slice(0, cnt).map((x) => (x.k === 'str' ? x.v : ''));
+          if (!ids.some((id) => gone.has(id))) continue;
+          let l = rows.get(d.key);
+          if (!l) rows.set(d.key, (l = []));
+          l.push(it);
+          if (sec === 'beams') beams++;
+          else tris++;
+        }
+      }
+    }
+  }
+  if (!rows.size) return;
+  const list = [...gone];
+  const what = [beams && `${beams} beam${beams > 1 ? 's' : ''}`, tris && `${tris} triangle${tris > 1 ? 's' : ''}`].filter(Boolean).join(' and ');
+  const nodesTxt = list.length > 4 ? `${list.slice(0, 4).join(', ')} and ${list.length - 4} more` : list.join(', ');
+  if (!confirm(`You deleted ${list.length > 1 ? 'nodes' : 'node'} ${nodesTxt}.\n\nAlso delete the ${what} that use ${list.length > 1 ? 'them' : 'it'}?`)) return;
+  const es = new EditSet();
+  for (const [file, l] of rows) es.add(file, deleteNodes(ws.doc(file)!.text, l));
+  if (es.apply(`Delete ${what}`)) {
+    ws.mergeLastUndo(2, `Delete ${list.length} node(s) with their ${what}`);
+    toast('ok', `Deleted ${what}`, undefined, 1600);
+  }
+}
+setOnTypedNodeDelete(cleanupTypedNodeDelete);
 
 // ------------------------------------------------------------------------------------------
 // mirror / duplicate / naming helpers

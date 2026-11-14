@@ -1,13 +1,35 @@
+# dependencies and build output
 node_modules/
 out/
 dist/
 release/
-*.log
-.cache/
-shots/
 .vite/
+*.tsbuildinfo
+coverage/
+
+# local caches, automation and screenshots
 .cache/
 .cache_open.js
 shots/
+*.log
+
+# Python bytecode (the Blender scripts); it embeds local paths
 __pycache__/
 *.pyc
+
+# internal planning notes and loose working files
+docs/PLAN-*.md
+/logo_authored.png
+*.blend1
+*.blend2
+
+# local environment
+.env
+.env.*
+
+# OS / editor clutter
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.idea/

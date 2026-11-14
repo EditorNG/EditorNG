@@ -7,6 +7,7 @@ import * as ops from '../project/ops';
 import { getViewport, getLayers, startRailSlide } from './ViewportPanel';
 import { openMenu } from '../ui/Menu';
 import { isResetValue } from '@core/analysis/modifiers';
+import { nodeWeight } from '@core/analysis/debug';
 import { closestOnRail, pointAtS, railLength } from '@core/jbeam/rails';
 import type { Row } from '@core/jbeam/types';
 import type { AArr, AObj } from '@core/sjson';
@@ -347,6 +348,13 @@ function RailInfo({ node }: { node: number }) {
   );
 }
 
+/** Node mass of the parts in scope (kg). */
+function weightOf(v: NonNullable<typeof ws.vehicle>, inScope: (part: string) => boolean): number {
+  let w = 0;
+  for (let i = 0; i < v.nodes.length; i++) if (inScope(v.nodes[i].row.part.def.name)) w += nodeWeight(v, i);
+  return w;
+}
+
 /** Inspector content with nothing selected: what is in view, and how to get going. */
 function ScopeSummary({ scope }: { scope: ReturnType<typeof useSel.getState>['scope'] }) {
   const v = ws.vehicle!;
@@ -363,6 +371,7 @@ function ScopeSummary({ scope }: { scope: ReturnType<typeof useSel.getState>['sc
         {part?.def.info.name && <div className="insp-line"><span className="dim">name</span><span className="ellipsis">{part.def.info.name}</span></div>}
         {part && <div className="insp-line"><span className="dim">slotType</span><span className="mono ellipsis">{part.def.slotTypes.join(', ')}</span></div>}
         {parts && scope.mode === 'file' && <div className="insp-line"><span className="dim">parts</span><span>{parts.length}</span></div>}
+        <div className="insp-line" data-tip={'Sum of nodeWeight (25 kg when unset)\nLua-added masses (engine, fuel…) not included'} data-tip-pos="left"><span className="dim">weight</span><span className="mono">{weightOf(v, inScope).toFixed(1)} kg</span></div>
         <div className="insp-line"><span className="dim">nodes</span><span>{count(v.nodes, (n) => n.row.part.def.name)}</span></div>
         <div className="insp-line"><span className="dim">beams</span><span>{count(v.beams, (b) => b.row.part.def.name)}</span></div>
         <div className="insp-line"><span className="dim">triangles</span><span>{count(v.tris, (t) => t.row.part.def.name)}</span></div>

@@ -24,6 +24,103 @@ interface Group {
   fields: Field[];
 }
 
+/** Hover text for every setting: what it does, in plain words. */
+const TIPS: Partial<Record<K, string>> = {
+  theme: 'Dark or light interface. "Follow Windows" switches with the system setting.',
+  accent: 'Colour of selections, primary buttons and active items in the interface.',
+  uiScale: 'Makes all text and controls bigger or smaller.',
+  density: 'Row height in lists and trees. Compact fits more on screen.',
+  reduceMotion: 'Turns off the small animations of menus and panels.',
+  nodeSize: 'Size of the node dots in the 3D view (pixels).',
+  nodeWorldScale: 'Off: nodes keep the same size on screen at any distance.\nOn: nodes shrink with distance like real spheres.',
+  beamWidth: 'Thickness of beam lines in the 3D view (pixels).',
+  triOpacity: 'How opaque collision triangles are. 0 hides their fill (outlines stay).',
+  showTriNormals: 'Draws a short line from each collision triangle showing which way it faces.\nBack faces are tinted, to spot flipped triangles.',
+  meshOpacity: 'How see-through flexbodies are in Wireframe shading.',
+  meshShading: 'How flexbodies and props are drawn: see-through wireframe, plain solid grey,\nor shaded with the game materials and textures. Z in the 3D view cycles them.',
+  shadedEnvHdr: 'An .hdr or .exr panorama used to light the Shaded view and for reflections.\nEmpty uses the built-in studio.',
+  shadedEnvBrightness: 'Brightness of the lighting in the Shaded view.',
+  meshColorByPart: 'Tints each flexbody with the colour of its part, to see which part owns which mesh.',
+  showOccupants: 'Shows the seated occupant (torso and head) of 0.40 seat occupant slots,\nplaced like in game.',
+  showLabels: 'When node names are drawn next to the nodes.',
+  labelSize: 'Font size of node name labels.',
+  beamColorMode: 'What beam colours mean: beam type, part, stiffness (heat map), deform group, or one colour.',
+  dimOtherParts: 'When one part or file is isolated, the rest of the vehicle stays visible but faded.',
+  dimOpacity: 'How faded the other parts are when isolating.',
+  showGrid: 'Floor grid in the 3D view.',
+  showAxes: 'X / Y / Z axis lines at the origin.',
+  showGround: 'A ground plane at z = 0, to see what touches the floor.',
+  fov: 'Camera field of view in perspective mode.',
+  antialias: 'Smoother edges in the 3D view. Takes effect after a restart.',
+  pixelRatioCap: 'Limits the render resolution on high-DPI screens. Lower is faster.',
+  pickRadius: 'How close (in pixels) the mouse must be to a node or beam to click it.',
+  colorNode: 'Colour of ordinary nodes.',
+  colorNodeFixed: 'Colour of fixed nodes (fixed: true).',
+  colorBeam: 'Colour of normal beams.',
+  colorBeamAniso: 'Colour of anisotropic beams.',
+  colorBeamBounded: 'Colour of bounded beams (e.g. shocks, bump stops).',
+  colorBeamSupport: 'Colour of support beams.',
+  colorBeamHydro: 'Colour of hydros (steering, actuators).',
+  colorBeamPressured: 'Colour of pressured beams (tyres, air springs).',
+  colorBeamLbeam: 'Colour of L-beams.',
+  colorTri: 'Colour of collision triangles (front face).',
+  colorTriBack: 'Colour of the back face of collision triangles.',
+  colorSelect: 'Colour of selected elements in the 3D view.',
+  colorHighlight: 'Colour of the elements under the code editor cursor.',
+  orbitButton: 'Which mouse buttons orbit and pan the 3D view.',
+  frameOnScope: 'Moves the camera to fit a part or file when you pick it in the tree.',
+  zoomSpeed: 'How fast the mouse wheel zooms.',
+  invertZoom: 'Reverses the mouse wheel zoom direction.',
+  zoomToCursor: 'Zooms towards the point under the mouse instead of the centre of the view.',
+  orbitSpeed: 'How fast dragging orbits the camera.',
+  snapGrid: 'Step used by increment snapping (Alt) while moving nodes.',
+  editorVisible: 'Shows the code editor next to the 3D view (Ctrl+E).',
+  editorFontSize: 'Font size of the code editor.',
+  editorFontFamily: 'Font of the code editor. The first installed font of the list is used.',
+  editorMinimap: 'The code overview strip on the right of the editor.',
+  editorWordWrap: 'Wraps long lines instead of scrolling sideways.',
+  editorStickyScroll: 'Keeps the current part and section names pinned at the top while scrolling.',
+  editorInlayLengths: 'Shows each beam\'s length at the end of its line.',
+  editorSyncCursor: 'Highlights in 3D the nodes and beams of the lines under the editor cursor.',
+  revealOnSelect: 'Clicking something in 3D scrolls the code editor to its line.',
+  editorTabSize: 'Number of spaces a tab is worth.',
+  editorRenderWhitespace: 'Shows spaces and tabs as faint dots and arrows.',
+  editorLineHighlight: 'Highlights the line the cursor is on.',
+  editorHoverDelay: 'How long to hover before the editor shows information about a word.',
+  decimals: 'Number of decimals written for node positions and generated values.',
+  autoSave: 'Saves files automatically when the code editor loses focus.',
+  backupOnSave: 'Keeps a copy of each file before it is overwritten, so a save can be undone later.',
+  backupCount: 'How many backup copies are kept per file. Older ones are deleted.',
+  backupDir: 'Where backups are stored. Empty uses the EditorNG data folder.',
+  confirmDelete: 'Asks before deleting nodes, beams or triangles from the 3D view.',
+  deleteRelated: 'Deleting nodes also deletes the beams and triangles that use them,\nin the 3D view and in the code editor.',
+  mirrorSuffixLeft: 'Name ending of nodes on the left (+X) side, e.g. "l" in f1l.',
+  mirrorSuffixRight: 'Name ending of nodes on the right (−X) side, e.g. "r" in f1r.',
+  mirrorTolerance: 'How far apart two nodes may be and still count as mirror twins.',
+  namingPrefix: 'Prefix of new node names (Shift+N naming tool, Add node).',
+  namingStart: 'First number used when naming new nodes.',
+  namingCenterTolerance: 'Nodes closer than this to x = 0 are on the centre line and get no side suffix.',
+  gameDir: 'Where BeamNG.drive is installed. Found from the game\'s settings when empty.',
+  userDir: 'The BeamNG user folder (mods, settings). Found automatically when empty.',
+  extraRoots: 'More folders with vehicles/<name> inside, searched before the game files.',
+  loadCommonFolder: 'Loads vehicles/common, which holds shared parts: wheels, seats, bulbs…',
+  watchFiles: 'Notices when files are changed by another program (VS Code, Blender…).',
+  reloadOnExternalChange: 'What happens when a file changes on disk:\nMerge: your unsaved edits and the disk changes are combined like git; you choose\nonly where both changed the same lines.\nAsk: reload unless you have unsaved edits. Always: take the disk version. Ignore: do nothing.',
+  blenderExe: 'Path to blender.exe, used to read .blend files and install the live-link add-on.',
+  blenderAxis: 'Which way is up in OBJ files you import.',
+  importMergeTolerance: 'Vertices closer than this are welded into one node, and re-imports match existing nodes within it.',
+  importMakeBeams: 'Mesh edges become beams on import.',
+  importMakeTris: 'Mesh faces become collision triangles on import.',
+  linkPort: 'Local network port the Blender add-on talks to EditorNG on.',
+  debugShortBeam: 'Beams shorter than this are reported by the checks.',
+  debugCloseNodes: 'Nodes closer than this to each other are reported as coincident.',
+  debugMinBeamsPerNode: 'Nodes with fewer beams than this are reported as weakly attached.',
+  suspRigidThreshold: 'Beams stiffer than this are rigid links in the suspension analysis; softer ones are springs.',
+  suspTravel: 'How far up and down the wheel is moved in the suspension sweep.',
+  suspSteps: 'Number of positions computed across the sweep.',
+  suspPartPattern: 'Parts whose names match this pattern move with the suspension in the analysis.',
+};
+
 const GROUPS: Group[] = [
   {
     id: 'appearance', title: 'Appearance', fields: [
@@ -46,7 +143,7 @@ const GROUPS: Group[] = [
       { key: 'shadedEnvHdr', label: 'Shaded: environment (.hdr / .exr)', type: 'path', filters: [{ name: 'HDR images', extensions: ['hdr', 'exr'] }, { name: 'All files', extensions: ['*'] }], hint: 'Equirectangular .hdr or .exr used for lighting and reflections in Shaded. Empty: built-in studio. Its brightness is normalised, so any HDRI works.' },
       { key: 'shadedEnvBrightness', label: 'Shaded: environment brightness', type: 'range', min: 0.25, max: 3, step: 0.05 },
       { key: 'meshColorByPart', label: 'Colour flexbodies by part', type: 'bool' },
-      { key: 'showOccupants', label: 'Show occupants (0.40 seat occupants)', type: 'bool', hint: 'Torso and head placed like in game: seat nodeMove / nodeRotate applied.' },
+      { key: 'showOccupants', label: 'Show occupants', type: 'bool' },
       { key: 'showLabels', label: 'Node labels', type: 'select', options: [['off', 'Off'], ['hover', 'Hovered & selected'], ['selected', 'Selected only'], ['all', 'All']] },
       { key: 'labelSize', label: 'Label size', type: 'range', min: 8, max: 18, step: 1 },
       { key: 'beamColorMode', label: 'Beam colours', type: 'select', options: [['type', 'By beam type'], ['part', 'By part'], ['stiffness', 'By stiffness (heat map)'], ['deformGroup', 'By deform group'], ['uniform', 'Uniform']] },
@@ -86,7 +183,7 @@ const GROUPS: Group[] = [
       { key: 'invertZoom', label: 'Invert zoom', type: 'bool' },
       { key: 'zoomToCursor', label: 'Zoom towards cursor', type: 'bool' },
       { key: 'orbitSpeed', label: 'Orbit speed', type: 'range', min: 0.2, max: 3, step: 0.1 },
-      { key: 'snapGrid', label: 'Snap step (Ctrl while moving)', type: 'number', step: 0.001, unit: 'm' },
+      { key: 'snapGrid', label: 'Snap step (Alt while moving)', type: 'number', step: 0.001, unit: 'm' },
     ],
   },
   {
@@ -130,7 +227,7 @@ const GROUPS: Group[] = [
       { key: 'extraRoots', label: 'Extra mod folders', type: 'list', hint: 'Folders containing vehicles/<name>, searched before the game.' },
       { key: 'loadCommonFolder', label: 'Load vehicles/common', type: 'bool', hint: 'Needed for common parts, wheels, seats, bulbs...' },
       { key: 'watchFiles', label: 'Watch files for external changes', type: 'bool' },
-      { key: 'reloadOnExternalChange', label: 'On external change', type: 'select', options: [['ask', 'Reload unless I have unsaved edits'], ['always', 'Always reload'], ['never', 'Ignore']] },
+      { key: 'reloadOnExternalChange', label: 'On external change', type: 'select', options: [['merge', 'Merge with my unsaved edits'], ['ask', 'Reload unless I have unsaved edits'], ['always', 'Always reload'], ['never', 'Ignore']] },
     ],
   },
   {
@@ -163,7 +260,7 @@ export default function SettingsPage() {
   const [q, setQ] = useState('');
   const [group, setGroup] = useState('appearance');
   const ql = q.toLowerCase();
-  const groups = useMemo(() => GROUPS.map((g) => ({ ...g, fields: g.fields.filter((f) => !ql || f.label.toLowerCase().includes(ql) || String(f.key).toLowerCase().includes(ql) || (f.hint ?? '').toLowerCase().includes(ql)) })), [ql]);
+  const groups = useMemo(() => GROUPS.map((g) => ({ ...g, fields: g.fields.filter((f) => !ql || f.label.toLowerCase().includes(ql) || String(f.key).toLowerCase().includes(ql) || (f.hint ?? '').toLowerCase().includes(ql) || (TIPS[f.key] ?? '').toLowerCase().includes(ql)) })), [ql]);
   const shown = q ? groups.filter((g) => g.fields.length) : groups.filter((g) => g.id === group);
 
   // side effects that need the main process
@@ -318,7 +415,7 @@ function FieldRow({ f }: { f: Field }) {
   }
   return (
     <div className="setting-row">
-      <div className="setting-label">
+      <div className="setting-label" data-tip={TIPS[f.key]} data-tip-pos="bottom-right">
         <span>{f.label}{changed && <span className="changed-dot" title="Changed from default" />}</span>
         {f.hint && <span className="field-hint">{f.hint}</span>}
       </div>

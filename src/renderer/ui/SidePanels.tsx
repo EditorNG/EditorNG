@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Search, Package, FolderOpen, FilePlus2, ChevronRight, ChevronDown, Lock, FileCode2, FileJson, File as FileIcon, Car, Puzzle,
+  Search, Package, FolderOpen, FilePlus2, ChevronRight, ChevronDown, Lock, File as FileIcon, Car, Puzzle,
   Target, CircleSlash, Save,
 } from 'lucide-react';
 import { ws, useWs, type Doc } from '../project/workspace';
@@ -13,6 +13,7 @@ import { toast } from '../state/toast';
 import { settings } from '../state/settings';
 import type { SlotNode, ActivePart } from '@core/jbeam/types';
 import { command } from './commands';
+import { fileIconFor, folderIcon } from './fileIcons';
 import { openMenu } from './Menu';
 import { swapSideTokens } from '@core/jbeam/mirror';
 
@@ -43,12 +44,6 @@ interface TreeNode {
   path: string;
   children: Map<string, TreeNode>;
   doc?: Doc;
-}
-
-function fileIcon(d: Doc) {
-  if (d.lang === 'jbeam') return <FileCode2 size={14} className="icon-jbeam" />;
-  if (d.lang === 'json') return <FileJson size={14} className="icon-json" />;
-  return <FileIcon size={14} className="faint" />;
 }
 
 function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }) {
@@ -105,7 +100,6 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
       if (c.doc) {
         const d = c.doc;
         const dirty = ws.isDirty(d);
-        const textual = d.lang !== 'text' || /\.(txt|md|ini)$/i.test(d.name);
         const parts = d.jfile?.parts ?? [];
         const hasParts = d.lang === 'jbeam' && parts.length > 0;
         const open = hasParts && isOpen(d.key);
@@ -113,7 +107,7 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
         out.push(
           <div
             key={c.path}
-            className={'tree-item file' + (activeTab === d.key ? ' active' : '') + (viewing ? ' viewing' : '') + (textual ? '' : ' muted')}
+            className={'tree-item file' + (activeTab === d.key ? ' active' : '') + (viewing ? ' viewing' : '')}
             style={{ paddingLeft: 4 + depth * 12 }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -125,11 +119,10 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
               <button className="icon-btn small tiny" onClick={() => toggleFile(d.key)} aria-label={open ? 'Collapse' : 'Expand'}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</button>
             ) : <span style={{ width: 18, flex: 'none' }} />}
             <button className="tree-label" onClick={() => {
-              if (!textual) return;
               openTab(d.key);
               if (hasParts && vehicle?.parts.some((ap) => ap.def.file === d.key)) ws.setScope({ mode: 'file', file: d.key });
             }}>
-              {fileIcon(d)}
+              {fileIconFor(d.name)}
               <span className="ellipsis grow">{c.name}</span>
             </button>
             {!d.writable && <Lock size={11} className="faint" />}
@@ -164,7 +157,7 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
                   ws.focusPart(part.name);
                   revealRange(d.key, part.key.s, part.key.e);
                 }}>
-                  <Puzzle size={12} className={active ? 'accent-text' : 'faint'} />
+                  <Puzzle size={12} className={active ? 'part-icon' : 'faint'} />
                   <span className="mono ellipsis grow">{part.name}</span>
                   {part.info.name && <span className="faint ellipsis small-text" style={{ maxWidth: '45%' }}>{part.info.name}</span>}
                 </button>
@@ -213,6 +206,7 @@ function FilesTree(props: { q: string; showCommon: boolean; jbeamOnly: boolean }
             setCollapsed(s);
           }}>
             {isCol ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+            {folderIcon(!isCol)}
             <span className="ellipsis">{c.name}</span>
           </button>,
         );
@@ -298,11 +292,11 @@ export function StructurePanel() {
   const mode = useUi((x) => x.structMode);
   const [q, setQ] = useState('');
   const [showCommon, setShowCommon] = useState(false);
-  const [jbeamOnly, setJbeamOnly] = useState(true);
+  const [jbeamOnly, setJbeamOnly] = useState(false);
   const [showEmpty, setShowEmpty] = useState(false);
   return (
     <div className="panel">
-      <PanelHeader title={model ? `Structure — ${model}` : 'Structure'}>
+      <PanelHeader title={model ?? 'Structure'}>
         <button className="icon-btn small" data-tip="Open vehicle…" onClick={() => command('app.openVehicle')} aria-label="Open vehicle"><Car size={14} /></button>
         <button className="icon-btn small" data-tip="Open .jbeam file(s)" onClick={() => command('file.openFile')} aria-label="Open file"><FolderOpen size={14} /></button>
         <button className="icon-btn small" data-tip="New vehicle" data-tip-pos="bottom-left" onClick={() => useUi.setState({ dialog: { kind: 'newVehicle' } })} aria-label="New vehicle"><FilePlus2 size={14} /></button>
@@ -314,7 +308,7 @@ export function StructurePanel() {
         </div>
         {mode === 'files' ? (
           <>
-            <button className={'icon-btn small' + (!jbeamOnly ? ' active' : '')} data-tip="Show all files, not only .jbeam" data-tip-pos="bottom-left" onClick={() => setJbeamOnly(!jbeamOnly)} aria-label="All files"><FileIcon size={13} /></button>
+            <button className={'icon-btn small' + (!jbeamOnly ? ' active' : '')} data-tip={jbeamOnly ? 'Showing .jbeam only: show all files' : 'Show .jbeam files only'} data-tip-pos="bottom-left" onClick={() => setJbeamOnly(!jbeamOnly)} aria-label="All files"><FileIcon size={13} /></button>
             <button className={'icon-btn small' + (showCommon ? ' active' : '')} data-tip="Show active common/ files" data-tip-pos="bottom-left" onClick={() => setShowCommon(!showCommon)} aria-label="Show common"><Package size={13} /></button>
           </>
         ) : (

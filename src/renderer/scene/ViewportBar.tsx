@@ -17,7 +17,7 @@ const DISPLAY_TOGGLES: Array<[keyof Settings, string]> = [
   ['showTris', 'Collision triangles'],
   ['showTriNormals', 'Triangle normals'],
   ['showMeshes', 'Flexbodies'],
-  ['showOccupants', 'Occupants (0.40)'],
+  ['showOccupants', 'Occupants'],
   ['showProps', 'Props & lights'],
   ['showTriggers', 'Triggers'],
   ['showWheels', 'Wheels'],
@@ -26,14 +26,14 @@ const DISPLAY_TOGGLES: Array<[keyof Settings, string]> = [
   ['showGrid', 'Grid'],
   ['showAxes', 'Axes'],
   ['showGround', 'Ground plane'],
-  ['xray', 'X-ray (Alt+Z)'],
+  ['xray', 'X-ray'],
 ];
 
 /** what a plain click / box select may pick; Alt+click still reaches meshes, props and triggers */
 const SELECTABLE: Array<[keyof Settings, string]> = [
   ['selNodes', 'Nodes'],
   ['selBeams', 'Beams'],
-  ['selTris', 'Tris'],
+  ['selTris', 'Triangles'],
   ['selTriggers', 'Triggers'],
   ['selFlex', 'Flexbodies'],
   ['selProps', 'Props'],
@@ -130,28 +130,28 @@ function DisplayPopover() {
         ))}
       </div>
       <div className="ctx-sep" />
-      <div className="ctx-title" title="What a plain click or box select can pick. Alt+click always picks flexbodies, props and triggers.">Selectable <span className="faint">· Alt+click picks meshes</span></div>
-      <div className="disp-chips">
+      <div className="ctx-title" data-tip={'What a click or box select picks.\nAlt+click always picks flexbodies, props and triggers.'} data-tip-pos="bottom-right">Selectable</div>
+      <div className="disp-grid">
         {SELECTABLE.map(([k, label]) => (
-          <button key={k} className={'disp-chip' + (s[k] ? ' on' : '')} onClick={() => set({ [k]: !s[k] } as any)}>
+          <label key={k} className="disp-check">
+            <input type="checkbox" checked={!!s[k]} onChange={(e) => set({ [k]: e.target.checked } as any)} />
             {label}
-          </button>
+          </label>
         ))}
       </div>
       <div className="ctx-sep" />
-      <div className="ctx-title">Sizes</div>
       {slider('nodeSize', 'Node size', 2, 20, 0.5)}
       {slider('beamWidth', 'Beam width', 0.5, 6, 0.25)}
       {slider('meshOpacity', 'Flexbody opacity', 0, 1, 0.02)}
       {slider('triOpacity', 'Triangle opacity', 0, 1, 0.02)}
-      {s.meshShading === 'shaded' && slider('shadedEnvBrightness', 'Light (Shaded)', 0.25, 3, 0.05)}
+      {s.meshShading === 'shaded' && slider('shadedEnvBrightness', 'Light', 0.25, 3, 0.05)}
       <div className="ctx-sep" />
       <label className="disp-row">
         <span className="dim">Flexbodies</span>
         <select className="select small" value={s.meshShading} onChange={(e) => set({ meshShading: e.target.value as Settings['meshShading'] })}>
-          <option value="wireframe">Wireframe (see-through)</option>
-          <option value="solid">Solid (grey-white)</option>
-          <option value="shaded">Shaded (game materials)</option>
+          <option value="wireframe">Wireframe</option>
+          <option value="solid">Solid</option>
+          <option value="shaded">Shaded</option>
         </select>
       </label>
       <label className="disp-row">
@@ -160,7 +160,7 @@ function DisplayPopover() {
           <option value="off">Off</option>
           <option value="hover">Hovered</option>
           <option value="selected">Selected</option>
-          <option value="all">All (Shift+L)</option>
+          <option value="all">All</option>
         </select>
       </label>
       <label className="disp-row">
@@ -168,7 +168,7 @@ function DisplayPopover() {
         <select className="select small" value={s.beamColorMode} onChange={(e) => set({ beamColorMode: e.target.value as BeamColorMode })}>
           <option value="type">By beam type</option>
           <option value="part">By part</option>
-          <option value="deformGroup">By deformGroup</option>
+          <option value="deformGroup">By deform group</option>
           <option value="stiffness">By stiffness</option>
           <option value="uniform">Uniform</option>
         </select>

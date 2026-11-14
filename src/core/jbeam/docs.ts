@@ -169,12 +169,132 @@ export const KEYS: Record<string, string> = {
 export const BEAM_TYPES = ['|NORMAL', '|ANISOTROPIC', '|BOUNDED', '|SUPPORT', '|PRESSURED', '|HYDRO', '|LBEAM', '|BROKEN'];
 export const NODE_MATERIALS = ['|NM_METAL', '|NM_PLASTIC', '|NM_RUBBER', '|NM_GLASS', '|NM_WOOD', '|NM_FOLIAGE', '|NM_CLOTH', '|NM_ASPHALT'];
 
-export const COMMON_ACTIONS = [
-  'common:toggle_headlights', 'common:toggle_hazard_signal', 'common:activateStarterMotor', 'common:setIgnitionLevel3Momentary',
-  'common:parkingbrake', 'common:parkingbrake_temporary', 'common:toggle_lightbar', 'common:toggle_siren', 'common:toggle_left_signal',
-  'common:toggle_right_signal', 'common:toggle_fog_lights', 'common:horn',
+
+/**
+ * Trigger actions for triggerEventLinks2, from the game files: "common:" = the vehicle input
+ * actions (lua/ge/extensions/core/input/actions/vehicle.json, no actionsEnabled needed), generic =
+ * vehicles/common/common_default.interaction.json (listed in actionsEnabled; most need the
+ * matching coupler name). Labels are what the menu shows.
+ */
+export interface ActionDef {
+  id: string;
+  label: string;
+}
+export interface ActionGroup {
+  group: string;
+  actions: ActionDef[];
+}
+
+const A = (id: string, label: string): ActionDef => ({ id, label });
+
+export const TRIGGER_ACTIONS: ActionGroup[] = [
+  { group: 'Lights', actions: [
+    A('common:toggle_headlights', 'Headlights'), A('common:highbeam', 'High beam'), A('common:toggle_foglights', 'Fog lights'),
+    A('common:toggle_left_signal', 'Left signal'), A('common:toggle_right_signal', 'Right signal'), A('common:toggle_hazard_signal', 'Hazard lights'),
+    A('common:toggle_lightbar_signal', 'Lightbar'), A('common:toggleLightbarMode', 'Lightbar mode'), A('common:toggle_underglow', 'Underglow'),
+    A('toggle_lowbeam', 'Low beam (generic)'), A('toggle_highbeam', 'High beam (generic)'),
+  ] },
+  { group: 'Ignition & horn', actions: [
+    A('common:activateStarterMotor', 'Starter motor'), A('common:setIgnitionLevel3Momentary', 'Key to start (momentary)'),
+    A('common:setIgnitionLevel0', 'Ignition off'), A('common:setIgnitionLevel1', 'Ignition accessory'), A('common:setIgnitionLevel2', 'Ignition on'),
+    A('common:setIgnitionLevel3', 'Ignition start'), A('common:setIgnitionLevel1Momentary', 'Ignition accessory (momentary)'),
+    A('common:setIgnitionLevel2Momentary', 'Ignition on (momentary)'), A('common:horn', 'Horn'), A('common:enterSeat', 'Enter seat'),
+  ] },
+  { group: 'Brakes', actions: [
+    A('common:parkingbrake_toggle', 'Parking brake (toggle)'), A('common:parkingbrake', 'Parking brake (hold)'),
+    A('common:parkingbrake_temporary', 'Parking brake (hydraulic handbrake)'), A('parkingBrake_on', 'Parking brake pedal: on'), A('parkingBrake_off', 'Parking brake pedal: release'),
+    A('common:toggleTransbrake', 'Transbrake'), A('common:toggleLineLock', 'Line lock'),
+  ] },
+  { group: 'Gearbox', actions: [
+    A('common:shiftUp', 'Shift up'), A('common:shiftDown', 'Shift down'), A('common:gearN', 'Neutral'), A('common:gearR', 'Reverse'),
+    A('common:gear1', 'Gear 1'), A('common:gear2', 'Gear 2'), A('common:gear3', 'Gear 3'), A('common:gear4', 'Gear 4'), A('common:gear5', 'Gear 5'), A('common:gear6', 'Gear 6'),
+    A('common:toggleShifterMode', 'Shifter mode'),
+  ] },
+  { group: 'Driving aids', actions: [
+    A('common:toggleESCMode', 'ESC on / off'), A('common:nextESCMode', 'Next ESC mode'), A('common:previousESCMode', 'Previous ESC mode'),
+    A('common:toggleTwoStep', 'Two-step'), A('common:increaseTwoStepRPM', 'Two-step RPM up'), A('common:decreaseTwoStepRPM', 'Two-step RPM down'),
+    A('common:toggleNitrousOxide', 'Nitrous'), A('common:toggleDiffMode', 'Diff mode'), A('common:toggle4WDStatus', '4WD'), A('common:toggleRangeStatus', 'Range'),
+    A('common:set_cc_speed', 'Cruise control: set'), A('common:reset_cc_speed', 'Cruise control: resume'), A('common:increase_cc_speed', 'Cruise control faster'),
+    A('common:decrease_cc_speed', 'Cruise control slower'), A('common:disable_cc', 'Cruise control off'), A('basicCruiseCointrol', 'Basic cruise control'),
+  ] },
+  { group: 'Doors & openables', actions: [
+    A('door_FL', 'Door FL'), A('door_FR', 'Door FR'), A('door_RL', 'Door RL'), A('door_RR', 'Door RR'), A('door_L', 'Door L'), A('door_R', 'Door R'),
+    A('door_RL_half', 'Door RL (half)'), A('door_RR_half', 'Door RR (half)'), A('door_rear', 'Rear door'),
+    A('sidedoor', 'Side door'), A('sidedoor_F', 'Side door front'), A('sidedoor_R', 'Side door rear'),
+    A('barndoor_L', 'Barn door L'), A('barndoor_R', 'Barn door R'), A('barndoor_RL', 'Barn door RL'), A('barndoor_RR', 'Barn door RR'),
+    A('hoodCatch', 'Hood catch (outside)'), A('hoodRelease', 'Hood release (inside)'),
+    A('trunk', 'Trunk'), A('decklid', 'Decklid'), A('hatch', 'Hatch'), A('tailgate', 'Tailgate'), A('tailgate_lower', 'Tailgate lower'), A('tailgate_upper', 'Tailgate upper'),
+    A('tailgateCatch', 'Tailgate catch'), A('tailgateRelease', 'Tailgate release'), A('toggle_cargodoorRL', 'Cargo door L'), A('toggle_cargodoorRR', 'Cargo door R'),
+    A('spareholder', 'Spare holder'), A('folding_step', 'Folding step'), A('roofbox', 'Roof box'),
+    A('sunvisor_L_open', 'Sun visor L open'), A('sunvisor_L_close', 'Sun visor L close'), A('sunvisor_R_open', 'Sun visor R open'), A('sunvisor_R_close', 'Sun visor R close'),
+  ] },
+  { group: 'Drivetrain', actions: [
+    A('toggleFrontDiff', 'Front diff lock'), A('toggleRearDiff', 'Rear diff lock'), A('toggleInteraxleDiff', 'Centre diff lock'),
+    A('toggleRangebox', 'Range box'), A('setRangeboxLow', 'Range box low'), A('setRangeboxHigh', 'Range box high'),
+    A('toggleTransfercase', 'Transfer case'), A('setTransfercase2hi', 'Transfer case 2H'), A('setTransfercase4hi', 'Transfer case 4H'), A('setTransfercase4lo', 'Transfer case 4L'),
+    A('toggleCompressionBrake', 'Compression brake'), A('increaseRetarderLevel', 'Retarder up'), A('decreaseRetarderLevel', 'Retarder down'),
+  ] },
+  { group: 'Police', actions: [
+    A('toggle_lightbar', 'Lightbar'), A('toggle_siren', 'Siren'), A('toggle_lightbar_siren', 'Lightbar and siren'), A('toggle_beacon', 'Beacon'),
+    A('toggle_lightbar_mode', 'Lightbar mode'), A('lightbar_setmode_1', 'Lightbar mode 1'), A('lightbar_setmode_2', 'Lightbar mode 2'),
+    A('lightbar_setmode_3', 'Lightbar mode 3'), A('lightbar_setmode_4', 'Lightbar mode 4'),
+  ] },
+  { group: 'Trucks & trailers', actions: [
+    A('towHitchToggle', 'Tow hitch'), A('gooseneckToggle', 'Gooseneck'), A('pintleHitchToggle', 'Pintle hitch'), A('fifthwheelDecouple', 'Fifth wheel decouple'),
+    A('fifthwheelSliderLock', 'Fifth wheel slider lock'), A('fifthwheelTiltLock', 'Fifth wheel tilt lock'), A('feet_up', 'Trailer feet up'), A('feet_down', 'Trailer feet down'),
+    A('toggleTrailerAirSupply', 'Trailer air supply'), A('liftAxle_toggle', 'Lift axle'), A('toggleManualIdleRaise', 'Idle raise'),
+    A('tilt', 'Upfit tilt'), A('extendRetract', 'Upfit extend / retract'), A('dumpTailgateLock', 'Dump tailgate lock'),
+  ] },
+  { group: 'Hydraulics', actions: [
+    A('hydraulics_jump_full', 'Hop all'), A('hydraulics_jump_front', 'Hop front'), A('hydraulics_jump_rear', 'Hop rear'),
+    A('hydraulics_jump_left', 'Hop left'), A('hydraulics_jump_right', 'Hop right'), A('hydraulics_raise_full', 'Raise all'), A('hydraulics_lower_full', 'Lower all'),
+  ] },
 ];
-export const GENERIC_ACTIONS = ['door_FL', 'door_FR', 'door_RL', 'door_RR', 'hoodCatch', 'hoodRelease', 'trunk', 'tailgate'];
+
+/** "common:" input actions (no actionsEnabled entry) and generic interaction actions */
+export const COMMON_ACTIONS = TRIGGER_ACTIONS.flatMap((g) => g.actions.map((a) => a.id)).filter((a) => a.startsWith('common:'));
+export const GENERIC_ACTIONS = TRIGGER_ACTIONS.flatMap((g) => g.actions.map((a) => a.id)).filter((a) => !a.startsWith('common:'));
+
+/** id -> label, for every catalogued action */
+export const ACTION_LABEL = new Map(TRIGGER_ACTIONS.flatMap((g) => g.actions.map((a) => [a.id, a.label] as const)));
+
+/** Light roles for the Lights tool: bulb, electrics value, direction and names. */
+export interface LightRole {
+  id: string;
+  label: string;
+  bulb: string;
+  electric: string;
+  /** slot name token: <car>_<token>_<side>_bulb */
+  token: string;
+  /** description: "<Side> <desc> bulb" */
+  desc: string;
+  /** rotation on the left (+X) side; the right side is mirrored */
+  rot: { x: number; y: number; z: number };
+  /** headlight beam pattern (LHD / RHD / US) applies */
+  pattern?: boolean;
+  /** small lights: short range, wide cone */
+  small?: boolean;
+  /** usually one light on the centre line */
+  centre?: boolean;
+}
+
+export const LIGHT_ROLES: LightRole[] = [
+  { id: 'low', label: 'Low beam', bulb: 'headlightBulb_halogen_55W', electric: 'lowhighbeam', token: 'headlight_low', desc: 'lowbeam headlight', rot: { x: 0, y: 0, z: 180 }, pattern: true },
+  { id: 'high', label: 'High beam', bulb: 'headlightBulb_halogen_60W', electric: 'highbeam', token: 'headlight_high', desc: 'highbeam headlight', rot: { x: 0, y: 0, z: 180 }, pattern: true },
+  { id: 'signalF', label: 'Front signal', bulb: 'incandescent_amber_21W', electric: 'signal_L', token: 'signal_F', desc: 'front signal', rot: { x: 0, y: 0, z: 150 } },
+  { id: 'tail', label: 'Tail / brake', bulb: 'incandescent_red_21W', electric: 'brakelights', token: 'taillight', desc: 'taillight', rot: { x: 0, y: 0, z: 20 } },
+  { id: 'signalR', label: 'Rear signal', bulb: 'incandescent_red_21W', electric: 'signal_L', token: 'signal_R', desc: 'rear signal', rot: { x: 0, y: 0, z: 20 } },
+  { id: 'reverse', label: 'Reverse', bulb: 'incandescent_white_21W', electric: 'reverse', token: 'reverse', desc: 'reverse light', rot: { x: 0, y: 0, z: 0 } },
+  { id: 'fog', label: 'Fog', bulb: 'incandescent_white_55W', electric: 'fog', token: 'foglight', desc: 'fog light', rot: { x: 0, y: 0, z: 180 } },
+  { id: 'markerF', label: 'Marker front', bulb: 'incandescent_amber_5W', electric: 'lowhighbeam', token: 'marker_F', desc: 'front side marker', rot: { x: 0, y: 0, z: -270 }, small: true },
+  { id: 'markerR', label: 'Marker rear', bulb: 'incandescent_red_5W', electric: 'lowhighbeam', token: 'marker_R', desc: 'rear side marker', rot: { x: 0, y: 0, z: -270 }, small: true },
+  { id: 'plate', label: 'Plate', bulb: 'incandescent_white_5W', electric: 'lowhighbeam', token: 'licenseplate', desc: 'license plate light', rot: { x: 100, y: 0, z: 0 }, small: true, centre: true },
+  { id: 'interior', label: 'Interior', bulb: 'incandescent_white_5W', electric: 'lowhighbeam', token: 'interior', desc: 'interior light', rot: { x: 90, y: 0, z: 0 }, small: true, centre: true },
+  { id: 'trunk', label: 'Trunk', bulb: 'incandescent_white_5W', electric: 'lowhighbeam', token: 'trunk', desc: 'trunk light', rot: { x: 90, y: 0, z: 0 }, small: true, centre: true },
+];
+
+/** electrics values a bulb usually reads (custom ones from the vehicle are added in the tool) */
+export const COMMON_ELECTRICS = ['lowhighbeam', 'lowbeam', 'highbeam', 'brakelights', 'reverse', 'fog', 'signal_L', 'signal_R', 'hazard', 'parkingbrake', 'lightbar'];
 
 export const BULB_TYPES = [
   { id: 'headlightBulb_halogen_55W', use: 'Low beam' },

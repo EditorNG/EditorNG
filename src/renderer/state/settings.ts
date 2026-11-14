@@ -185,7 +185,7 @@ export interface Settings {
   extraRoots: string[];
   loadCommonFolder: boolean;
   watchFiles: boolean;
-  reloadOnExternalChange: 'ask' | 'always' | 'never';
+  reloadOnExternalChange: 'merge' | 'ask' | 'always' | 'never';
 
   // blender
   blenderExe: string;
@@ -219,14 +219,14 @@ export const DEFAULT_SETTINGS: Settings = {
   density: 'compact',
   reduceMotion: false,
 
-  nodeSize: 7,
+  nodeSize: 10,
   nodeWorldScale: false,
   beamWidth: 1,
   triOpacity: 0.28,
-  meshOpacity: 0.5,
+  meshOpacity: 0.4,
   showMeshes: true,
   meshWireframe: false,
-  meshShading: 'wireframe',
+  meshShading: 'shaded',
   shadedEnvHdr: '',
   shadedEnvBrightness: 1,
   meshColorByPart: false,
@@ -250,7 +250,7 @@ export const DEFAULT_SETTINGS: Settings = {
   selProps: false,
   showGrid: true,
   showAxes: true,
-  showGround: false,
+  showGround: true,
   showLabels: 'hover',
   labelSize: 11,
   beamColorMode: 'type',
@@ -259,7 +259,7 @@ export const DEFAULT_SETTINGS: Settings = {
   colorBeam: '#6f8aa8',
   colorBeamAniso: '#9a88c4',
   colorBeamBounded: '#c9a066',
-  colorBeamSupport: '#c27a8e',
+  colorBeamSupport: '#b04fd6',
   colorBeamHydro: '#6fb07a',
   colorBeamPressured: '#86a9c9',
   colorBeamLbeam: '#a8adb4',
@@ -320,7 +320,7 @@ export const DEFAULT_SETTINGS: Settings = {
   extraRoots: [],
   loadCommonFolder: true,
   watchFiles: true,
-  reloadOnExternalChange: 'ask',
+  reloadOnExternalChange: 'merge',
 
   blenderExe: '',
   blenderAxis: 'z-up',
