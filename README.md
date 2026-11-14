@@ -4,8 +4,38 @@ A JBeam editor for BeamNG.drive: 3D node/beam/triangle editing next to a JBeam-a
 editor, Blender import, placement tools for 0.40-era systems, structural checks and a generic
 suspension kinematics analyser.
 
-- **End users**: download the release zip, extract, run `EditorNG.exe`. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
-- **Developers**: see below.
+![EditorNG with the ETK 800: the selected fender nodes are highlighted in 3D and in the code](docs/images/overview.png)
+
+## Download
+
+Get the latest zip from [Releases](https://github.com/EditorNG/EditorNG/releases/latest), unzip
+it anywhere and run `EditorNG.exe` (Windows 10/11, no installer). It finds your BeamNG.drive
+install by itself. The [user guide](docs/USER_GUIDE.md) covers everything.
+
+## What it does
+
+**Edit in 3D and in code at the same time.** Click a node, beam or triangle and the code
+editor jumps to its row; move the cursor in the code and the 3D view highlights it. Blender-style
+controls: G/R/S to move, rotate and scale, Shift+A to add, X symmetry, Ctrl to snap to a node.
+
+![Node and beam structure with beam types coloured and a node inspected](docs/images/structure.png)
+
+**Place 0.40-era systems without typing them out.** Lights (slots2 bulbs) from a light type,
+with names, direction and the mirrored side filled in; triggers2 with every game action in a
+menu; occupant seats with their rigidifier; rails and slidenodes.
+
+![The Lights tool: pick a light type, both sides are written for you](docs/images/lights.png)
+
+**Find anything fast.** The search bar finds files, parts (`#`), nodes (`@`), commands (`>`) and
+text in every file (`%`).
+
+![Searching parts with #door](docs/images/search.png)
+
+And more: the Shaded view with the game's materials, structural checks before release, weight
+distribution, suspension kinematics, Blender import and live link, merging with edits made in
+other programs, one-click reload in game.
+
+Screenshots show the vanilla ETK 800, © BeamNG GmbH.
 
 ## Development
 
