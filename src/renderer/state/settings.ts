@@ -186,6 +186,8 @@ export interface Settings {
   loadCommonFolder: boolean;
   watchFiles: boolean;
   reloadOnExternalChange: 'merge' | 'ask' | 'always' | 'never';
+  /** Reload in game starts BeamNG on this level (folder name) when it is not running */
+  gameStartLevel: string;
   /** look for a new EditorNG release at startup */
   updateCheck: boolean;
   /** version the user chose to skip ("" = none) */
@@ -325,6 +327,7 @@ export const DEFAULT_SETTINGS: Settings = {
   loadCommonFolder: true,
   watchFiles: true,
   reloadOnExternalChange: 'merge',
+  gameStartLevel: 'smallgrid',
   updateCheck: true,
   updateSkip: '',
 

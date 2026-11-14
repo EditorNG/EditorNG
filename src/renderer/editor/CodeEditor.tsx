@@ -20,6 +20,7 @@ import { showReferences } from '../ui/Tier2';
 import { api } from '../lib/api';
 import * as ops from '../project/ops';
 import { BinaryView } from './BinaryView';
+import { openAddMenu, partAt } from './addMenu';
 import { fileIconFor } from '../ui/fileIcons';
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -263,6 +264,57 @@ export function CodeEditor() {
       }
       setSel(s2);
     };
+    // where the Add menu opens: at the right-click, or under the caret (keyboard)
+    let ctxAt: { x: number; y: number; t: number } | null = null;
+    editor.onContextMenu((e) => (ctxAt = { x: e.event.posx, y: e.event.posy, t: Date.now() }));
+    const menuPoint = (ed: monaco.editor.ICodeEditor) => {
+      if (ctxAt && Date.now() - ctxAt.t < 5000) return ctxAt;
+      const pos = ed.getPosition();
+      const vis = pos ? ed.getScrolledVisiblePosition(pos) : null;
+      const r = ed.getDomNode()?.getBoundingClientRect();
+      return { x: (r?.left ?? 0) + (vis?.left ?? 40), y: (r?.top ?? 0) + (vis?.top ?? 40) + (vis?.height ?? 18) };
+    };
+    const caretOffset = (ed: monaco.editor.ICodeEditor) => {
+      const mm = ed.getModel();
+      const pos = ed.getPosition();
+      return mm && pos ? mm.getOffsetAt(pos) : 0;
+    };
+    editor.addAction({
+      id: 'editorng.add',
+      label: 'Add…',
+      keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.Insert],
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 0.1,
+      run: (ed) => {
+        const dd = docOf(ed);
+        if (!dd) return;
+        const p = menuPoint(ed);
+        ctxAt = null;
+        openAddMenu(p.x, p.y, dd.key, caretOffset(ed));
+      },
+    });
+    editor.addAction({
+      id: 'editorng.newPart',
+      label: 'Add new part…',
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 0.2,
+      run: (ed) => {
+        const dd = docOf(ed);
+        if (dd) useUi.setState({ dialog: { kind: 'newPart', data: { doc: dd.key, offset: caretOffset(ed) } } });
+      },
+    });
+    editor.addAction({
+      id: 'editorng.flexbody',
+      label: 'Add flexbody…',
+      contextMenuGroupId: '0_editorng',
+      contextMenuOrder: 0.3,
+      run: (ed) => {
+        const dd = docOf(ed);
+        if (!dd) return;
+        const at = partAt(dd, caretOffset(ed));
+        useUi.setState({ dialog: { kind: 'flexbody', data: { doc: dd.key, part: at?.part.name } } });
+      },
+    });
     editor.addAction({
       id: 'editorng.select3d',
       label: 'Select in 3D',

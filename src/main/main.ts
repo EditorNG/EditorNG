@@ -599,6 +599,31 @@ function registerIpc(): void {
     }
     return { dir, files: bridgeFiles };
   });
+  /** Is BeamNG.drive running (any copy)? */
+  h('gameRunning', () =>
+    new Promise<boolean>((resolve) => {
+      if (process.platform !== 'win32') return resolve(false);
+      execFile('tasklist', ['/FI', 'IMAGENAME eq BeamNG.drive.x64.exe', '/NH', '/FO', 'CSV'], { windowsHide: true, timeout: 8000 }, (err, out) => resolve(!err && /BeamNG\.drive\.x64\.exe/i.test(out)));
+    }));
+  /**
+   * Starts BeamNG.drive on a level with a vehicle: -level <folder> (stock or modded, the game waits
+   * for mods), -vehicleConfig <model>/<file>.pc or -vehicle <model>.
+   */
+  h('gameLaunch', async (o: { level: string; model: string; config?: string }) => {
+    const dir = vfs.opts.gameDir;
+    if (!dir) throw new Error('BeamNG.drive install folder not found (Settings → Files & game)');
+    const exe = [path.join(dir, 'Bin64', 'BeamNG.drive.x64.exe'), path.join(dir, 'BeamNG.drive.exe')].find((p) => fs.existsSync(p));
+    if (!exe) throw new Error(`BeamNG.drive.exe not found in ${dir}`);
+    const args: string[] = [];
+    if (o.level) args.push('-level', o.level);
+    const pc = o.config ? /^vehicles\/(.+\.pc)$/i.exec(o.config.replace(/\\/g, '/'))?.[1] : undefined;
+    if (pc) args.push('-vehicleConfig', pc);
+    else if (o.model) args.push('-vehicle', o.model);
+    const { spawn } = await import('node:child_process');
+    const child = spawn(exe, args, { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false });
+    child.unref();
+    return { exe, args };
+  });
   h('gameLogRead', async (offset: number) => {
     const file = vfs.opts.userDir ? path.join(vfs.opts.userDir, 'beamng.log') : null;
     if (!file) return { text: '', size: 0, path: null, reset: false };

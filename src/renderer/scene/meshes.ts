@@ -60,35 +60,72 @@ class MeshManager {
     // vehicle files take priority over common ones: order is already priority order
     this.index.clear();
     this.scanned.clear();
+    this.inflight.clear();
     this.scanning = null;
     useMeshStatus.setState({ indexed: 0, total: files.length, missing: [] });
   }
 
-  private async scanFile(f: VFile): Promise<void> {
+  private inflight = new Map<string, Promise<void>>();
+
+  /** Reads a file's mesh names once; concurrent callers share the same scan. */
+  private scanFile(f: VFile): Promise<void> {
+    const key = fileKey(f);
+    let p = this.inflight.get(key);
+    if (!p) {
+      p = this.doScan(f);
+      this.inflight.set(key, p);
+    }
+    return p;
+  }
+
+  private async doScan(f: VFile): Promise<void> {
     const key = fileKey(f);
     if (this.scanned.has(key)) return;
     this.scanned.add(key);
-    const cacheKey = 'daeidx2|' + key;
-    let names: string[] | null = null;
+    // v3: names (for lookups) + meshes (objects with geometry, for pick lists)
+    const cacheKey = 'daeidx3|' + key;
+    let scan: { names: string[]; meshes: string[] } | null = null;
     const cached = await api.cacheRead(cacheKey);
     if (cached) {
       try {
-        names = JSON.parse(new TextDecoder().decode(cached));
+        const j = JSON.parse(new TextDecoder().decode(cached));
+        if (Array.isArray(j?.names) && Array.isArray(j?.meshes)) scan = j;
       } catch {
-        names = null;
+        scan = null;
       }
     }
-    if (!names) {
+    if (!scan) {
       const buf = f.real ? await api.readBinaryFile(f.real) : await api.readBinary(f);
       const res = await call({ type: 'scan', buf: buf.buffer }, [buf.buffer as ArrayBuffer]);
-      names = (res.names ?? []) as string[];
-      api.cacheWrite(cacheKey, new TextEncoder().encode(JSON.stringify(names)));
+      scan = { names: (res.names ?? []) as string[], meshes: (res.meshes ?? res.names ?? []) as string[] };
+      api.cacheWrite(cacheKey, new TextEncoder().encode(JSON.stringify(scan)));
     }
-    for (const n of names) {
+    for (const n of scan.names) {
       const k = n.toLowerCase();
       if (!this.index.has(k)) this.index.set(k, f);
     }
+    this.byFile.set(key, scan.meshes);
     useMeshStatus.setState((s) => ({ indexed: s.indexed + 1 }));
+  }
+
+  /** pickable mesh names (objects with geometry) per file key, files scanned so far */
+  private byFile = new Map<string, string[]>();
+
+  /** The mesh names inside each of these files (scans them if needed), in file order. */
+  async meshesIn(files: VFile[], onProgress?: (done: number, total: number) => void): Promise<Array<{ file: VFile; names: string[] }>> {
+    const out: Array<{ file: VFile; names: string[] }> = [];
+    let done = 0;
+    for (const f of files) {
+      await this.scanFile(f);
+      out.push({ file: f, names: this.byFile.get(fileKey(f)) ?? [] });
+      onProgress?.(++done, files.length);
+    }
+    return out;
+  }
+
+  /** The .dae files the mesh index knows (vehicle first, then common). */
+  allFiles(): VFile[] {
+    return this.files;
   }
 
   /** Scans files until all names are found (vehicle files first). */

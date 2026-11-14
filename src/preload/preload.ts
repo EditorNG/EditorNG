@@ -6,7 +6,7 @@ const invokeNames = [
   'walkDir', 'mkdirp', 'copyFromVfs', 'pickFolder', 'pickFile', 'saveDialog', 'reveal', 'openExternal', 'cacheRead',
   'cacheWrite', 'cacheClear', 'blenderFind', 'blenderExtract', 'installBlenderAddon', 'watch', 'blenderLinkPort',
   'windowAction', 'setTitleBarColors', 'gameSend', 'gameBridgeStatus', 'gameBridgeInstall', 'gameLogRead',
-  'findAllFiles', 'listBackups', 'scanMod', 'packMod', 'updateCheck', 'updateDownload', 'updateInstall', 'updateWhatsNew',
+  'findAllFiles', 'listBackups', 'scanMod', 'packMod', 'updateCheck', 'updateDownload', 'updateInstall', 'updateWhatsNew', 'gameRunning', 'gameLaunch',
 ];
 
 const api: Record<string, unknown> = {};

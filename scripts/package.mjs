@@ -12,7 +12,9 @@ run('node scripts/build.mjs');
 
 // one folder per version, so a running copy of an older build never blocks packaging
 const out = path.join(root, 'release', pkg.version);
-fs.rmSync(out, { recursive: true, force: true });
+// replace only what this script makes: a copy unzipped next to it (maybe running) stays untouched
+fs.rmSync(path.join(out, 'EditorNG-win32-x64'), { recursive: true, force: true });
+fs.rmSync(path.join(out, `EditorNG-${pkg.version}-win64.zip`), { force: true });
 const keep = [/^\/package\.json$/, /^\/out(\/|$)/];
 const [appDir] = await packager({
   dir: root,

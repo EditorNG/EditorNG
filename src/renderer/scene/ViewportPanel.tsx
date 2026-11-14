@@ -268,6 +268,7 @@ export function ViewportPanel() {
       { label: 'Beam', hint: sel.length >= 2 ? `${sel.length} selected nodes` : undefined, key: 'F', disabled: sel.length >= 2 ? false : 'Select 2 or more nodes', run: () => ops.addBeams(sel.slice(1).map((n, i) => [sel[i], n] as [string, string]), undefined, sel.length > 2 ? 'Connect chain' : 'Add beam') },
       { label: 'Triangle', hint: sel.length === 3 ? 'from selection' : undefined, key: 'F', disabled: sel.length === 3 ? false : 'Select exactly 3 nodes', run: () => ops.addTris([[sel[0], sel[1], sel[2]]]) },
       'sep',
+      { label: 'Flexbody…', run: () => useUi.setState({ dialog: { kind: 'flexbody' } }) },
       { label: 'Trigger here', run: () => requestTool('trigger', world, nearNodes()) },
       { label: 'Light here', run: () => requestTool('bulb', world, nearNodes()) },
       { label: 'Occupant', hint: 'from 6 selected nodes', run: () => requestTool('occupant', world, sel) },

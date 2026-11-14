@@ -433,9 +433,49 @@ export function readDae(text: string): DaeFile {
 
 /** Fast name scan without building geometry (for indexing big files). */
 export function scanDaeNames(text: string): string[] {
-  const out = new Set<string>();
-  const re = /<(node|geometry)\b[^>]*?\bname="([^"]+)"/g;
+  return scanDae(text).names;
+}
+
+/**
+ * Names in a .dae, without building geometry.
+ *   names   every node and geometry name (how a mesh name may be resolved)
+ *   meshes  what a person would pick: objects (scene nodes) that carry geometry, by their name,
+ *           plus geometries no object uses. Exporters name the geometry blocks of objects
+ *           "mesh_12", "Cube.001"…: those are left out, the game uses the object's name.
+ */
+export function scanDae(text: string): { names: string[]; meshes: string[] } {
+  const names = new Set<string>();
+  const meshes = new Set<string>();
+  const used = new Set<string>();
+  // walk node open/close tags and geometry instances: a node carries geometry when an
+  // <instance_geometry> is its direct child (seen while it is the innermost open node)
+  const stack: Array<{ name: string; geo: boolean }> = [];
+  const re = /<(\/?)(node|instance_geometry)\b([^>]*?)(\/?)>/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) out.add(m[2].trim());
-  return [...out];
+  const attr = (s: string, a: string) => new RegExp(`\\b${a}="([^"]*)"`).exec(s)?.[1];
+  while ((m = re.exec(text))) {
+    const [, close, tag, attrs, selfClose] = m;
+    if (tag === 'node') {
+      if (close) {
+        const n = stack.pop();
+        if (n?.geo && n.name) meshes.add(n.name);
+      } else {
+        const name = (attr(attrs, 'name') ?? attr(attrs, 'id') ?? '').trim();
+        if (name) names.add(name);
+        if (!selfClose) stack.push({ name, geo: false });
+      }
+    } else if (!close) {
+      const url = attr(attrs, 'url');
+      if (url) used.add(url.replace(/^#/, ''));
+      if (stack.length) stack[stack.length - 1].geo = true;
+    }
+  }
+  const geo = /<geometry\b([^>]*)>/g;
+  while ((m = geo.exec(text))) {
+    const id = attr(m[1], 'id') ?? '';
+    const name = (attr(m[1], 'name') ?? '').trim();
+    if (name) names.add(name);
+    if (!used.has(id)) meshes.add(name || id);
+  }
+  return { names: [...names], meshes: [...meshes].filter(Boolean) };
 }

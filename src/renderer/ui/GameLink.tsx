@@ -11,6 +11,7 @@ import { api } from '../lib/api';
 import { ws, useWs } from '../project/workspace';
 import { useUi, openTab } from '../state/ui';
 import { toast } from '../state/toast';
+import { settings } from '../state/settings';
 import { revealRange } from '../editor/CodeEditor';
 import { Modal } from './Dialogs';
 import { openMenu } from './Menu';
@@ -44,14 +45,14 @@ export async function reloadInGame() {
   try {
     if (useWs.getState().dirtyCount > 0) await ws.saveAll();
     const r = await api.gameSend({ cmd: 'ping' }, 600).catch(() => null);
+    const cfg = useWs.getState().activeConfig;
+    const pc = cfg ? ws.doc(cfg)?.vpath : undefined;
     if (!r?.ok) {
       useGameLink.setState({ connected: false });
-      useUi.setState({ dialog: { kind: 'gameLink' } });
+      await startGame(model, pc);
       return;
     }
     const same = r.vehicle?.model?.toLowerCase() === model.toLowerCase();
-    const cfg = useWs.getState().activeConfig;
-    const pc = cfg ? ws.doc(cfg)?.vpath : undefined;
     const res = same ? await api.gameSend({ cmd: 'reload' }, 1500) : await api.gameSend({ cmd: 'spawn', model, config: pc ?? '' }, 1500);
     if (res?.ok) toast('info', same ? `Reloaded ${model} in game` : `Spawned ${model}${pc ? ' (' + pc.split('/').pop() + ')' : ''} in game`);
     else toast('warn', res?.error ? `Game: ${res.error}` : 'The game did not answer');
@@ -59,6 +60,69 @@ export async function reloadInGame() {
   } finally {
     useGameLink.setState({ busy: false });
   }
+}
+
+/** Stock levels for Settings → "Start the game on" (folder name → menu label). */
+export const GAME_LEVELS: Array<[string, string]> = [
+  ['smallgrid', 'Grid, Small, Pure'],
+  ['gridmap_v2', 'Grid Map'],
+  ['automation_test_track', 'Automation Test Track'],
+  ['west_coast_usa', 'West Coast, USA'],
+  ['east_coast_usa', 'East Coast, USA'],
+  ['italy', 'Italy'],
+  ['Utah', 'Utah, USA'],
+  ['Industrial', 'Industrial Site'],
+  ['johnson_valley', 'Johnson Valley'],
+  ['small_island', 'Small Island, USA'],
+  ['hirochi_raceway', 'Hirochi Raceway'],
+  ['jungle_rock_island', 'Jungle Rock Island'],
+  ['derby', 'Derby Arenas'],
+  ['driver_training', 'Driver Training'],
+  ['Cliff', 'Cliff'],
+  ['showroom_v2', 'Showroom'],
+  ['', 'Main menu (no level)'],
+];
+
+let launchedAt = 0;
+
+/**
+ * The game is not answering. Running without the bridge: open the setup. Not running: install the
+ * bridge if needed and start BeamNG on the chosen level with this vehicle (and config).
+ */
+async function startGame(model: string, pc: string | undefined) {
+  if (await api.gameRunning()) {
+    if (Date.now() - launchedAt < 4 * 60_000) {
+      toast('info', 'BeamNG is still starting. Reload again once the level is loaded.', undefined, 4000);
+      return;
+    }
+    // running, but the bridge mod is missing or not loaded
+    useUi.setState({ dialog: { kind: 'gameLink' } });
+    return;
+  }
+  const st = await api.gameBridgeStatus().catch(() => null);
+  if (st && !st.installed && st.dir) {
+    try {
+      await api.gameBridgeInstall();
+      toast('info', 'Installed the EditorNG bridge mod (lets Reload in game talk to BeamNG).', undefined, 5000);
+    } catch {
+      /* the game still starts; reloads will ask for the setup */
+    }
+  }
+  const level = settings().gameStartLevel;
+  const label = GAME_LEVELS.find(([k]) => k === level)?.[1] ?? level;
+  try {
+    await api.gameLaunch({ level, model, config: pc });
+  } catch (e: any) {
+    toast('error', `Could not start BeamNG: ${e?.message ?? e}`, { label: 'Settings', run: () => useUi.setState({ page: 'settings' }) });
+    return;
+  }
+  launchedAt = Date.now();
+  toast('info', `Starting BeamNG${level ? ` on ${label}` : ''} with ${model}${pc ? ` (${pc.split('/').pop()!.replace(/\.pc$/i, '')})` : ''}…`, undefined, 6000);
+  // the link light turns green as soon as the bridge answers
+  const t0 = Date.now();
+  const poll = setInterval(async () => {
+    if ((await ping()) || Date.now() - t0 > 5 * 60_000) clearInterval(poll);
+  }, 4000);
 }
 
 export function ReloadInGameButton() {
@@ -71,7 +135,7 @@ export function ReloadInGameButton() {
   }, []);
   const tip = connected
     ? `Save all and reload in the game (F5)${gameVehicle ? `\nGame vehicle: ${gameVehicle}` : ''}${gameVehicle && model && gameVehicle.toLowerCase() !== model.toLowerCase() ? `\n${model} will be spawned instead` : ''}`
-    : 'Save all and reload the vehicle in BeamNG (F5)\nGame not connected: click to set up';
+    : 'Save all and reload the vehicle in BeamNG (F5)\nBeamNG is not running: starts it with this vehicle';
   return (
     <button className={'btn small title-btn primary' + (busy ? ' busy' : '')} disabled={!model || busy} data-tip={tip} data-tip-pos="bottom-left" onClick={() => reloadInGame()}
       onContextMenu={(e) => {

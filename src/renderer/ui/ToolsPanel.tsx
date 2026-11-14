@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Crosshair, MousePointerClick, Box, Lightbulb, Armchair, Zap, FileUp, Link2, Sparkles, Route } from 'lucide-react';
+import { ChevronDown, ChevronRight, Crosshair, MousePointerClick, Box, Lightbulb, Armchair, Zap, FileUp, Link2, Sparkles, Route, Shapes } from 'lucide-react';
 import { ws, useWs } from '../project/workspace';
 import { useUi, requestPick } from '../state/ui';
 import { useSel, resolveSel, selNodeIdx } from '../state/selection';
@@ -843,6 +843,10 @@ export function ToolsPanel() {
             <button className="btn small" onClick={() => command('tools.blenderAddon')}><Link2 size={12} /> Live link</button>
           </div>
           <div className="tf-note">Vertices → nodes, edges → beams, faces → collision triangles. Names get l/r suffixes by side and re-imports keep existing names.</div>
+        </Section>
+        <Section id="flexbody" icon={<Shapes size={14} />} title="Flexbody">
+          <div className="tf-note" style={{ marginTop: 0 }}>Pick a mesh from the vehicle's .dae files, see it with the nodes around it, and tie it to the node groups it sits on (suggested for you).</div>
+          <div className="tf-actions"><button className="btn small primary" onClick={() => useUi.setState({ dialog: { kind: 'flexbody' } })}><Shapes size={12} /> Add flexbody…</button></div>
         </Section>
         <Section id="trigger" icon={<Zap size={14} />} title="Triggers"><TriggerTool /></Section>
         <Section id="bulb" icon={<Lightbulb size={14} />} title="Lights"><LightTool /></Section>

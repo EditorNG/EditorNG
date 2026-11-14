@@ -7,6 +7,7 @@ import { toast } from '../state/toast';
 import { ws } from '../project/workspace';
 import { meshes } from '../scene/meshes';
 import { ACTION_LABELS } from './Dialogs';
+import { GAME_LEVELS } from './GameLink';
 
 type K = keyof Settings;
 type Field =
@@ -105,6 +106,7 @@ const TIPS: Partial<Record<K, string>> = {
   extraRoots: 'More folders with vehicles/<name> inside, searched before the game files.',
   loadCommonFolder: 'Loads vehicles/common, which holds shared parts: wheels, seats, bulbs…',
   watchFiles: 'Notices when files are changed by another program (VS Code, Blender…).',
+  gameStartLevel: 'When BeamNG is not running, Reload in game starts it on this level with the vehicle you are editing (and its configuration).',
   updateCheck: 'At startup, asks GitHub whether a new EditorNG version is out and shows what it brings.\nNothing is downloaded until you click Update. Help → Check for updates works either way.',
   reloadOnExternalChange: 'What happens when a file changes on disk:\nMerge: your unsaved edits and the disk changes are combined like git; you choose\nonly where both changed the same lines.\nAsk: reload unless you have unsaved edits. Always: take the disk version. Ignore: do nothing.',
   blenderExe: 'Path to blender.exe, used to read .blend files and install the live-link add-on.',
@@ -228,6 +230,7 @@ const GROUPS: Group[] = [
       { key: 'extraRoots', label: 'Extra mod folders', type: 'list', hint: 'Folders containing vehicles/<name>, searched before the game.' },
       { key: 'loadCommonFolder', label: 'Load vehicles/common', type: 'bool', hint: 'Needed for common parts, wheels, seats, bulbs...' },
       { key: 'watchFiles', label: 'Watch files for external changes', type: 'bool' },
+      { key: 'gameStartLevel', label: 'Start the game on', type: 'select', options: GAME_LEVELS },
       { key: 'updateCheck', label: 'Check for updates at startup', type: 'bool' },
       { key: 'reloadOnExternalChange', label: 'On external change', type: 'select', options: [['merge', 'Merge with my unsaved edits'], ['ask', 'Reload unless I have unsaved edits'], ['always', 'Always reload'], ['never', 'Ignore']] },
     ],

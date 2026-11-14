@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { readDae, scanDaeNames, type DaeFile } from '@core/dae';
+import { readDae, scanDae, type DaeFile } from '@core/dae';
 
 const parsed = new Map<string, DaeFile>();
 const order: string[] = [];
@@ -20,7 +20,7 @@ self.onmessage = (ev: MessageEvent) => {
   try {
     if (m.type === 'scan') {
       const text = new TextDecoder().decode(m.buf);
-      (self as any).postMessage({ id: m.id, names: scanDaeNames(text) });
+      (self as any).postMessage({ id: m.id, ...scanDae(text) });
     } else if (m.type === 'build') {
       const text = m.buf ? new TextDecoder().decode(m.buf) : undefined;
       const f = getParsed(m.key, text);

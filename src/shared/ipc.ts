@@ -116,5 +116,7 @@ export interface Api {
   updateDownload(version: string): Promise<{ ok: boolean; staged?: string; error?: string }>;
   updateInstall(version: string, staged: string, notes: unknown): Promise<{ ok: boolean; error?: string }>;
   updateWhatsNew(): Promise<unknown>;
+  gameRunning(): Promise<boolean>;
+  gameLaunch(o: { level: string; model: string; config?: string }): Promise<{ exe: string; args: string[] }>;
   onUpdateProgress(cb: (p: import('../main/updater').UpdateProgress) => void): () => void;
 }
