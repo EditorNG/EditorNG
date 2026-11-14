@@ -127,6 +127,8 @@ export interface Settings {
   colorTri: string;
   /** back faces of collision triangles (the game shows them purple) */
   colorTriBack: string;
+  /** NONCOLLIDABLE triangles, both sides (the game's triangle debug draws them yellow) */
+  colorTriNonCollidable: string;
   colorSelect: string;
   colorHighlight: string;
   dimOtherParts: boolean;
@@ -271,6 +273,7 @@ export const DEFAULT_SETTINGS: Settings = {
   colorBeamLbeam: '#a8adb4',
   colorTri: '#5aa394',
   colorTriBack: '#b04fd6',
+  colorTriNonCollidable: '#f2d83a',
   colorSelect: '#ff6600',
   colorHighlight: '#d07ad0',
   dimOtherParts: true,

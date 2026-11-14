@@ -253,6 +253,20 @@ function SelectionSummary() {
   return <span className="status-item">{bits.join(' · ')}</span>;
 }
 
+/** The running version, far left of the status bar (handy in screenshots); click: check for updates. */
+function VersionItem() {
+  const [ver, setVer] = useState('');
+  useEffect(() => {
+    api.env().then((e) => setVer(e.appVersion)).catch(() => {});
+  }, []);
+  if (!ver) return null;
+  return (
+    <button className="status-item status-version mono" onClick={() => command('help.checkUpdates')} data-tip={`EditorNG ${ver}\nClick to check for updates`} data-tip-pos="top-right">
+      v{ver}
+    </button>
+  );
+}
+
 function StatusBar() {
   const v = useWs((x) => x.vehicle);
   const sym = useSettings((x) => x.s.symmetryX);
@@ -260,6 +274,7 @@ function StatusBar() {
   const warnings = v?.issues.filter((i) => i.sev === 'warning').length ?? 0;
   return (
     <div className="statusbar">
+      <VersionItem />
       <button className="status-item" onClick={() => useUi.setState({ bottom: true, bottomTab: 'problems' })} data-tip="Problems" data-tip-pos="top">
         <span className={errors ? 'err-text' : ''}>● {errors}</span>
         <span className={warnings ? 'warn-text' : ''}>▲ {warnings}</span>

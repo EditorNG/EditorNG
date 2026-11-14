@@ -69,7 +69,8 @@ void main() {
 `;
 // Collision triangles: plain fill with a thin dark wireframe on the edges (1 px, anti-aliased);
 // back faces purple. uEdge pushes the line inward past the beam drawn on the same edge, so the
-// outline still shows beside it when beams are visible.
+// outline still shows beside it when beams are visible. A negative alpha marks a triangle with
+// the same colour on both sides (NONCOLLIDABLE: no collision, so no front / back, like in game).
 const TRI_FS = /* glsl */ `
 uniform float uOpacity;
 uniform vec3 uBack;
@@ -81,16 +82,22 @@ void main() {
   vec3 px = vBary / max(fwidth(vBary), vec3(1e-6));
   float d = min(min(px.x, px.y), px.z);
   float line = 1.0 - smoothstep(uEdge + 0.5, uEdge + 1.5, d);
-  vec3 base = gl_FrontFacing ? vColor.rgb : mix(vColor.rgb, uBack, 0.8);
+  float va = abs(vColor.a);
+  vec3 base = (gl_FrontFacing || vColor.a < 0.0) ? vColor.rgb : mix(vColor.rgb, uBack, 0.8);
   vec3 col = mix(base, base * 0.25, line);
-  float a = uOpacity * vColor.a;
-  a = max(a, 0.9 * line * min(1.0, vColor.a));
+  float a = uOpacity * va;
+  a = max(a, 0.9 * line * min(1.0, va));
   gl_FragColor = vec4(col, a);
 }
 `;
 
 const tmpV = new THREE.Vector3();
 const tmpV2 = new THREE.Vector3();
+
+/** triangleType NONCOLLIDABLE (written "NONCOLLIDABLE" or "|NONCOLLIDABLE") */
+export function isNonCollidable(t: unknown): boolean {
+  return typeof t === 'string' && /^\|?NONCOLLIDABLE$/i.test(t.trim());
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const c = new THREE.Color(hex);
@@ -1095,8 +1102,11 @@ export class Viewport {
       const attr = this.triMesh.geometry.getAttribute('aColor') as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
       const triC = hexToRgb(s.colorTri);
+      const ncC = hexToRgb(s.colorTriNonCollidable);
+      const tris = this.vehicle?.tris;
       this.drawTris.forEach((i, k) => {
-        let c = triC;
+        const nc = !!tris && isNonCollidable(tris[i]?.row.v.triangleType);
+        let c = nc ? ncC : triC;
         let a = 1;
         if (hl?.tris.has(i)) {
           c = hlC;
@@ -1106,6 +1116,8 @@ export class Viewport {
           c = selC;
           a = 2.5;
         } else if (hover?.kind === 'tri' && hover.idx === i) a = 2;
+        // the shader reads a negative alpha as "same colour on both sides"
+        if (nc) a = -a;
         for (let j = 0; j < 3; j++) {
           const o = k * 12 + j * 4;
           arr[o] = c[0];

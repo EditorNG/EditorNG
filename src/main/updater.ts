@@ -301,8 +301,14 @@ export function startInstall(staged: string, rel: ReleaseInfo, notes: unknown): 
   ofs.writeFileSync(path.join(dir, 'whats-new.json'), JSON.stringify(notes));
   // Start the script through WMI: it then has no parent link to EditorNG, so nothing that ends EditorNG
   // and its child processes (process-tree kills, job objects) can take the updater down with it.
-  const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script}"`;
-  const ps = `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${q(cmd)} }; exit [int]$r.ReturnValue`;
+  // It runs in a headless console (conhost --headless): PowerShell, robocopy and the relaunched EditorNG
+  // get a console with no window at all, so nothing shows up and there is no window to close (closing a
+  // console window would end every program attached to it, the new EditorNG included). Started hidden
+  // too, so even a terminal that ignores the headless flag shows nothing.
+  const cmd = `conhost.exe --headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script}"`;
+  const ps =
+    `$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }; ` +
+    `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${q(cmd)}; ProcessStartupInformation = $si }; exit [int]$r.ReturnValue`;
   try {
     execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 20000, stdio: 'ignore' });
   } catch {

@@ -688,13 +688,11 @@ function checkOccupantSystem() {
 function NodeTool() {
   const [prefix, setPrefix] = useState('n');
   const [count, setCount] = useState(5);
-  const [mirrorIt, setMirror] = useState(true);
   return (
     <>
-      <div className="tf-note" style={{ marginTop: 0 }}>Fill the space between 2 selected nodes with evenly spaced nodes (e.g. a rail or roof bow).</div>
+      <div className="tf-note" style={{ marginTop: 0 }}>Fill the space between 2 selected nodes with evenly spaced nodes (e.g. a rail or roof bow). With X symmetry on, the other side gets them too.</div>
       <TextField label="prefix" value={prefix} onChange={setPrefix} mono />
       <label className="tf-row"><span className="tf-label">count</span><input className="input small mono tf-num" type="number" min={1} value={count} onChange={(e) => setCount(Math.max(1, +e.target.value | 0))} onKeyDown={(e) => e.stopPropagation()} /></label>
-      <label className="tf-row"><span className="tf-label">also mirror</span><button className={'switch' + (mirrorIt ? ' on' : '')} onClick={() => setMirror(!mirrorIt)} aria-label="Mirror" /></label>
       <div className="tf-actions">
         <button className="btn small primary" onClick={() => {
           const n = selectedNames();
@@ -708,18 +706,15 @@ function NodeTool() {
           for (let i = 1; i <= count; i++) {
             const t = i / (count + 1);
             const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+            // with symmetry on, the twin (other side's suffix) must be free too: addNodes makes it
+            const sym = settings().symmetryX && !!side(p.x);
+            const twin = (nm: string) => nm.slice(0, -side(p.x).length) + side(-p.x);
             let name: string;
             do name = prefix + num++ + side(p.x);
-            while (taken.has(name));
+            while (taken.has(name) || (sym && taken.has(twin(name))));
             taken.add(name);
+            if (sym) taken.add(twin(name));
             out.push({ name, ...p });
-            if (mirrorIt && Math.abs(p.x) > settings().namingCenterTolerance) {
-              const mn = name.slice(0, -side(p.x).length) + side(-p.x);
-              if (!taken.has(mn)) {
-                taken.add(mn);
-                out.push({ name: mn, x: -p.x, y: p.y, z: p.z });
-              }
-            }
           }
           addNodes(out, 'Subdivide');
         }}><Sparkles size={12} /> Create nodes</button>

@@ -229,7 +229,11 @@ export function nodeNameFree(v: Vehicle | null, name: string): boolean {
 }
 
 /** Adds nodes (final positions) to the target part. Returns the names. */
-export function addNodes(nodes: Array<{ name: string; x: number; y: number; z: number; opts?: Record<string, any> }>, label = 'Add node'): string[] {
+/**
+ * @param o.twinOverOriginal extrude: the new nodes sit on top of existing ones, so their mirror spot
+ *   is taken by the originals' twins; make the twin anyway (matched by name, not position)
+ */
+export function addNodes(nodes: Array<{ name: string; x: number; y: number; z: number; opts?: Record<string, any> }>, label = 'Add node', o: { twinOverOriginal?: boolean } = {}): string[] {
   const t = requireTarget();
   if (!t) return [];
   const v = ws.vehicle;
@@ -250,7 +254,7 @@ export function addNodes(nodes: Array<{ name: string; x: number; y: number; z: n
       const name = mirrorName(n.name);
       if (!name) return void unnamed++;
       if (batch.has(name) || v.nodeIndex.has(name)) return;
-      if (v.nodes.some((m) => Math.hypot(m.x + n.x, m.y - n.y, m.z - n.z) <= tol)) return;
+      if (!o.twinOverOriginal && v.nodes.some((m) => Math.hypot(m.x + n.x, m.y - n.y, m.z - n.z) <= tol)) return;
       batch.add(name);
       twins.set(k, { name, x: -n.x, y: n.y, z: n.z, opts: mirrorOpts(n.opts) });
     });
@@ -1562,15 +1566,23 @@ export function pasteBeamProps(beamIdx: number[]): boolean {
 // ------------------------------------------------------------------------------------------
 
 /** Next free names from the quick-naming prefix with side suffixes (f12l, f12r, f13…). */
-function namesFor(positions: Array<[number, number, number]>): string[] {
+/** Sequential node names for new positions; with `twins`, the other side's name must be free too (and is kept for the twin). */
+function namesFor(positions: Array<[number, number, number]>, twins = false): string[] {
   const v = ws.vehicle!;
   const nm = useUi.getState().naming;
   const taken = new Set(v.nodeIndex.keys());
   let num = nm.next;
   return positions.map((p) => {
+    const twinOk = (n: string) => {
+      if (!twins) return true;
+      const t = mirrorName(n);
+      return !t || !taken.has(t);
+    };
     let name = sidedName(nm.prefix, num, p[0]);
-    while (taken.has(name)) name = sidedName(nm.prefix, ++num, p[0]);
+    while (taken.has(name) || !twinOk(name)) name = sidedName(nm.prefix, ++num, p[0]);
     taken.add(name);
+    const t = twins ? mirrorName(name) : null;
+    if (t) taken.add(t);
     return name;
   });
 }
@@ -1583,17 +1595,45 @@ function namesFor(positions: Array<[number, number, number]>): string[] {
 export function extrudeNodes(indices: number[]): string[] {
   const v = ws.vehicle;
   if (!v || !indices.length) return [];
-  const pos = indices.map((i) => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z] as [number, number, number]);
-  const names = namesFor(pos);
-  const map = new Map(indices.map((i, k) => [i, names[k]]));
+  const sym = symOn();
+  const tol = symTol();
+  // with symmetry, extrude one side of each mirrored pair: addNodes / addBeams make the other side.
+  // (the new nodes sit on top of the originals, so the twin's spot is taken by the original's twin:
+  // twins are matched by name here, never by position)
+  const all = new Set(indices);
+  const primary: number[] = [];
+  const twinOfSel = new Map<number, number>();
+  for (const i of indices) {
+    if (twinOfSel.has(i)) continue;
+    primary.push(i);
+    if (!sym || Math.abs(v.nodes[i].x) <= tol) continue;
+    const t = twinOf(v, i);
+    if (t !== null && t !== i && all.has(t)) twinOfSel.set(t, i);
+  }
+  const pos = primary.map((i) => [v.nodes[i].x, v.nodes[i].y, v.nodes[i].z] as [number, number, number]);
+  const names = namesFor(pos, sym);
+  const map = new Map(primary.map((i, k) => [i, names[k]]));
+  // the selected twins get the mirrored names of their primary's new node
+  for (const [t, i] of twinOfSel) {
+    const mn = mirrorName(map.get(i)!);
+    if (mn) map.set(t, mn);
+  }
   return ws.group(`Extrude ${indices.length} node(s)`, () => {
-    const made = addNodes(indices.map((i, k) => ({ name: names[k], x: pos[k][0], y: pos[k][1], z: pos[k][2], opts: nodeExtraOpts(v.nodes[i].row) })), 'Extrude');
+    const made = addNodes(primary.map((i, k) => ({ name: names[k], x: pos[k][0], y: pos[k][1], z: pos[k][2], opts: nodeExtraOpts(v.nodes[i].row) })), 'Extrude', { twinOverOriginal: true });
     if (!made.length) return [];
-    const set = new Set(indices);
-    const pairs: Array<[string, string]> = indices.map((i) => [v.nodes[i].name, map.get(i)!] as [string, string]);
-    for (const b of v.beams) if (set.has(b.a) && set.has(b.b)) pairs.push([map.get(b.a)!, map.get(b.b)!]);
-    addBeams(pairs, undefined, 'Extrude beams');
-    return made;
+    const v2 = ws.vehicle!;
+    const pairs: Array<[string, string]> = [];
+    for (const i of all) {
+      const nn = map.get(i);
+      if (nn && v2.nodeIndex.has(nn)) pairs.push([v.nodes[i].name, nn]);
+    }
+    for (const b of v.beams) {
+      const a = map.get(b.a), c = map.get(b.b);
+      if (all.has(b.a) && all.has(b.b) && a && c && v2.nodeIndex.has(a) && v2.nodeIndex.has(c)) pairs.push([a, c]);
+    }
+    if (pairs.length) addBeams(pairs, undefined, 'Extrude beams');
+    // the move that follows takes the new nodes of the selected side; symmetry carries the twins
+    return names.filter((n) => v2.nodeIndex.has(n));
   });
 }
 

@@ -3041,3 +3041,17 @@ button.status-item:hover {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
+.status-item.status-version {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.status-item.status-version:hover {
+  color: var(--text);
+}
+/* tooltip above, aligned to the item's left edge (far left of the window) */
+[data-tip][data-tip-pos='top-right']:hover::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  transform: none;
+}

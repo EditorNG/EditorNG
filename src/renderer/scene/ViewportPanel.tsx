@@ -954,15 +954,8 @@ export function ViewportPanel() {
     if (!ni) return;
     if (ni.create) {
       const [x, y, z] = ni.create;
-      const names = [value];
-      const nodes = [{ name: value, x, y, z }];
-      const nm = useUi.getState().naming;
-      const mn = ops.mirrorName(value);
-      if (nm.mirror && Math.abs(x) > settings().namingCenterTolerance && mn && !ws.vehicle?.nodeIndex.has(mn)) {
-        nodes.push({ name: mn, x: -x, y, z });
-        names.push(mn);
-      }
-      const made = ops.addNodes(nodes);
+      // the mirror twin comes from X symmetry (addNodes), only when it is on
+      const made = ops.addNodes([{ name: value, x, y, z }]);
       if (made.length) ops.selectNodesByName(made);
       return;
     }
