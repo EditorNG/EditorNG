@@ -16,26 +16,42 @@ install by itself. The [user guide](docs/USER_GUIDE.md) covers everything.
 
 **Edit in 3D and in code at the same time.** Click a node, beam or triangle and the code
 editor jumps to its row; move the cursor in the code and the 3D view highlights it. Blender-style
-controls: G/R/S to move, rotate and scale, Shift+A to add, X symmetry, Ctrl to snap to a node.
+controls: G/R/S to move, rotate and scale, Shift+A to add, Ctrl to snap to a node.
 
-![Node and beam structure with beam types coloured and a node inspected](docs/images/structure.png)
+**Work on one side, get both.** With X symmetry on, every edit is mirrored to the twin nodes,
+beams and triangles on the other side, even in the other side's part. Show a single file or part
+to focus on it.
+
+![The Wendover fenders on their own, with symmetry on: each selected node has its mirror twin](docs/images/symmetry.png)
 
 **Place 0.40-era systems without typing them out.** Lights (slots2 bulbs) from a light type,
-with names, direction and the mirrored side filled in; triggers2 with every game action in a
-menu; occupant seats with their rigidifier; rails and slidenodes.
+with names, direction and the mirrored side filled in; occupant seats with their rigidifier;
+rails and slidenodes. And triggers: tired of nudging trigger boxes by hand since the day they
+came out? Pick three nodes, pick the action from a menu of every one the game has, done.
 
-![The Lights tool: pick a light type, both sides are written for you](docs/images/lights.png)
+![The Lights tool on an Ardente headlight: pick a light type, both sides are written for you](docs/images/lights.png)
 
 **Find anything fast.** The search bar finds files, parts (`#`), nodes (`@`), commands (`>`) and
 text in every file (`%`).
 
 ![Searching parts with #door](docs/images/search.png)
 
-And more: the Shaded view with the game's materials, structural checks before release, weight
-distribution, suspension kinematics, Blender import and live link, merging with edits made in
-other programs, one-click reload in game.
+**Config view.** Load any `.pc`, swap the part in any slot and see the result straight away,
+then save it as a new configuration.
 
-Screenshots show the vanilla ETK 800, © BeamNG GmbH.
+![Config view: a Percheron 8x8 flatbed with its slot tree and .pc file](docs/images/config.png)
+
+**Suspension analysis.** Camber, toe, caster, roll centres, anti-dive and anti-squat, solved from
+the beams themselves, so it works for any suspension layout and updates as you edit.
+
+![Suspension analysis of the Bolide front axle](docs/images/suspension.png)
+
+And more: the Shaded view with the game's materials, structural checks before release, weight
+distribution, Blender import and live link, merging with edits made in other programs, one-click
+reload in game.
+
+Screenshots show vanilla BeamNG.drive vehicles (ETK 800, Wendover, Ardente, Percheron, Bolide),
+© BeamNG GmbH.
 
 ## Development
 
