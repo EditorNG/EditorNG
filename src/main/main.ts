@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import * as dgram from 'node:dgram';
 import { makeZip } from './zip';
+import { focusGame, warmUpGameFocus, stopGameFocus } from './gameFocus';
 import { checkForUpdates, downloadUpdate, startInstall, otherInstances, takeWhatsNew, updateLogTail, type UpdateCheck } from './updater';
 import { assertTextWritable } from './binaryGuard';
 import { parseJbeamFile } from '../core/jbeam/parts';
@@ -575,7 +576,11 @@ function registerIpc(): void {
       sock.on('message', (msg) => {
         try {
           const r = JSON.parse(msg.toString('utf8'));
-          if (r && (r.id === undefined || r.id === id)) finish(r);
+          if (r && (r.id === undefined || r.id === id)) {
+            // the game is up: get the window switcher ready for Reload in game
+            if (r.ok) warmUpGameFocus();
+            finish(r);
+          }
         } catch {}
       });
       sock.on('error', () => finish(null));
@@ -587,7 +592,12 @@ function registerIpc(): void {
     const dir = bridgeDir();
     if (!dir) return { installed: false, dir: null, files: bridgeFiles };
     const ok = await Promise.all(bridgeFiles.map((f) => fsp.stat(path.join(dir, f)).then(() => true, () => false)));
-    return { installed: ok.every(Boolean), dir, files: bridgeFiles };
+    // same files as the ones shipped with this EditorNG (an older bridge lacks newer commands)
+    const same = await Promise.all(bridgeFiles.map(async (f) => {
+      const [a, b] = await Promise.all([fsp.readFile(path.join(dir, f)).catch(() => null), fsp.readFile(resourcePath('game', 'editorng_bridge', f)).catch(() => null)]);
+      return !!a && !!b && a.equals(b);
+    }));
+    return { installed: ok.every(Boolean), current: same.every(Boolean), dir, files: bridgeFiles };
   });
   h('gameBridgeInstall', async () => {
     const dir = bridgeDir();
@@ -599,6 +609,7 @@ function registerIpc(): void {
     }
     return { dir, files: bridgeFiles };
   });
+  h('gameFocus', (waitMs?: number) => focusGame(waitMs));
   /** Is BeamNG.drive running (any copy)? */
   h('gameRunning', () =>
     new Promise<boolean>((resolve) => {
@@ -743,6 +754,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  stopGameFocus();
   for (const w of watchers.values()) w.close();
   linkServer?.close();
   app.quit();

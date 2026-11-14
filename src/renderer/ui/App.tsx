@@ -10,7 +10,7 @@ import { ViewportPanel } from '../scene/ViewportPanel';
 import { CodeEditor } from '../editor/CodeEditor';
 import { StructurePanel } from './SidePanels';
 import { useSel, resolveSel } from '../state/selection';
-import { useChecks, runAllChecks } from '../state/checks';
+import { runAllChecks, useCheckCounts } from '../state/checks';
 import { ReloadInGameButton } from './GameLink';
 import { MenuHost } from './Menu';
 import { useSessionAutosave } from './Tier2';
@@ -182,18 +182,14 @@ function SideBar() {
 /** Runs the structural checks and opens their tab; shows the count of the last run. */
 function CheckButton() {
   const v = useWs((x) => x.vehicle);
-  const res = useChecks((x) => x.results);
-  const forV = useChecks((x) => x.forVehicle);
-  const stale = !!res && forV !== v;
-  const err = res?.filter((f) => f.sev === 'error').length ?? 0;
-  const warn = res?.filter((f) => f.sev === 'warning').length ?? 0;
+  const { error: err, warning: warn, ran, stale } = useCheckCounts();
   return (
-    <button className="btn small title-btn" disabled={!v} data-tip={res ? `${err} errors, ${warn} warnings${stale ? ' (vehicle changed since)' : ''}` : 'Run structural checks'} onClick={() => {
+    <button className="btn small title-btn" disabled={!v} data-tip={`${err} errors, ${warn} warnings${ran ? (stale ? ' (vehicle changed since the last check)' : '') : ' while loading; click to run the structural checks'}`} onClick={() => {
       runAllChecks();
-      useUi.setState({ bottom: true, bottomTab: 'debug' });
+      useUi.setState({ bottom: true, bottomTab: 'checks' });
     }}>
       <ShieldCheck size={13} /> Check
-      {res && !stale && (err + warn > 0 ? <span className={'badge ' + (err ? 'err' : 'warn')}>{err + warn}</span> : <span className="badge ok">0</span>)}
+      {v && (err + warn > 0 ? <span className={'badge ' + (err ? 'err' : 'warn')}>{err + warn}</span> : ran && !stale ? <span className="badge ok">0</span> : null)}
     </button>
   );
 }
@@ -270,12 +266,11 @@ function VersionItem() {
 function StatusBar() {
   const v = useWs((x) => x.vehicle);
   const sym = useSettings((x) => x.s.symmetryX);
-  const errors = v?.issues.filter((i) => i.sev === 'error').length ?? 0;
-  const warnings = v?.issues.filter((i) => i.sev === 'warning').length ?? 0;
+  const { error: errors, warning: warnings } = useCheckCounts();
   return (
     <div className="statusbar">
       <VersionItem />
-      <button className="status-item" onClick={() => useUi.setState({ bottom: true, bottomTab: 'problems' })} data-tip="Problems" data-tip-pos="top">
+      <button className="status-item" onClick={() => useUi.setState({ bottom: true, bottomTab: 'checks' })} data-tip="Checks" data-tip-pos="top">
         <span className={errors ? 'err-text' : ''}>● {errors}</span>
         <span className={warnings ? 'warn-text' : ''}>▲ {warnings}</span>
       </button>

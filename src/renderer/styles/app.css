@@ -3055,3 +3055,24 @@ button.status-item:hover {
   left: 0;
   transform: none;
 }
+
+/* Checks tab: problems + findings */
+.switch-spacer {
+  width: 30px;
+  flex: none;
+}
+.problem.part-head {
+  gap: 6px;
+  color: var(--text-dim);
+}
+.problem.part-head .badge {
+  margin-left: auto;
+}
+.problem.nested {
+  padding-left: 44px;
+}
+.problem.ignored > span:not(.faint) {
+  opacity: 0.5;
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}

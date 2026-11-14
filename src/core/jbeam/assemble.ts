@@ -276,8 +276,19 @@ export function resolveTree(lib: PartLibrary, config: VehicleConfig): ResolveRes
       issues.push({ sev: 'error', code: 'slot-cycle', msg: 'More than 50 slot levels — check for cycles', part: owner.def.name, file: owner.def.file });
       return;
     }
+    const seenSlots = new Map<string, SlotDef>();
     for (const slot of owner.def.slots) {
       const slotId = slot.name;
+      // the game walks every slot row: a slot listed twice installs (and merges) its part twice,
+      // so its nodes are defined twice and its beams doubled. Assemble it the same way, and say why.
+      const first = seenSlots.get(slotId);
+      if (first) {
+        issues.push({
+          sev: 'warning', code: 'duplicate-slot',
+          msg: `Slot "${slotId}" is listed twice in part "${owner.def.name}": the game installs its part twice, so that part's nodes are defined twice and its beams doubled. Remove one of the two rows.`,
+          file: owner.def.file, s: slot.row?.s, e: slot.row?.e, part: owner.def.name,
+        });
+      } else seenSlots.set(slotId, slot);
       const level = (recursion.get(slotId) ?? 0) + 1;
       if (typeof slot.maxRecursion === 'number' && level > slot.maxRecursion) continue;
       const newPath = path + slotId + '/';
@@ -765,6 +776,11 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
       const prev = nodes[existing];
       const samePart = prev.row.src.part === row.src.part && prev.row.src.file === row.src.file;
       const moved = Math.abs(prev.x - p.x) + Math.abs(prev.y - p.y) + Math.abs(prev.z - p.z) > 1e-6;
+      // the very same row again: its part is installed twice (reported once, as duplicate-slot)
+      if (prev.row.src.node === row.src.node) {
+        nodes[existing] = node;
+        continue;
+      }
       issues.push({
         sev: samePart ? 'warning' : moved ? 'info' : 'hint', code: samePart ? 'duplicate-node' : 'redefined-node',
         msg: samePart

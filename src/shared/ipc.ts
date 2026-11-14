@@ -103,8 +103,8 @@ export interface Api {
 
   blenderLinkPort(port: number): Promise<void>;
   /** sends a command to the EditorNG bridge mod in the running game; null when nobody answers */
-  gameSend(cmd: Record<string, unknown>, timeoutMs?: number): Promise<null | { ok: boolean; error?: string; action?: string; vehicle?: { model: string; config?: string } | null }>;
-  gameBridgeStatus(): Promise<{ installed: boolean; dir: string | null; files: string[] }>;
+  gameSend(cmd: Record<string, unknown>, timeoutMs?: number): Promise<null | { ok: boolean; error?: string; action?: string; version?: number; vehicle?: { model: string; config?: string } | null }>;
+  gameBridgeStatus(): Promise<{ installed: boolean; current?: boolean; dir: string | null; files: string[] }>;
   gameBridgeInstall(): Promise<{ dir: string; files: string[] }>;
   /** new text of <userDir>/beamng.log since offset (reset = the file was rotated / restarted) */
   gameLogRead(offset: number): Promise<{ text: string; size: number; path: string | null; reset: boolean }>;
@@ -117,6 +117,8 @@ export interface Api {
   updateInstall(version: string, staged: string, notes: unknown): Promise<{ ok: boolean; error?: string }>;
   updateWhatsNew(): Promise<unknown>;
   gameRunning(): Promise<boolean>;
+  /** brings the BeamNG window to the front: ok | flash (Windows refused, taskbar flashes) | none | unavailable */
+  gameFocus(waitMs?: number): Promise<string>;
   gameLaunch(o: { level: string; model: string; config?: string }): Promise<{ exe: string; args: string[] }>;
   onUpdateProgress(cb: (p: import('../main/updater').UpdateProgress) => void): () => void;
 }

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 
-export type BeamColorMode = 'type' | 'part' | 'stiffness' | 'uniform' | 'deformGroup';
+export type BeamColorMode = 'type' | 'part' | 'stiffness' | 'uniform' | 'deformGroup' | 'breakGroup';
 
 export const DEFAULT_KEYMAP: Record<string, string> = {
   'select.all': 'A',
@@ -190,10 +190,14 @@ export interface Settings {
   reloadOnExternalChange: 'merge' | 'ask' | 'always' | 'never';
   /** Reload in game starts BeamNG on this level (folder name) when it is not running */
   gameStartLevel: string;
+  /** switch to the BeamNG window after Reload in game */
+  gameFocusOnReload: boolean;
   /** look for a new EditorNG release at startup */
   updateCheck: boolean;
   /** version the user chose to skip ("" = none) */
   updateSkip: string;
+  /** check findings / problems the user marked as intended, per vehicle model: model -> finding keys */
+  ignoredFindings: Record<string, string[]>;
 
   // blender
   blenderExe: string;
@@ -331,8 +335,10 @@ export const DEFAULT_SETTINGS: Settings = {
   watchFiles: true,
   reloadOnExternalChange: 'merge',
   gameStartLevel: 'smallgrid',
+  gameFocusOnReload: true,
   updateCheck: true,
   updateSkip: '',
+  ignoredFindings: {},
 
   blenderExe: '',
   blenderAxis: 'z-up',
@@ -386,7 +392,8 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   },
   reset: (keys) => {
     const next = { ...get().s };
-    for (const k of keys ?? (Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>)) (next as any)[k] = DEFAULT_SETTINGS[k];
+    // "reset everything" keeps what the user marked as intended in their vehicles
+    for (const k of keys ?? (Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>).filter((k) => k !== 'ignoredFindings')) (next as any)[k] = DEFAULT_SETTINGS[k];
     set({ s: next });
     scheduleSave(next);
   },

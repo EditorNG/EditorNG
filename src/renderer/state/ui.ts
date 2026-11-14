@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export type Activity = 'structure' | 'create';
 export type Page = 'workbench' | 'suspension' | 'settings';
 export type Tool = 'select' | 'addNode' | 'beam' | 'tri' | 'name';
-export type BottomTab = 'problems' | 'debug' | 'gamelog' | 'refs' | 'mass' | 'variables' | 'output';
+export type BottomTab = 'checks' | 'gamelog' | 'refs' | 'mass' | 'output';
 
 export interface UiState {
   activity: Activity;
@@ -40,7 +40,7 @@ export const useUi = create<UiState>(() => ({
   page: 'workbench',
   tool: 'select',
   bottom: true,
-  bottomTab: 'problems',
+  bottomTab: 'checks',
   tabs: [],
   activeTab: null,
   palette: null,
@@ -99,6 +99,6 @@ export function migrateUi(ui: Record<string, any>): Record<string, any> {
     if (out.activity === 'parts') out.structMode = 'slots';
     out.activity = 'structure';
   }
-  if (!['problems', 'debug', 'gamelog', 'refs', 'mass', 'variables', 'output'].includes(out.bottomTab)) out.bottomTab = 'problems';
+  if (!['checks', 'gamelog', 'refs', 'mass', 'output'].includes(out.bottomTab)) out.bottomTab = 'checks';
   return out;
 }

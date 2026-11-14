@@ -78,9 +78,8 @@ export const COMMANDS: Command[] = [
     if (n) showReferences(n);
   }, enabled: hasVehicle },
   { id: 'tools.gamelog', title: 'Game log', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'gamelog' }) },
-  { id: 'tools.debug', title: 'Run JBeam checks', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'debug' }), enabled: hasVehicle },
+  { id: 'tools.debug', title: 'Run JBeam checks', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'checks' }), enabled: hasVehicle },
   { id: 'tools.mass', title: 'Weight distribution', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'mass' }), enabled: hasVehicle },
-  { id: 'tools.variables', title: 'Tuning variables', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'variables' }), enabled: hasVehicle },
   { id: 'page.suspension', title: 'Suspension analysis', group: 'View', run: () => useUi.setState({ page: 'suspension' }), enabled: hasVehicle },
   { id: 'app.settings', title: 'Settings', group: 'View', key: 'app.settings', run: () => useUi.setState({ page: 'settings' }) },
   { id: 'page.workbench', title: 'Back to editor', group: 'View', run: () => useUi.setState({ page: 'workbench' }) },

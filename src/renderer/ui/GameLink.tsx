@@ -1,6 +1,7 @@
 /**
  * Link with the running game:
- *  - "Reload in game": saves, then asks the bridge mod to reload (or spawn) the vehicle.
+ *  - "Reload in game": saves, then asks the bridge mod to respawn the vehicle with the configuration
+ *    open in EditorNG (saved to a .pc or not).
  *  - the setup dialog that installs the bridge mod into the user's mods/unpacked folder.
  *  - the Game log tab: errors and warnings from <userDir>/beamng.log, filtered to the vehicle.
  */
@@ -34,7 +35,29 @@ async function ping(): Promise<boolean> {
   return !!r?.ok;
 }
 
-/** Saves everything, then reloads the vehicle in the running game (or spawns this one). */
+/** bridge version that understands "apply" (respawn with a configuration table) */
+const BRIDGE_APPLY = 2;
+
+/** The configuration open in EditorNG (slots + variables), as the game's config table. */
+function currentConfig(): Record<string, any> | null {
+  try {
+    return JSON.parse(ws.exportConfig());
+  } catch {
+    return null;
+  }
+}
+
+/** Overwrites an outdated bridge mod; the game picks it up after Ctrl+L or a restart. */
+async function updateBridge() {
+  try {
+    await api.gameBridgeInstall();
+    toast('info', 'Updated the EditorNG bridge mod. Press Ctrl+L in BeamNG (or restart it) so Reload in game also sends your unsaved configuration.', undefined, 8000);
+  } catch {
+    /* plain reload still works */
+  }
+}
+
+/** Saves everything, then respawns the vehicle in the running game with the open configuration. */
 export async function reloadInGame() {
   const model = ws.model;
   if (!model) {
@@ -53,8 +76,20 @@ export async function reloadInGame() {
       return;
     }
     const same = r.vehicle?.model?.toLowerCase() === model.toLowerCase();
-    const res = same ? await api.gameSend({ cmd: 'reload' }, 1500) : await api.gameSend({ cmd: 'spawn', model, config: pc ?? '' }, 1500);
-    if (res?.ok) toast('info', same ? `Reloaded ${model} in game` : `Spawned ${model}${pc ? ' (' + pc.split('/').pop() + ')' : ''} in game`);
+    const config = currentConfig();
+    let res: any;
+    if ((r.version ?? 1) >= BRIDGE_APPLY && config) res = await api.gameSend({ cmd: 'apply', model, config }, 2000);
+    else {
+      if ((r.version ?? 1) < BRIDGE_APPLY) void updateBridge();
+      res = same ? await api.gameSend({ cmd: 'reload' }, 1500) : await api.gameSend({ cmd: 'spawn', model, config: pc ?? '' }, 1500);
+    }
+    if (res?.ok) {
+      toast('info', same ? `Reloaded ${model} in game` : `Spawned ${model} in game`);
+      if (settings().gameFocusOnReload) {
+        const f = await api.gameFocus(3000).catch(() => 'unavailable');
+        if (f === 'flash') toast('info', 'Windows kept EditorNG in front: BeamNG is flashing in the taskbar', undefined, 3500);
+      }
+    }
     else toast('warn', res?.error ? `Game: ${res.error}` : 'The game did not answer');
     useGameLink.setState({ connected: !!res, gameVehicle: same ? model : model });
   } finally {
@@ -100,10 +135,10 @@ async function startGame(model: string, pc: string | undefined) {
     return;
   }
   const st = await api.gameBridgeStatus().catch(() => null);
-  if (st && !st.installed && st.dir) {
+  if (st && (!st.installed || st.current === false) && st.dir) {
     try {
       await api.gameBridgeInstall();
-      toast('info', 'Installed the EditorNG bridge mod (lets Reload in game talk to BeamNG).', undefined, 5000);
+      toast('info', st.installed ? 'Updated the EditorNG bridge mod.' : 'Installed the EditorNG bridge mod (lets Reload in game talk to BeamNG).', undefined, 5000);
     } catch {
       /* the game still starts; reloads will ask for the setup */
     }
@@ -119,9 +154,15 @@ async function startGame(model: string, pc: string | undefined) {
   launchedAt = Date.now();
   toast('info', `Starting BeamNG${level ? ` on ${label}` : ''} with ${model}${pc ? ` (${pc.split('/').pop()!.replace(/\.pc$/i, '')})` : ''}…`, undefined, 6000);
   // the link light turns green as soon as the bridge answers
+  // once the vehicle is in, respawn it with the open configuration (it may not be saved to a .pc)
   const t0 = Date.now();
+  const config = currentConfig();
   const poll = setInterval(async () => {
-    if ((await ping()) || Date.now() - t0 > 5 * 60_000) clearInterval(poll);
+    const r = await api.gameSend({ cmd: 'ping' }, 500).catch(() => null);
+    useGameLink.setState({ connected: !!r?.ok, gameVehicle: r?.vehicle?.model ?? null });
+    const ready = !!r?.ok && r.vehicle?.model?.toLowerCase() === model.toLowerCase();
+    if (ready && config && (r.version ?? 1) >= BRIDGE_APPLY) await api.gameSend({ cmd: 'apply', model, config }, 2000).catch(() => null);
+    if (ready || Date.now() - t0 > 5 * 60_000) clearInterval(poll);
   }, 4000);
 }
 

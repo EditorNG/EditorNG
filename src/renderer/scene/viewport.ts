@@ -115,6 +115,11 @@ export interface ViewportCallbacks {
   onCameraChange?: () => void;
 }
 
+/** a little thicker than ordinary beams, enough to stand out */
+function emphWidth(w: number): number {
+  return w * 1.35 + 0.6;
+}
+
 export class Viewport {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -133,6 +138,10 @@ export class Viewport {
   private nodeSizeAttr = new Float32Array(0);
   private beamLines: LineSegments2 | null = null;
   private beamMat: LineMaterial;
+  /** selected / highlighted / hovered beams drawn again a little thicker on top */
+  private emphLines: LineSegments2 | null = null;
+  private emphMat: LineMaterial;
+  private emphBeams: Array<{ i: number; c: number[] }> = [];
   private triMesh: THREE.Mesh | null = null;
   private triMat: THREE.ShaderMaterial;
   private nodeMat: THREE.ShaderMaterial;
@@ -235,6 +244,7 @@ export class Viewport {
     });
     this.railMat = new LineMaterial({ color: 0xd04dff, linewidth: 3.5, worldUnits: false, transparent: true, opacity: 0.95, depthTest: false });
     this.beamMat = new LineMaterial({ linewidth: s.beamWidth, vertexColors: true, worldUnits: false, transparent: true, depthWrite: true });
+    this.emphMat = new LineMaterial({ linewidth: emphWidth(s.beamWidth), vertexColors: true, worldUnits: false, transparent: true, depthWrite: true });
     this.triMat = new THREE.ShaderMaterial({
       vertexShader: TRI_VS,
       fragmentShader: TRI_FS,
@@ -408,17 +418,20 @@ export class Viewport {
     this.persp.updateProjectionMatrix();
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, s.pixelRatioCap));
     this.beamMat.linewidth = s.beamWidth;
+    this.emphMat.linewidth = emphWidth(s.beamWidth);
     this.triMat.uniforms.uOpacity.value = s.triOpacity;
     this.triMat.uniforms.uBack.value.set(s.colorTriBack);
     this.updateTriEdge();
     this.nodeMat.uniforms.uWorld.value = s.nodeWorldScale ? 1 : 0;
     this.nodeMat.depthTest = !s.xray;
     this.beamMat.depthTest = !s.xray;
+    this.emphMat.depthTest = !s.xray;
     this.grid.visible = s.showGrid;
     this.axes.visible = s.showAxes;
     this.ground.visible = s.showGround;
     if (this.nodePoints) this.nodePoints.visible = s.showNodes;
     if (this.beamLines) this.beamLines.visible = s.showBeams;
+    if (this.emphLines) this.emphLines.visible = s.showBeams;
     if (this.triMesh) this.triMesh.visible = s.showTris;
     if (this.triNormals) this.triNormals.visible = s.showTris && s.showTriNormals;
     if (this.wheelLines) this.wheelLines.visible = s.showWheels;
@@ -448,6 +461,7 @@ export class Viewport {
     this.persp.updateProjectionMatrix();
     this.updateOrthoFrustum();
     this.beamMat.resolution.set(w, h);
+    this.emphMat.resolution.set(w, h);
     this.railMat.resolution.set(w, h);
     this.nodeMat.uniforms.uPx.value = dpr;
     this.updateTriEdge();
@@ -729,6 +743,49 @@ export class Viewport {
     this.root.add(this.triMesh);
   }
 
+  /** (Re)writes the thicker overlay of emphasised beams from this.emphBeams and the current positions. */
+  private writeEmphBeams() {
+    const v = this.vehicle;
+    const list = v ? this.emphBeams : [];
+    const n = list.length;
+    if (!n) {
+      if (this.emphLines) this.emphLines.visible = false;
+      return;
+    }
+    const cap = this.emphLines ? (this.emphLines.geometry.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute).data.array.length / 6 : 0;
+    if (!this.emphLines || cap < n) {
+      if (this.emphLines) {
+        this.root.remove(this.emphLines);
+        this.emphLines.geometry.dispose();
+      }
+      const size = Math.max(16, n * 2);
+      const g = new LineSegmentsGeometry();
+      g.setPositions(new Float32Array(size * 6));
+      g.setColors(new Float32Array(size * 6));
+      this.emphLines = new LineSegments2(g, this.emphMat);
+      this.emphLines.frustumCulled = false;
+      this.emphLines.renderOrder = 3;
+      this.root.add(this.emphLines);
+    }
+    const g = this.emphLines.geometry;
+    const pa = g.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute;
+    const ca = g.getAttribute('instanceColorStart') as THREE.InterleavedBufferAttribute;
+    const P = pa.data.array as Float32Array, C = ca.data.array as Float32Array, p = this.pos;
+    list.forEach(({ i, c }, k) => {
+      const b = v!.beams[i];
+      const o = k * 6;
+      for (let j = 0; j < 3; j++) {
+        P[o + j] = p[b.a * 3 + j];
+        P[o + 3 + j] = p[b.b * 3 + j];
+        C[o + j] = C[o + 3 + j] = c[j];
+      }
+    });
+    pa.data.needsUpdate = true;
+    ca.data.needsUpdate = true;
+    g.instanceCount = n;
+    this.emphLines.visible = this.s.showBeams;
+  }
+
   private disposeGeometry() {
     for (const o of [this.nodePoints, this.beamLines, this.triMesh, this.triNormals, this.wheelLines]) {
       if (!o) continue;
@@ -737,6 +794,8 @@ export class Viewport {
     }
     this.nodePoints = null;
     this.beamLines = null;
+    this.emphBeams = [];
+    this.writeEmphBeams();
     this.triMesh = null;
     this.triNormals = null;
     this.wheelLines = null;
@@ -768,6 +827,7 @@ export class Viewport {
       attr.data.needsUpdate = true;
       this.beamLines.geometry.computeBoundingSphere();
     }
+    if (this.emphBeams.length) this.writeEmphBeams();
     if (this.triMesh) {
       const attr = this.triMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
       const arr = attr.array as Float32Array;
@@ -990,9 +1050,11 @@ export class Viewport {
         return get(s.colorBeam);
       case 'part':
         return partColor(b.row.part.def.name);
-      case 'deformGroup': {
-        const dg = b.row.v.deformGroup;
-        return typeof dg === 'string' && dg ? partColor(dg) : get(s.colorBeam);
+      case 'deformGroup':
+      case 'breakGroup': {
+        // beams outside any group stay dim so the groups stand out
+        const g = beamGroup(b.row.v, s.beamColorMode);
+        return g ? partColor(g) : get(GROUPLESS);
       }
       case 'stiffness': {
         const k = Number(b.row.v.beamSpring);
@@ -1081,21 +1143,26 @@ export class Viewport {
       const arr = attr.data.array as Float32Array;
       // beams attached to a (small) node selection get a softer accent, like the mockup's "attached to f3"
       const attach = sel && sel.nodes.size > 0 && sel.nodes.size <= 64 ? sel.nodes : null;
+      const emph_: Array<{ i: number; c: number[] }> = [];
       this.drawBeams.forEach((i, k) => {
         let c = this.beamBaseColor(i, cache);
         if (attach) {
           const b = v.beams[i];
           if (attach.has(b.a) || attach.has(b.b)) c = [c[0] * 0.35 + selC[0] * 0.65, c[1] * 0.35 + selC[1] * 0.65, c[2] * 0.35 + selC[2] * 0.65];
         }
-        if (hl?.beams.has(i)) c = hlC;
-        if (sel?.beams.has(i)) c = selC;
-        else if (hover?.kind === 'beam' && hover.idx === i) c = [Math.min(1, c[0] + 0.35), Math.min(1, c[1] + 0.35), Math.min(1, c[2] + 0.35)];
+        let emph = false;
+        if (hl?.beams.has(i)) (c = hlC), (emph = true);
+        if (sel?.beams.has(i)) (c = selC), (emph = true);
+        else if (hover?.kind === 'beam' && hover.idx === i) (c = [Math.min(1, c[0] + 0.35), Math.min(1, c[1] + 0.35), Math.min(1, c[2] + 0.35)]), (emph = true);
+        if (emph && emph_.length < 5000) emph_.push({ i, c });
         const o = k * 6;
         arr[o] = arr[o + 3] = c[0];
         arr[o + 1] = arr[o + 4] = c[1];
         arr[o + 2] = arr[o + 5] = c[2];
       });
       attr.data.needsUpdate = true;
+      this.emphBeams = emph_;
+      this.writeEmphBeams();
     }
 
     if (this.triMesh) {
@@ -1395,6 +1462,16 @@ export class Viewport {
 }
 
 const partColorCache = new Map<string, [number, number, number]>();
+/** colour of beams outside any group in the deform / break group views */
+export const GROUPLESS = '#4a4d55';
+
+/** a beam's deformGroup or (first) breakGroup, '' when none */
+export function beamGroup(v: Record<string, any>, kind: 'deformGroup' | 'breakGroup'): string {
+  const g = v[kind];
+  const first = Array.isArray(g) ? g.find((x) => typeof x === 'string' && x) : g;
+  return typeof first === 'string' ? first : '';
+}
+
 export function partColor(name: string): [number, number, number] {
   let c = partColorCache.get(name);
   if (c) return c;

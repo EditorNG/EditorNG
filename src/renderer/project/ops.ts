@@ -7,7 +7,7 @@ import {
 } from '@core/jbeam/edit';
 import { insertMarkOffset, moveInsertMark } from '../editor/insertMark';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
-import type { ANode, AArr } from '@core/sjson';
+import { pathAt, type ANode, type AArr } from '@core/sjson';
 import type { ActivePart, PartDef, Row, Vehicle } from '@core/jbeam/types';
 import { settings } from '../state/settings';
 import { useUi } from '../state/ui';
@@ -1783,4 +1783,52 @@ export function alignTriggersToWorld(indices: number[]): boolean {
     return false;
   }
   return setTriggerValues(vals, vals.size > 1 ? `Align ${vals.size} triggers to world` : 'Align trigger to world');
+}
+
+// ------------------------------------------------------------------------------------------
+// check fixes
+// ------------------------------------------------------------------------------------------
+
+/**
+ * Moves table rows (beams, triangles…) to the end of the same section of another part, creating
+ * the section there if needed. Rows keep their own text when both headers match; otherwise they
+ * are rewritten for the target header from their values.
+ */
+export function moveRowsToPart(rows: Row[], target: string, label = 'Move rows'): boolean {
+  const v = ws.vehicle;
+  const to = v?.partsByName.get(target)?.def;
+  if (!v || !to || !rows.length) return false;
+  const toDoc = writableDoc(to.file);
+  if (!toDoc) return false;
+  const es = new EditSet();
+  const bySection = new Map<string, Row[]>();
+  for (const r of rows) (bySection.get(r.src.section) ?? bySection.set(r.src.section, []).get(r.src.section)!).push(r);
+  for (const [section, list] of bySection) {
+    const toHeader = headerOf(to.sections.get(section), section);
+    const texts = list.map((r) => {
+      const fromHeader = headerOf(r.src.table, section);
+      const d = ws.doc(r.src.file)!;
+      return fromHeader.join('\u0000') === toHeader.join('\u0000') ? d.text.slice(r.src.node.s, r.src.node.e) : fmtRow(rowFromRecord(toHeader, r.v), dec());
+    });
+    es.add(toDoc.key, insertRows(toDoc.text, to, section, toHeader, texts));
+  }
+  const byFile = new Map<string, ANode[]>();
+  for (const r of rows) (byFile.get(r.src.file) ?? byFile.set(r.src.file, []).get(r.src.file)!).push(r.src.node);
+  for (const [file, nodes] of byFile) {
+    if (!writableDoc(file)) return false;
+    es.add(file, deleteNodes(docText(file), nodes));
+  }
+  return es.apply(label);
+}
+
+/** Deletes the array row or entry that spans exactly [s, e) in a file (e.g. a repeated slot row). */
+export function deleteRowAt(file: string, s: number, e: number, label = 'Delete row'): boolean {
+  const d = writableDoc(file);
+  const root = d?.jfile?.root;
+  if (!d || !root) return false;
+  const hit = pathAt(root, s).map((p) => p.node).find((n) => n.s === s && n.e === e);
+  if (!hit) return false;
+  const es = new EditSet();
+  es.add(d.key, deleteNodes(d.text, [hit]));
+  return es.apply(label);
 }

@@ -42,8 +42,8 @@ title bar     menus · vehicle › config · [Check] [Reload in game]
 left          Structure / Create sidebar
 centre        viewport bar (scope › file › part · pick · views · display) + 3D view + inspector
 right         code editor with a "part › section › row" breadcrumb
-bottom        Problems · Checks · Game log · References · Weight · Tuning · Output
-status bar    problems · target part · selection · symmetry · parts
+bottom        Checks · Game log · References · Weight · Output
+status bar    errors / warnings · target part · selection · symmetry · parts
 ```
 
 - **Structure** (tree icon): every file → its parts → their sections, with counts. Click a file or
@@ -141,8 +141,9 @@ or mod file your copy overrides) opens a side-by-side diff.
 
 ## 5. Testing in the game
 
-**Reload in game** (title bar, **F5**) saves everything and makes the running BeamNG reload the
-vehicle — or spawn it with the current configuration if another vehicle is loaded. It needs a
+**Reload in game** (title bar, **F5**) saves everything and respawns the vehicle in the running
+BeamNG, in place, with the configuration open in EditorNG: the parts and variables you picked,
+even if you never saved them to a `.pc` (the paint stays). It needs a
 tiny helper mod, `editorng_bridge`, which EditorNG installs into your `mods/unpacked` folder the
 first time you click (it shows exactly which two files it writes). It only listens on this
 computer. Restart the game (or press Ctrl+L in game) after installing. To remove it, delete
@@ -226,15 +227,25 @@ Settings → Files & game → *On external change* has the older behaviours.
 
 ## 9. Checks and the bottom panel
 
-- **Check** (title bar) runs every enabled check and shows the count.
-- **Checks**: duplicate / zero-length beams, orphan and under-connected nodes, coincident nodes,
-  duplicate / degenerate triangles, left/right asymmetry, side suffix on the wrong side, flexbody
-  groups without nodes, extreme weights, rails & slidenodes, **leaking modifiers** (a
-  `{"beamSpring": …}` not reset at the end of a part changes the next parts' rows — only leaks
-  that touch your own files are listed), **property typos**. Right-click a finding to fix it or to
-  stop running that check.
+- **Check** (title bar) runs every enabled check, opens the Checks tab and shows the count of
+  errors and warnings.
+- **Checks** lists the **problems** first: what went wrong while reading and assembling the
+  vehicle (syntax, missing parts or nodes, a slot listed twice…). They are always up to date.
+  "Loading notes" also shows the minor ones.
+- Then the structural checks: duplicate / zero-length beams, orphan and under-connected nodes,
+  coincident nodes (couplers and latches are left out), duplicate / degenerate triangles,
+  left/right asymmetry, side suffix on the wrong side, flexbody groups without nodes (it says
+  when those nodes are commented out), extreme weights, rails & slidenodes, elements in the
+  other side's part, **leaking modifiers** (a `{"beamSpring": …}` not reset at the end of a part
+  changes the next parts' rows; only leaks that touch your own files are listed), **property
+  typos**.
+- Click a finding to select it in 3D and in the code; for duplicates, click again to jump to the
+  next copy. Long lists are folded per part.
+- Right-click a finding to fix it (remove the extra copies, remove a repeated slot row, move rows
+  to the other side's part, snap onto a rail), to **ignore** it when it is intended (kept per
+  vehicle; "Show ignored" brings them back), or to stop running that check.
 - **References**: every use of a node (rows of any part, slot variables like `$nodeRef`).
-- **Weight**, **Tuning** (variables as live sliders; save as `.pc`), **Output**.
+- **Weight**, **Output**. Tuning variables are on the suspension page.
 
 ## 10. Releasing
 

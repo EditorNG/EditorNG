@@ -10,6 +10,9 @@ import { useSettings, settings, type BeamColorMode, type Settings } from '../sta
 import { useSel, resolveSel, type PickMode } from '../state/selection';
 import { useUi } from '../state/ui';
 import { getViewport } from './ViewportPanel';
+import { beamGroup, GROUPLESS, partColor } from './viewport';
+
+const rgbCss = (c: number[]) => `rgb(${c.map((x) => Math.round(x * 255)).join(', ')})`;
 
 const DISPLAY_TOGGLES: Array<[keyof Settings, string]> = [
   ['showNodes', 'Nodes'],
@@ -169,6 +172,7 @@ function DisplayPopover() {
           <option value="type">By beam type</option>
           <option value="part">By part</option>
           <option value="deformGroup">By deform group</option>
+          <option value="breakGroup">By break group</option>
           <option value="stiffness">By stiffness</option>
           <option value="uniform">Uniform</option>
         </select>
@@ -187,7 +191,10 @@ function ScopeCrumbs() {
   const files = [...new Set(v.parts.map((p) => p.def.file))].sort((a, b) => fileName(a).localeCompare(fileName(b)));
   const curFile = scope.mode === 'vehicle' ? '' : scope.file;
   const fileForParts = curFile || target?.doc || v.root?.def.file || '';
-  const parts = v.parts.filter((p) => p.def.file.toLowerCase() === fileForParts.toLowerCase());
+  // every part the file defines, installed or not (picking one that is not installed installs it)
+  const installed = new Set(v.parts.filter((p) => p.def.file.toLowerCase() === fileForParts.toLowerCase()).map((p) => p.def.name));
+  const defined = ws.doc(fileForParts)?.jfile?.parts.map((p) => p.name) ?? [];
+  const parts = [...new Set([...defined, ...installed])].map((name) => ({ def: { name }, on: installed.has(name) }));
   const curPart = scope.mode === 'part' ? scope.part : '';
   return (
     <div className="crumbs">
@@ -203,8 +210,8 @@ function ScopeCrumbs() {
         <>
           <span className="crumb-sep">›</span>
           <select className={'crumb-select mono' + (scope.mode === 'part' ? ' active' : '')} value={curPart} onChange={(e) => (e.target.value ? ws.focusPart(e.target.value) : ws.setScope({ mode: 'file', file: fileForParts }))} onKeyDown={(e) => e.stopPropagation()} data-tip="Show one part (Shift+I)">
-            <option value="">{parts.length} part{parts.length === 1 ? '' : 's'}</option>
-            {parts.map((p) => <option key={p.def.name} value={p.def.name}>{p.def.name}</option>)}
+            <option value="">{parts.length} part{parts.length === 1 ? '' : 's'}{installed.size < parts.length ? ` (${installed.size} installed)` : ''}</option>
+            {parts.map((p) => <option key={p.def.name} value={p.def.name}>{p.def.name}{p.on ? '' : '  (not installed)'}</option>)}
             {curPart && !parts.some((p) => p.def.name === curPart) && <option value={curPart}>{curPart}</option>}
           </select>
         </>
@@ -268,7 +275,20 @@ export function ViewLegend() {
   } else if (s.beamColorMode === 'stiffness') {
     items.push(['#3b5bdb', 'soft'], ['#e8590c', 'stiff']);
   } else if (s.beamColorMode === 'uniform') items.push([s.colorBeam, 'beam']);
-  else items.push(['', s.beamColorMode === 'part' ? 'colour = part' : 'colour = deformGroup']);
+  else if (s.beamColorMode === 'part') items.push(['', 'colour = part']);
+  else {
+    // the groups on screen, most beams first
+    const kind = s.beamColorMode;
+    const count = new Map<string, number>();
+    for (const i of vp.drawBeams) {
+      const g = beamGroup(v.beams[i].row.v, kind);
+      if (g) count.set(g, (count.get(g) ?? 0) + 1);
+    }
+    const groups = [...count].sort((a, b) => b[1] - a[1]);
+    for (const [g] of groups.slice(0, 10)) items.push([rgbCss(partColor(g)), g]);
+    if (groups.length > 10) items.push(['', `+${groups.length - 10} more`]);
+    items.push([GROUPLESS, groups.length ? `no ${kind}` : `no ${kind} here`]);
+  }
   const si = resolveSel(v, sel);
   if (si.nodes.size === 1) items.push([s.colorSelect, `attached to ${v.nodes[[...si.nodes][0]].name}`]);
   else if (si.nodes.size > 1 && si.nodes.size <= 64) items.push([s.colorSelect, 'attached to selection']);

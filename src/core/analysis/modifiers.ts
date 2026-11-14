@@ -34,8 +34,11 @@ export const MODIFIER_DEFAULTS: Record<string, Record<string, any[]>> = {
 /** keys that are bookkeeping, not modifiers */
 const IGNORE = new Set(['partOrigin', 'partPath']);
 
-/** sections where values set in one part are meant for others (brake parts feed the wheel rows) */
-export const SHARED_BY_DESIGN = new Set(['pressureWheels', 'hubWheels', 'hubWheelsTSV', 'hubWheelsTSI', 'monoHubWheels', 'wheels']);
+/**
+ * sections where values set in one part are meant for others: brake parts feed the wheel rows,
+ * and a {"node": …} row in soundscape picks where later parts' sounds (horn…) play from
+ */
+export const SHARED_BY_DESIGN = new Set(['pressureWheels', 'hubWheels', 'hubWheelsTSV', 'hubWheelsTSI', 'monoHubWheels', 'wheels', 'soundscape']);
 
 /** leaking keys that change physics (worth a warning rather than a note) */
 export const RISKY_KEYS = new Set([

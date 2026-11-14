@@ -28,6 +28,8 @@ to focus on it.
 with names, direction and the mirrored side filled in; occupant seats with their rigidifier;
 rails and slidenodes. And triggers: tired of nudging trigger boxes by hand since the day they
 came out? Pick three nodes, pick the action from a menu of every one the game has, done.
+`disable` modifiers work like in the game too, so rows switched on or off depending on the parts
+equipped (the right mesh for the right bumper, say) show up or drop out as you change parts.
 
 ![The Lights tool on an Ardente headlight: pick a light type, both sides are written for you](docs/images/lights.png)
 
