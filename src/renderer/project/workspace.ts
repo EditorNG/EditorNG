@@ -238,6 +238,19 @@ class Workspace {
     }
   }
 
+  /** Closes the vehicle / files: back to the start page. */
+  close() {
+    ++this.openToken;
+    this.reset();
+    this.model = null;
+    this.mode = 'none';
+    api.watch([]);
+    useUi.setState({ tabs: [], activeTab: null });
+    useSel.setState({ scope: { mode: 'vehicle' }, sel: { nodes: new Set(), beams: new Set(), tris: new Set(), flex: new Set(), props: new Set(), triggers: new Set() } });
+    this.publish({ activeConfig: '', target: null });
+    for (const fn of this.listeners) fn();
+  }
+
   /** Opens arbitrary .jbeam files from disk (loose mode). */
   async openFiles(paths: string[]): Promise<void> {
     const skipped = paths.filter((p) => !isTextPath(p));

@@ -57,6 +57,7 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'mode.tris': '3',
   'app.save': 'Ctrl+S',
   'app.saveAll': 'Ctrl+Shift+S',
+  'app.newMod': 'Ctrl+Shift+N',
   'app.palette': 'Ctrl+Shift+P',
   'app.quickOpen': 'Ctrl+P',
   'app.gotoNode': 'Ctrl+G',
@@ -198,6 +199,12 @@ export interface Settings {
   updateSkip: string;
   /** check findings / problems the user marked as intended, per vehicle model: model -> finding keys */
   ignoredFindings: Record<string, string[]>;
+  /** name written in the "authors" of new mods (remembered from the last one) */
+  authorName: string;
+  /** short guides and one-time hints for newcomers */
+  beginnerTips: boolean;
+  /** guides and hints already shown or dismissed */
+  tipsSeen: string[];
 
   // blender
   blenderExe: string;
@@ -339,6 +346,9 @@ export const DEFAULT_SETTINGS: Settings = {
   updateCheck: true,
   updateSkip: '',
   ignoredFindings: {},
+  authorName: '',
+  beginnerTips: true,
+  tipsSeen: [],
 
   blenderExe: '',
   blenderAxis: 'z-up',
@@ -393,7 +403,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   reset: (keys) => {
     const next = { ...get().s };
     // "reset everything" keeps what the user marked as intended in their vehicles
-    for (const k of keys ?? (Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>).filter((k) => k !== 'ignoredFindings')) (next as any)[k] = DEFAULT_SETTINGS[k];
+    for (const k of keys ?? (Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>).filter((k) => k !== 'ignoredFindings' && k !== 'tipsSeen' && k !== 'authorName')) (next as any)[k] = DEFAULT_SETTINGS[k];
     set({ s: next });
     scheduleSave(next);
   },

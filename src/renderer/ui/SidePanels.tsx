@@ -299,7 +299,7 @@ export function StructurePanel() {
       <PanelHeader title={model ?? 'Structure'}>
         <button className="icon-btn small" data-tip="Open vehicle…" onClick={() => command('app.openVehicle')} aria-label="Open vehicle"><Car size={14} /></button>
         <button className="icon-btn small" data-tip="Open .jbeam file(s)" onClick={() => command('file.openFile')} aria-label="Open file"><FolderOpen size={14} /></button>
-        <button className="icon-btn small" data-tip="New vehicle" data-tip-pos="bottom-left" onClick={() => useUi.setState({ dialog: { kind: 'newVehicle' } })} aria-label="New vehicle"><FilePlus2 size={14} /></button>
+        <button className="icon-btn small" data-tip="New mod" data-tip-pos="bottom-left" onClick={() => useUi.setState({ dialog: { kind: 'newMod' } })} aria-label="New mod"><FilePlus2 size={14} /></button>
       </PanelHeader>
       <div className="row struct-switch">
         <div className="segmented small grow">

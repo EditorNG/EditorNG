@@ -76,9 +76,45 @@ class Shading {
     return { color: new THREE.Color().setRGB(0.36, 0.4, 0.46, THREE.SRGBColorSpace), metallic: 0.55, roughness: 0.32 };
   }
 
+  /** skins of the installed skin parts: material "<m>.<slot>.<skin>" replaces "<m>" (first match wins) */
+  private skins: Array<{ slot: string; name: string }> = [];
+  /** glowMap: material -> its "off" material (the vehicle as it stands, lights off) */
+  private glow = new Map<string, string>();
+
+  /** What the vehicle's parts say about materials: skin parts and glowMap entries. */
+  setVehicleContext(skins: Array<{ slot: string; name: string }>, glow: Map<string, string>) {
+    const key = JSON.stringify(skins) + '|' + JSON.stringify([...glow]);
+    if (key === this.contextKey) return;
+    this.contextKey = key;
+    this.skins = skins;
+    this.glow = glow;
+    this.clearMaterials();
+  }
+  private contextKey = '';
+
+  /**
+   * The material the game would draw for a mesh material name: the flexbody's materialOverride,
+   * then the glowMap's "off" state, then the installed skin. Missing replacements keep the original.
+   */
+  resolve(name: string, override?: Map<string, string>): string {
+    const has = (n: string) => this.index.has(n.toLowerCase()) || n.toLowerCase() === 'invis';
+    let n = name;
+    const o = override?.get(n.toLowerCase());
+    if (o && has(o)) n = o;
+    const g = this.glow.get(n.toLowerCase());
+    if (g && has(g)) n = g;
+    for (const s of this.skins) {
+      const sk = `${n}.${s.slot}.${s.name}`;
+      if (this.index.has(sk.toLowerCase())) return sk;
+    }
+    return n;
+  }
+
   /** Material for a mesh material name (falls back to a neutral PBR grey). */
-  material(name: string): THREE.Material {
+  material(raw: string, override?: Map<string, string>): THREE.Material {
+    const name = this.resolve(raw, override);
     const key = name.toLowerCase();
+    if (key === 'invis') return this.invisible();
     let m = this.mats.get(key);
     if (m) return m;
     const def = this.index.get(key);
@@ -88,6 +124,28 @@ class Shading {
     } else m = this.build(pbrOf(def));
     this.mats.set(key, m);
     return m;
+  }
+
+  private static pixels = new Map<number, THREE.DataTexture>();
+  /** a 1x1 grey-level texture (placeholder until a layer's real texture is loaded) */
+  static pixel(v: number): THREE.DataTexture {
+    let t = Shading.pixels.get(v);
+    if (!t) {
+      t = new THREE.DataTexture(new Uint8Array([v, v, v, 255]), 1, 1);
+      t.needsUpdate = true;
+      Shading.pixels.set(v, t);
+    }
+    return t;
+  }
+
+  private invisMat: THREE.Material | null = null;
+  /** "invis": drawn as nothing (glowMap "off" states of lights use it) */
+  private invisible() {
+    if (!this.invisMat) {
+      this.invisMat = new THREE.MeshBasicMaterial({ visible: false });
+      this.invisMat.name = 'invis';
+    }
+    return this.invisMat;
   }
 
   private fallbackMat: THREE.MeshStandardMaterial | null = null;
@@ -126,12 +184,42 @@ class Shading {
       if (pt.metallic !== undefined && !sp.metallicMap) m.metalness = pt.metallic;
       if (pt.roughness !== undefined && !sp.roughnessMap) m.roughness = pt.roughness;
     }
+    // a textured layer over the base (a livery): its colour / metal / roughness where its mask is
+    // white, each map read with the UV set the material names. Placeholders until textures arrive:
+    // a black mask shows the base meanwhile.
+    const L = sp.layer;
+    const layerU = L
+      ? {
+        layerColor: { value: Shading.pixel(255) as THREE.Texture },
+        layerMask: { value: Shading.pixel(0) as THREE.Texture },
+        layerMetal: { value: Shading.pixel(255) as THREE.Texture },
+        layerTint: { value: new THREE.Color(L.color[0], L.color[1], L.color[2]) },
+        layerMetalF: { value: L.metallic },
+        layerRoughF: { value: L.roughness },
+      }
+      : null;
+    const uvv = (k: number) => (k ? 'vLayerUv1' : 'vLayerUv0');
+    const layerFrag = L
+      ? `
+  float layerA = texture2D( layerMask, ${uvv(L.maskUv)} ).r${L.maskUv || L.colorUv ? ' * vLayerHas1' : ''};
+  vec4 layerC = texture2D( layerColor, ${uvv(L.colorUv)} );
+  diffuseColor.rgb = mix( diffuseColor.rgb, layerC.rgb * layerTint, layerA );
+  metalnessFactor = mix( metalnessFactor, layerMetalF * texture2D( layerMetal, ${uvv(L.metallicUv)} ).r, layerA );
+  roughnessFactor = mix( roughnessFactor, layerRoughF, layerA );`
+      : '';
     // BeamNG data maps are single channel (BC4 / greyscale): sample .r where three expects .g/.b,
     // and normal maps are two-channel (BC5): rebuild z.
     const rebuildZ = (chunk: string, v: string) => chunk.replace(new RegExp('(vec3 ' + v + ' = [^;]*;)'), `$1 ${v}.z = sqrt( max( 0.0, 1.0 - dot( ${v}.xy, ${v}.xy ) ) );`);
     m.onBeforeCompile = (sh) => {
       const C = THREE.ShaderChunk;
       Object.assign(sh.uniforms, paintU);
+      if (layerU) {
+        Object.assign(sh.uniforms, layerU);
+        sh.vertexShader = 'attribute vec2 luv0;\nattribute vec2 luv1;\nattribute float lhas1;\nvarying vec2 vLayerUv0;\nvarying vec2 vLayerUv1;\nvarying float vLayerHas1;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n  vLayerUv0 = luv0;\n  vLayerUv1 = luv1;\n  vLayerHas1 = lhas1;');
+        sh.fragmentShader = 'uniform sampler2D layerColor;\nuniform sampler2D layerMask;\nuniform sampler2D layerMetal;\nuniform vec3 layerTint;\nuniform float layerMetalF;\nuniform float layerRoughF;\nvarying vec2 vLayerUv0;\nvarying vec2 vLayerUv1;\nvarying float vLayerHas1;\n' + sh.fragmentShader;
+        // the layer's clear coat stays on the layer: none on the bare base (raw carbon stays matte)
+        if (L?.clearcoatOnLayer) sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n#ifdef USE_CLEARCOAT\n  material.clearcoat *= layerA;\n#endif');
+      }
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <roughnessmap_fragment>', C.roughnessmap_fragment.replace('texelRoughness.g', 'texelRoughness.r'))
         .replace(
@@ -145,7 +233,8 @@ class Shading {
   metalnessFactor = mix( metalnessFactor, paintMetal, paintMask );
   roughnessFactor = mix( roughnessFactor, paintRough, paintMask );
 #endif`
-              : ''),
+              : '') +
+            layerFrag,
         )
         .replace('#include <alphamap_fragment>', C.alphamap_fragment.replace('vAlphaMapUv ).g', 'vAlphaMapUv ).r'))
         .replace('#include <normal_fragment_maps>', rebuildZ(C.normal_fragment_maps, 'mapN'))
@@ -154,7 +243,20 @@ class Shading {
         .replace('#include <clearcoat_normal_fragment_maps>', rebuildZ(C.clearcoat_normal_fragment_maps, 'clearcoatMapN'));
       if (layered) sh.fragmentShader = 'uniform vec3 paintColor;\nuniform float paintMetal;\nuniform float paintRough;\n' + sh.fragmentShader;
     };
-    m.customProgramCacheKey = () => 'beamng-pbr' + (layered ? '-layered' : '');
+    m.customProgramCacheKey = () => 'beamng-pbr' + (layered ? '-layered' : '') + (L ? `-layer${L.colorUv}${L.maskUv}${L.metallicUv}${L.clearcoatOnLayer ? 'c' : ''}` : '');
+    if (L && layerU) {
+      const bind = (u: { value: THREE.Texture }, p: string | undefined, srgb: boolean) => {
+        if (!p) return;
+        this.texture(p, srgb).then((t) => {
+          if (!t) return;
+          u.value = t;
+          this.onChange?.();
+        });
+      };
+      bind(layerU.layerColor, L.colorMap, true);
+      bind(layerU.layerMask, L.mask, false);
+      bind(layerU.layerMetal, L.metallicMap, false);
+    }
     const set = (slot: 'map' | 'normalMap' | 'roughnessMap' | 'metalnessMap' | 'aoMap' | 'alphaMap' | 'clearcoatMap', p: string | undefined, srgb: boolean) => {
       if (!p) return;
       this.texture(p, srgb).then((t) => {

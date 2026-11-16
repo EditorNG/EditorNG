@@ -168,12 +168,14 @@ export interface DaeMesh {
   nrm: Float32Array;
   /** texture coordinates (first set), V already flipped for top-down textures; null when absent */
   uv: Float32Array | null;
+  /** second texture coordinate set (liveries / skin layers use it), null when absent */
+  uv2: Float32Array | null;
   /** material name per draw range */
   groups: Array<{ material: string; start: number; count: number }>;
 }
 
 interface Geo {
-  tris: Array<{ material: string; idx: Float32Array; nrm: Float32Array | null; uv: Float32Array | null }>;
+  tris: Array<{ material: string; idx: Float32Array; nrm: Float32Array | null; uv: Float32Array | null; uv2: Float32Array | null }>;
 }
 
 function readGeometry(geo: XEl): Geo | null {
@@ -198,9 +200,16 @@ function readGeometry(geo: XEl): Geo | null {
     let stride = 0;
     let vOff = 0;
     let src = posSrc;
-    let nOff = -1, tOff = -1;
+    let nOff = -1, tOff = -1, t2Off = -1;
     let nSrc: { data: Float32Array; stride: number } | undefined;
     let tSrc: { data: Float32Array; stride: number } | undefined;
+    let t2Src: { data: Float32Array; stride: number } | undefined;
+    // texture coordinate sets in set order: the first is uv, the second uv2
+    const texInputs = inputs.filter((i) => i.attrs.semantic === 'TEXCOORD').sort((a, b) => (+(a.attrs.set ?? 0) || 0) - (+(b.attrs.set ?? 0) || 0));
+    if (texInputs[1]) {
+      t2Off = +texInputs[1].attrs.offset || 0;
+      t2Src = sources.get(texInputs[1].attrs.source.slice(1));
+    }
     // normals can also hang off <vertices>
     let vertNrm: { data: Float32Array; stride: number } | undefined;
     if (vertices) for (const inp of childrenOf(vertices, 'input')) if (inp.attrs.semantic === 'NORMAL') vertNrm = sources.get(inp.attrs.source.slice(1));
@@ -231,6 +240,7 @@ function readGeometry(geo: XEl): Geo | null {
     const verts: number[] = [];
     const norms: number[] = [];
     const uvs: number[] = [];
+    const uv2s: number[] = [];
     const pushV = (p: Int32Array, k: number) => {
       const vi = p[k * stride + vOff];
       const o = vi * src!.stride;
@@ -242,6 +252,10 @@ function readGeometry(geo: XEl): Geo | null {
       if (tSrc) {
         const ti = p[k * stride + tOff] * tSrc.stride;
         uvs.push(tSrc.data[ti], 1 - tSrc.data[ti + 1]);
+      }
+      if (t2Src) {
+        const ti = p[k * stride + t2Off] * t2Src.stride;
+        uv2s.push(t2Src.data[ti], 1 - t2Src.data[ti + 1]);
       }
     };
     if (prim.tag === 'triangles') {
@@ -279,6 +293,7 @@ function readGeometry(geo: XEl): Geo | null {
       idx: new Float32Array(verts),
       nrm: nSrc && norms.length === verts.length ? new Float32Array(norms) : null,
       uv: tSrc && uvs.length === (verts.length / 3) * 2 ? new Float32Array(uvs) : null,
+      uv2: t2Src && uv2s.length === (verts.length / 3) * 2 ? new Float32Array(uv2s) : null,
     });
   }
   return out;
@@ -377,6 +392,8 @@ export function readDae(text: string): DaeFile {
     const nrm = new Float32Array(total);
     const hasUv = parts.some((p) => p.g.tris.some((t) => t.uv));
     const uv = hasUv ? new Float32Array((total / 3) * 2) : null;
+    const hasUv2 = parts.some((p) => p.g.tris.some((t) => t.uv2));
+    const uv2 = hasUv2 ? new Float32Array((total / 3) * 2) : null;
     const groups: DaeMesh['groups'] = [];
     let o = 0;
     for (const p of parts) {
@@ -391,6 +408,7 @@ export function readDae(text: string): DaeFile {
           pos[o + i + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
         }
         if (uv && t.uv) uv.set(t.uv, (o / 3) * 2);
+        if (uv2 && t.uv2) uv2.set(t.uv2, (o / 3) * 2);
         if (t.nrm) {
           // the file's normals, rotated with the node (uniform scale assumed)
           const n = t.nrm;
@@ -425,7 +443,7 @@ export function readDae(text: string): DaeFile {
         o += src.length;
       }
     }
-    return { name, pos, nrm, uv, groups };
+    return { name, pos, nrm, uv, uv2, groups };
   };
 
   return { names: [...nodes.keys(), ...geoByName.keys()], build };

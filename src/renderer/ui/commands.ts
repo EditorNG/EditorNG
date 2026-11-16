@@ -9,6 +9,10 @@ import { getViewport } from '../scene/ViewportPanel';
 import { meshes } from '../scene/meshes';
 import { useSel } from '../state/selection';
 import { checkForUpdates } from '../state/update';
+import { hintOnce } from './Guide';
+import { startTutorialForOpenMod } from './tutorials';
+import { parseSjson, toJs } from '@core/sjson';
+import { normalizeConfig } from '@core/jbeam/config';
 
 export interface Command {
   id: string;
@@ -22,7 +26,13 @@ export interface Command {
 const hasVehicle = () => !!ws.vehicle;
 
 export const COMMANDS: Command[] = [
-  { id: 'file.newVehicle', title: 'New vehicle…', group: 'File', run: () => useUi.setState({ dialog: { kind: 'newVehicle' } }) },
+  { id: 'file.newMod', title: 'New mod…', group: 'File', key: 'app.newMod', run: () => useUi.setState({ dialog: { kind: 'newMod' } }) },
+  {
+    id: 'file.openPc', title: 'Open .pc configuration…', group: 'File', run: async () => {
+      const p = await api.pickFile({ title: 'Open a configuration', filters: [{ name: 'Configuration', extensions: ['pc'] }], defaultPath: settings().userDir || undefined });
+      if (p) await openPcFile(p);
+    },
+  },
   {
     id: 'file.openFile', title: 'Open .jbeam file(s)…', group: 'File', run: async () => {
       const p = await api.pickFile({ title: 'Open JBeam file', filters: [{ name: 'JBeam', extensions: ['jbeam'] }, { name: 'All files', extensions: ['*'] }], defaultPath: settings().userDir || undefined });
@@ -36,18 +46,27 @@ export const COMMANDS: Command[] = [
       await openFolder(dir);
     },
   },
+  { id: 'file.close', title: 'Close vehicle', group: 'File', run: () => {
+    if (useWs.getState().dirtyCount && !confirm('Close without saving your changes?')) return;
+    ws.close();
+  }, enabled: () => useWs.getState().mode !== 'none' },
   { id: 'app.save', title: 'Save', group: 'File', key: 'app.save', run: async () => {
     const k = useUi.getState().activeTab;
     if (k && ws.doc(k)?.writable) {
-      if (await ws.save(k)) toast('ok', `Saved ${ws.doc(k)!.name}`, undefined, 1200);
+      if (await ws.save(k)) {
+        toast('ok', `Saved ${ws.doc(k)!.name}`, undefined, 1200);
+        firstSaveHint();
+      }
     } else {
       const n = await ws.saveAll();
       toast('ok', n ? `Saved ${n} file(s)` : 'Nothing to save', undefined, 1200);
+      if (n) firstSaveHint();
     }
   } },
   { id: 'app.saveAll', title: 'Save all', group: 'File', key: 'app.saveAll', run: async () => {
     const n = await ws.saveAll();
     toast('ok', n ? `Saved ${n} file(s)` : 'Nothing to save', undefined, 1400);
+    if (n) firstSaveHint();
   } },
   { id: 'app.reload', title: 'Reload vehicle from disk', group: 'File', key: 'app.reload', run: async () => {
     if (useWs.getState().dirtyCount && !confirm('Discard unsaved changes and reload from disk?')) return;
@@ -103,6 +122,13 @@ export const COMMANDS: Command[] = [
   { id: 'app.openVehicle', title: 'Open vehicle…', group: 'File', run: () => { ws.refreshVehicleList(); useUi.setState({ palette: 'vehicles' }); } },
   { id: 'app.gotoNode', title: 'Go to node…', group: 'Go', key: 'app.gotoNode', run: () => useUi.setState({ palette: 'nodes' }), enabled: hasVehicle },
   { id: 'help.shortcuts', title: 'Keyboard shortcuts', group: 'Help', key: 'F1', run: () => useUi.setState({ dialog: { kind: 'shortcuts' } }) },
+  { id: 'help.guide', title: 'Replay the beginner guide', group: 'Help', run: () => {
+    useSettings.getState().set({ beginnerTips: true, tipsSeen: [] });
+    useUi.setState({ dialog: { kind: 'newMod', data: { guide: true } } });
+  } },
+  { id: 'help.tutorial', title: 'Tutorial for the open mod', group: 'Help', run: () => {
+    if (!startTutorialForOpenMod()) toast('info', 'Open your mod first: the tutorial walks through its files (New mod… makes one).', { label: 'New mod…', run: () => useUi.setState({ dialog: { kind: 'newMod' } }) }, 6000);
+  } },
   { id: 'help.checkUpdates', title: 'Check for updates…', group: 'Help', run: () => checkForUpdates(true) },
   { id: 'help.devtools', title: 'Toggle developer tools', group: 'Help', run: () => api.windowAction('devtools') },
   { id: 'help.cacheClear', title: 'Clear mesh index cache', group: 'Help', run: async () => {
@@ -159,6 +185,36 @@ export async function openFolder(dir: string) {
     return;
   }
   await ws.openFiles(jb);
+}
+
+/** a hint the first time something is saved while a vehicle is open */
+function firstSaveHint() {
+  if (ws.model) setTimeout(() => hintOnce('firstSave', 'Saved. Press F5 (Reload in game) to see it in BeamNG.'), 1400);
+}
+
+/** Opens a .pc: its vehicle with that configuration (also from outside the game folders). */
+export async function openPcFile(real: string) {
+  let j: any = null;
+  try {
+    j = toJs(parseSjson(await api.readTextFile(real)).root);
+  } catch {
+    /* read below */
+  }
+  const m = /[\\/]vehicles[\\/]([^\\/]+)[\\/]([^\\/]+\.pc)$/i.exec(real);
+  const model = (typeof j?.model === 'string' && j.model) || m?.[1];
+  if (!model) {
+    toast('warn', 'This .pc does not say which vehicle it is for (no "model", not in vehicles/<name>/)');
+    return;
+  }
+  const vpath = `vehicles/${model}/${real.split(/[\\/]/).pop()}`;
+  const inVfs = m && m[1].toLowerCase() === model.toLowerCase() && (await api.findAllFiles(vpath).catch(() => [])).some((f) => f.real?.toLowerCase() === real.toLowerCase());
+  await ws.openVehicle(model, inVfs ? vpath : undefined);
+  if (!inVfs && j) {
+    const cfg = normalizeConfig(j);
+    for (const [slot, part] of Object.entries(cfg.parts ?? {})) ws.setSlotPart(slot, part);
+    for (const [k, v] of Object.entries(cfg.vars ?? {})) ws.setVar(k, v);
+    toast('info', `Showing ${real.split(/[\\/]/).pop()} on ${model}`, undefined, 3000);
+  }
 }
 
 async function saveConfig() {

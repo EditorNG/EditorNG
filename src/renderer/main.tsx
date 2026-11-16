@@ -146,7 +146,7 @@ async function boot() {
   updateOnBoot(env);
   await loadRecent();
   setOnFilesOpened(addRecentFiles);
-  if (state.lastVehicle && !(window as any).__noRestore && !env.automation) {
+  if (state.lastVehicle && !(window as any).__noRestore && !env.automation && !env.noRestore) {
     await ws.openVehicle(state.lastVehicle, state.lastConfig ?? undefined);
     await restoreSession(state.lastVehicle).catch(() => {});
   }

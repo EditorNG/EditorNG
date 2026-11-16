@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { AlertCircle, AlertTriangle, Info, Car, FileCode2, FolderOpen, FilePlus2, Package, Link2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, Car, FileCode2, FolderOpen, Sparkles, Package } from 'lucide-react';
 import { api } from '../lib/api';
 import { monaco } from '../lib/monaco';
 import { ws, useWs } from '../project/workspace';
@@ -251,9 +251,22 @@ export function StartPage() {
         <div className="dim">JBeam editor for BeamNG.drive</div>
       </div>
       <div className="start-actions">
-        <button className="btn primary" onClick={() => command('app.openVehicle')}><Car size={14} /> Open vehicle…</button>
-        <button className="btn" onClick={() => command('file.openFile')}><FolderOpen size={14} /> Open .jbeam file…</button>
-        <button className="btn" onClick={() => useUi.setState({ dialog: { kind: 'newVehicle' } })}><FilePlus2 size={14} /> New vehicle…</button>
+        <button className="start-card start-new" onClick={() => command('file.newMod')}>
+          <Sparkles size={18} />
+          <span><b>New mod…</b><small>A vehicle, a prop, or parts for a vehicle</small></span>
+        </button>
+        <button className="start-card" onClick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          openMenu(r.left, r.bottom + 4, [
+            { label: 'Vehicle…', run: () => command('app.openVehicle') },
+            { label: 'Mod folder…', run: () => command('file.openFolder') },
+            { label: '.jbeam file(s)…', run: () => command('file.openFile') },
+            { label: '.pc configuration…', run: () => command('file.openPc') },
+          ]);
+        }}>
+          <FolderOpen size={18} />
+          <span><b>Open…</b><small>Vehicle, mod folder, .jbeam or .pc</small></span>
+        </button>
       </div>
       <div className="start-cols">
         <div>
@@ -283,9 +296,8 @@ export function StartPage() {
         </div>
       </div>
       <div className="start-foot faint">
-        <button className="rl-btn" onClick={() => command('help.shortcuts')}>Keyboard shortcuts (F1)</button> ·{' '}
-        <button className="rl-btn" onClick={() => useUi.setState({ dialog: { kind: 'gameLink' } })}><Link2 size={11} /> Set up Reload in game</button> ·{' '}
-        <button className="rl-btn" onClick={() => useUi.setState({ dialog: { kind: 'packMod' } })}><Package size={11} /> Pack a mod</button>
+        <button className="rl-btn" onClick={() => command('help.shortcuts')}>Keyboard shortcuts (F1)</button>
+        <span> · drop a mod folder, .jbeam or .pc here to open it</span>
       </div>
     </div>
   );

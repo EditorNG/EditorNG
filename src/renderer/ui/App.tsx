@@ -12,6 +12,8 @@ import { StructurePanel } from './SidePanels';
 import { useSel, resolveSel } from '../state/selection';
 import { runAllChecks, useCheckCounts } from '../state/checks';
 import { ReloadInGameButton } from './GameLink';
+import { GuideLayer } from './Guide';
+import { TooltipLayer } from './Tooltip';
 import { MenuHost } from './Menu';
 import { useSessionAutosave } from './Tier2';
 import { BottomPanel } from './BottomPanel';
@@ -21,8 +23,9 @@ import { Toasts } from './Toasts';
 import { Dialogs } from './Dialogs';
 import { UpdateDialog, UpdatePill } from './UpdateDialog';
 import { MirrorButton } from './MirrorPart';
-import { COMMANDS, command, commandKey } from './commands';
+import { COMMANDS, command, commandKey, openFolder, openPcFile } from './commands';
 import { api } from '../lib/api';
+import { toast } from '../state/toast';
 import { monaco } from '../lib/monaco';
 import logoLight from '../assets/logo.png';
 import logoDark from '../assets/logo-dark.png';
@@ -184,7 +187,7 @@ function CheckButton() {
   const v = useWs((x) => x.vehicle);
   const { error: err, warning: warn, ran, stale } = useCheckCounts();
   return (
-    <button className="btn small title-btn" disabled={!v} data-tip={`${err} errors, ${warn} warnings${ran ? (stale ? ' (vehicle changed since the last check)' : '') : ' while loading; click to run the structural checks'}`} onClick={() => {
+    <button className="btn small title-btn" data-guide="check" disabled={!v} data-tip={`${err} errors, ${warn} warnings${ran ? (stale ? ' (vehicle changed since the last check)' : '') : ' while loading; click to run the structural checks'}`} onClick={() => {
       runAllChecks();
       useUi.setState({ bottom: true, bottomTab: 'checks' });
     }}>
@@ -322,6 +325,32 @@ export function App() {
     return () => sys.removeEventListener('change', apply);
   }, [s.theme, s.accent, s.uiScale, s.density, s.reduceMotion]);
 
+  // drop a mod folder, .jbeam files or a .pc anywhere to open it
+  useEffect(() => {
+    const over = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    const drop = async (e: DragEvent) => {
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (!files.length) return;
+      e.preventDefault();
+      const paths = files.map((f) => api.pathForFile(f)).filter(Boolean);
+      const pc = paths.find((p) => /\.pc$/i.test(p));
+      if (pc) return openPcFile(pc);
+      const jb = paths.filter((p) => /\.jbeam$/i.test(p));
+      if (jb.length) return ws.openFiles(jb);
+      const st = paths[0] ? await api.stat(paths[0]).catch(() => null) : null;
+      if (st?.dir) return openFolder(paths[0]);
+      toast('warn', 'Drop a mod folder, .jbeam files or a .pc');
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('drop', drop);
+    };
+  }, []);
+
   // global shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -329,11 +358,11 @@ export function App() {
       if (!k) return;
       const inMonaco = !!(document.activeElement as HTMLElement | null)?.closest('.monaco-editor');
       const inInput = /INPUT|TEXTAREA|SELECT/.test((document.activeElement as HTMLElement | null)?.tagName ?? '');
-      const global = ['app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload', 'game.reload'];
+      const global = ['app.newMod', 'app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload', 'game.reload'];
       for (const id of global) {
         if (matches(id, e)) {
           e.preventDefault();
-          command(id);
+          command(id === 'app.newMod' ? 'file.newMod' : id);
           return;
         }
       }
@@ -428,6 +457,8 @@ export function App() {
       <UpdateDialog />
       <Toasts />
       <MenuHost />
+      <GuideLayer />
+      <TooltipLayer />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const invokeNames = [
   'env', 'settingsLoad', 'settingsSave', 'stateLoad', 'stateSave', 'configureRoots', 'listVehicles', 'listTree',
@@ -6,7 +6,7 @@ const invokeNames = [
   'walkDir', 'mkdirp', 'copyFromVfs', 'pickFolder', 'pickFile', 'saveDialog', 'reveal', 'openExternal', 'cacheRead',
   'cacheWrite', 'cacheClear', 'blenderFind', 'blenderExtract', 'installBlenderAddon', 'watch', 'blenderLinkPort',
   'windowAction', 'setTitleBarColors', 'gameSend', 'gameBridgeStatus', 'gameBridgeInstall', 'gameLogRead',
-  'findAllFiles', 'listBackups', 'scanMod', 'packMod', 'updateCheck', 'updateDownload', 'updateInstall', 'updateWhatsNew', 'gameRunning', 'gameLaunch', 'gameFocus',
+  'findAllFiles', 'vfsRescan', 'vehicleCatalog', 'listBackups', 'scanMod', 'packMod', 'updateCheck', 'updateDownload', 'updateInstall', 'updateWhatsNew', 'gameRunning', 'gameLaunch', 'gameFocus',
 ];
 
 const api: Record<string, unknown> = {};
@@ -27,5 +27,7 @@ api.onBlenderLink = on('blender:link');
 api.onCloseRequest = on('close-request');
 api.onUpdateProgress = on('update:progress');
 api.confirmClose = (ok: boolean) => ipcRenderer.send('confirmClose', ok);
+/** real path of a file dropped on the window */
+api.pathForFile = (f: File) => webUtils.getPathForFile(f);
 
 contextBridge.exposeInMainWorld('api', api);

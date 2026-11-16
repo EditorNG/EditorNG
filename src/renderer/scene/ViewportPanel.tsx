@@ -313,7 +313,7 @@ export function ViewportPanel() {
     const vp = vpInstance;
     const c = toClient(lx, ly);
     if (!v || !vp) {
-      openMenu(c.x, c.y, [{ label: 'Open vehicle…', run: () => command('app.openVehicle') }, { label: 'Open .jbeam file(s)…', run: () => command('file.openFile') }, { label: 'New vehicle…', run: () => useUi.setState({ dialog: { kind: 'newVehicle' } }) }]);
+      openMenu(c.x, c.y, [{ label: 'Open vehicle…', run: () => command('app.openVehicle') }, { label: 'Open .jbeam file(s)…', run: () => command('file.openFile') }, { label: 'New mod…', run: () => useUi.setState({ dialog: { kind: 'newMod' } }) }]);
       return;
     }
     const st = useSel.getState();

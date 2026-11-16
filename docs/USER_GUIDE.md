@@ -19,13 +19,49 @@ everything you can do with it, and each entry shows its shortcut.
 | Want to… | Do |
 |---|---|
 | Pick up where you left off | The last vehicle reopens at start, with the same part/file view, open code tabs and camera. |
-| Open a vehicle (mod or vanilla) | Start page → **Open vehicle…**, the car icon in the Structure panel, or the palette (Ctrl+Shift+P → "Open vehicle"). Mods are listed first. |
+| Make a new mod | Start page → **New mod…** (or **File → New mod…**, Ctrl+Shift+N). See below. |
+| Open a vehicle (mod or vanilla) | Start page → **Open… → Vehicle…**, the car icon in the Structure panel, or the palette (Ctrl+Shift+P → "Open vehicle"). Mods are listed first. |
 | Reopen something recent | The start page lists recent vehicles and recent `.jbeam` files. |
-| Open a mod folder anywhere | **File → Open mod / vehicle folder…** |
-| Open a single `.jbeam` | **File → Open .jbeam file(s)…** — parts are shown side by side without slot resolution. |
-| Start from scratch | **File → New vehicle…** creates `mods/unpacked/<mod>/vehicles/<id>/` with a spawnable box. |
+| Open a mod folder anywhere | **Open… → Mod folder…** (File → Open mod / vehicle folder…) |
+| Open a single `.jbeam` | **Open… → .jbeam file(s)…**: parts are shown side by side without slot resolution. |
+| Open a `.pc` | **Open… → .pc configuration…** opens its vehicle with that configuration, from anywhere on disk. |
+| Open by dropping | Drop a mod folder, `.jbeam` files or a `.pc` on the window. |
 
 The BeamNG install and user folder are detected automatically; change them in **Settings → Files & game**.
+
+**New mod.** One dialog for the two kinds of mods. Everything goes into
+`mods/unpacked/<mod name>`, and the dialog lists the files before writing them. Nothing of the
+game is changed.
+
+- **New vehicle or prop**: name, brand, type (Car, Truck, Trailer, Prop) and a start:
+  - **Box**: a 1 m cube with nodes, beams, collision triangles, a mesh and its material. It spawns right away.
+  - **Empty**: the parts with nothing in them.
+
+  The files are laid out and formatted like the game's own: `<id>.jbeam` with a main part and a
+  core body slot, `info.json`, a `base` configuration (`base.pc`, `info_base.json`), and
+  selector thumbnails (`default.jpg`, `base.jpg`) rendered from the 3D view.
+- **Parts for a vehicle**: pick the vehicle and the slots (front bumper, hood…). For each slot,
+  start from a **copy** of the part that is there now (it fits and works at once, with the game's
+  meshes) or from an **empty** part. Part names come from the mod name and must be new, so
+  nothing is replaced. **Also add a configuration** writes a `.pc` with your parts fitted, which
+  then shows in the game's configuration list.
+
+After **Create and open**, the vehicle opens with your part fitted (or your new vehicle in view)
+and its file open. BeamNG only picks up a new mod folder when it starts: if it is running,
+restart it.
+
+**Beginner guide and tutorials.** The first time New mod opens, it offers a short walk-through
+of the dialog and, after creating, of the editor. The tour ends with a choice: stop there, or
+take the tutorial (about 10 minutes). The tutorial goes through your new mod itself: what each
+file is for, then every JBeam section, opened and highlighted in your own file. Along the way
+it asks you to do a few things (pick a node, move it, save, run Check) and ticks them off.
+There is one tutorial for a new vehicle and one for a new part. Any step can be skipped.
+
+**Help → Tutorial for the open mod** starts it any time, and **Help → Replay the beginner
+guide** shows the first-time guide again. **Stop tips** turns guides and one-time hints off;
+**Settings → Beginner tips** turns them back on.
+
+**File → Close vehicle** goes back to the start page.
 
 **How the vehicle is assembled.** EditorNG uses the game's rules: slots/slots2, the selected `.pc`
 configuration (or default parts), variables and `$=` expressions, `$components`, `nodeOffset` /

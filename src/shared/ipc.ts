@@ -15,6 +15,8 @@ export interface EnvInfo {
   argv: string[];
   isPackaged: boolean;
   /** started by the updater after a successful update, from this version */
+  /** started with --no-restore: open on the start page */
+  noRestore?: boolean;
   updatedFrom?: string;
   /** started by the updater after a failed update: busy | backup | copy */
   updateFailed?: string;
@@ -68,6 +70,8 @@ export interface Api {
   findFile(vpath: string): Promise<VFile | null>;
   /** every provider of a path, highest priority first */
   findAllFiles(vpath: string): Promise<VFile[]>;
+  vfsRescan(): Promise<void>;
+  vehicleCatalog(): Promise<Array<{ model: string; name: string; brand: string; type: string; source: string; game: boolean }>>;
   listBackups(real: string, backupDir?: string): Promise<Array<{ path: string; time: number }>>;
   scanMod(modDir: string): Promise<{ name: string; files: string[]; total: number; issues: Array<{ sev: 'error' | 'warning' | 'info'; msg: string; file?: string }> }>;
   packMod(modDir: string, outZip: string): Promise<{ files: number; size: number }>;
@@ -112,6 +116,7 @@ export interface Api {
   setTitleBarColors(colors: { color: string; symbolColor: string }): Promise<void>;
   confirmClose(ok: boolean): void;
   onCloseRequest(cb: () => void): () => void;
+  pathForFile(f: File): string;
   updateCheck(): Promise<import('../main/updater').UpdateCheck>;
   updateDownload(version: string): Promise<{ ok: boolean; staged?: string; error?: string }>;
   updateInstall(version: string, staged: string, notes: unknown): Promise<{ ok: boolean; error?: string }>;

@@ -178,7 +178,7 @@ export function ReloadInGameButton() {
     ? `Save all and reload in the game (F5)${gameVehicle ? `\nGame vehicle: ${gameVehicle}` : ''}${gameVehicle && model && gameVehicle.toLowerCase() !== model.toLowerCase() ? `\n${model} will be spawned instead` : ''}`
     : 'Save all and reload the vehicle in BeamNG (F5)\nBeamNG is not running: starts it with this vehicle';
   return (
-    <button className={'btn small title-btn primary' + (busy ? ' busy' : '')} disabled={!model || busy} data-tip={tip} data-tip-pos="bottom-left" onClick={() => reloadInGame()}
+    <button data-guide="reload" className={'btn small title-btn primary' + (busy ? ' busy' : '')} disabled={!model || busy} data-tip={tip} data-tip-pos="bottom-left" onClick={() => reloadInGame()}
       onContextMenu={(e) => {
         e.preventDefault();
         openMenu(e.clientX, e.clientY, [

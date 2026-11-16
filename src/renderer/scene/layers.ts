@@ -13,6 +13,7 @@ import { bulbDirection } from '@core/jbeam/generators';
 import { placeTriggers } from '@core/jbeam/triggers';
 import { isOccupant } from '@core/jbeam/assemble';
 import { partColor, type Viewport } from './viewport';
+import { toJs } from '@core/sjson';
 
 // flexbody picking: a bounding volume tree per geometry (built the first time a ray reaches it) turns
 // per-triangle raycasts over whole bodies into a few box tests
@@ -29,13 +30,39 @@ function num(x: any, d: number): number {
   return typeof x === 'number' && Number.isFinite(x) ? x : d;
 }
 
-/** Orthonormal prop frame from 3 nodes: X = ref->idX, Y = cross(ref->idY, X), Z = X x Y. */
+/**
+ * Prop frame from 3 nodes: X = ref->idX, Y = cross(ref->idY, X), Z = X x Y. Checked against the
+ * game with the occupant heads (they come out facing forward) and the Lansdale's third brake light
+ * (it points backwards).
+ */
 export function nodeFrame(ref: THREE.Vector3, px: THREE.Vector3, py: THREE.Vector3) {
   const X = px.clone().sub(ref).normalize();
   const Zr = py.clone().sub(ref);
   const Y = new THREE.Vector3().crossVectors(Zr, X).normalize();
   const Z = new THREE.Vector3().crossVectors(X, Y).normalize();
   return { X, Y, Z };
+}
+
+/** baseRotation in the node frame (degrees): X first, then Y, then Z, signs as written */
+export function propRotation(r: any): THREE.Quaternion {
+  if (!r || typeof r !== 'object') return new THREE.Quaternion();
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(num(r.x, 0) * DEG, num(r.y, 0) * DEG, num(r.z, 0) * DEG, 'ZYX'));
+}
+
+/**
+ * baseRotationGlobal (degrees, vehicle axes): +Y with no rotation, rotZ 180 faces the front (-Y),
+ * rotZ 90 the left (+X), negative rotX tips a forward light down, as the game's bulbs do.
+ */
+export function propRotationGlobal(r: any): THREE.Quaternion {
+  if (!r || typeof r !== 'object') return new THREE.Quaternion();
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(-num(r.x, 0) * DEG, -num(r.y, 0) * DEG, -num(r.z, 0) * DEG, 'XZY'));
+}
+
+/** the orientation of a prop: global rotation (bulbs, occupants' baseRotationGlobal) or node frame + baseRotation */
+export function propQuaternion(pl: PropPlacement, row: Record<string, any>): THREE.Quaternion {
+  if (row.baseRotationGlobal && typeof row.baseRotationGlobal === 'object') return propRotationGlobal(row.baseRotationGlobal);
+  const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(pl.axes.X, pl.axes.Y, pl.axes.Z));
+  return q.multiply(propRotation(row.baseRotation));
 }
 
 export interface TriggerShape {
@@ -131,6 +158,8 @@ export class Layers {
   constructor(private vp: Viewport, private s: Settings) {
     shading.renderer = vp.renderer;
     shading.onChange = () => vp.requestRender();
+    this.flexGroup.name = 'flexbodies';
+    this.propGroup.name = 'props';
     vp.meshRoot.add(this.flexGroup, this.propGroup);
     vp.extraRoot.add(this.trigGroup, this.bulbGroup);
     this.selMat = new THREE.MeshLambertMaterial({ color: s.colorSelect, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
@@ -191,12 +220,12 @@ export class Layers {
   }
 
   /** Material(s) of a mesh for the current shading mode. */
-  private meshMaterial(g: THREE.BufferGeometry, key: string, color: THREE.Color): THREE.Material | THREE.Material[] {
+  private meshMaterial(g: THREE.BufferGeometry, key: string, color: THREE.Color, override?: Map<string, string>): THREE.Material | THREE.Material[] {
     const mode = this.s.meshShading;
     if (mode === 'shaded') {
       const names: string[] = g.userData.materials ?? [];
       if (!names.length) return shading.material('');
-      return names.map((n) => shading.material(n));
+      return names.map((n) => shading.material(n, override));
     }
     if (mode === 'solid') return this.solid(key, key === 'grey' ? new THREE.Color(0xdfe3e8) : key === 'prop' ? new THREE.Color(0xd2d6dc) : color);
     return this.mat(key, color);
@@ -251,6 +280,7 @@ export class Layers {
       this.vp.requestRender();
       return;
     }
+    shading.setVehicleContext(vehicleSkins(v), glowOffMaterials(v));
     const meshProps = v.props.filter((p) => p.mesh !== 'SPOTLIGHT' && p.mesh !== 'POINTLIGHT');
     const names = [...v.flexbodies.map((f) => f.mesh), ...meshProps.filter((p) => !p.globalPos).map((p) => p.mesh)];
     const localNames = meshProps.filter((p) => p.globalPos).map((p) => p.mesh);
@@ -279,7 +309,7 @@ export class Layers {
       }
       const key = f.occupant ? 'occ' : s.meshColorByPart ? 'p:' + f.row.part.def.name : 'grey';
       const color = f.occupant ? new THREE.Color(0xd6a77a) : s.meshColorByPart ? new THREE.Color(...partColor(f.row.part.def.name)) : grey;
-      const mat = this.meshMaterial(g, key, color);
+      const mat = this.meshMaterial(g, key, color, materialOverrides(f.row.v.materialOverride));
       const mesh = new THREE.Mesh(g, mat);
       mesh.userData = { kind: 'flex', idx: i, baseMat: mat };
       const holder = new THREE.Group();
@@ -309,12 +339,7 @@ export class Layers {
       if (pl.isLight) {
         obj = lightGizmo(p.mesh === 'SPOTLIGHT', p.row.v);
         obj.position.copy(pl.origin);
-        const m = new THREE.Matrix4().makeBasis(pl.axes.X, pl.axes.Y, pl.axes.Z);
-        obj.quaternion.setFromRotationMatrix(m);
-        const br = p.row.v.baseRotation;
-        if (br && typeof br === 'object') {
-          obj.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-num(br.x, 0) * DEG, -num(br.z, 0) * DEG, -num(br.y, 0) * DEG, 'XZY')));
-        }
+        obj.quaternion.copy(propQuaternion(pl, p.row.v));
       } else {
         const g = meshes.get(p.mesh, !!p.globalPos);
         if (!g) {
@@ -329,7 +354,11 @@ export class Layers {
           // pivot at baseTranslationGlobal (with node transforms), oriented by the slot's nodeRotate.
           // BeamNG rotates vectors by the conjugate, so flip the vector part for three.js.
           obj.position.set(p.globalPos[0], p.globalPos[1], p.globalPos[2]);
-          if (p.xfRot) obj.quaternion.set(-p.xfRot.x, -p.xfRot.y, -p.xfRot.z, p.xfRot.w);
+          // a mesh modelled around its own pivot: turned like the prop (occupant heads…). The node
+          // frame already carries the slot's nodeRotate (its nodes were moved by it), so it is not
+          // applied again; a global rotation is turned by it (BeamNG rotates by the conjugate).
+          obj.quaternion.copy(propQuaternion(pl, p.row.v));
+          if (p.xfRot && p.row.v.baseRotationGlobal) obj.quaternion.premultiply(new THREE.Quaternion(-p.xfRot.x, -p.xfRot.y, -p.xfRot.z, p.xfRot.w));
         } else {
           obj.position.copy(pl.offset);
         }
@@ -451,7 +480,11 @@ export class Layers {
       if (!(o instanceof THREE.Mesh)) return;
       if (sel?.props.has(i) || (hover?.kind === 'prop' && hover.idx === i)) o.material = this.selMat;
       else if (hl?.props.has(i)) o.material = this.hlMat;
-      else o.material = (o as THREE.Mesh).userData.baseMat ?? this.flexMats.get(this.vehicle && isOccupant(this.vehicle.props[i].row.part) ? 'occ' : 'prop') ?? o.material;
+      // objects can still be the previous vehicle's while a new one loads: guard the index
+      else {
+        const pr = this.vehicle?.props[i];
+        o.material = (o as THREE.Mesh).userData.baseMat ?? this.flexMats.get(pr && isOccupant(pr.row.part) ? 'occ' : 'prop') ?? o.material;
+      }
     });
     this.trigObjs.forEach((o, i) => {
       const on = sel?.triggers.has(this.shapes[i]?.idx) || hl?.triggers.has(this.shapes[i]?.idx) || (hover?.kind === 'trigger' && hover.idx === this.shapes[i]?.idx);
@@ -530,6 +563,48 @@ export class Layers {
     if (!o || !o.children.length) return null;
     return new THREE.Box3().setFromObject(o);
   }
+}
+
+/** a flexbody's "materialOverride":[["from","to"],…] as a lookup (lower-case keys) */
+function materialOverrides(raw: any): Map<string, string> | undefined {
+  if (!Array.isArray(raw) || !raw.length) return undefined;
+  const m = new Map<string, string>();
+  for (const p of raw) if (Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'string') m.set(p[0].toLowerCase(), p[1]);
+  return m.size ? m : undefined;
+}
+
+/**
+ * Skins of the installed parts, as the game's licenseplatesSkins.lua sets them: a part whose
+ * slotType contains "skin_" (or is "paint_design") with a globalSkin / skinName. Its slot is
+ * skinType or the slotType ("skin" for paint_design); materials "<m>.<slot>.<skin>" then replace "<m>".
+ */
+export function vehicleSkins(v: Vehicle): Array<{ slot: string; name: string }> {
+  const out: Array<{ slot: string; name: string }> = [];
+  for (const p of v.parts) {
+    const raw = toJs(p.def.node) ?? {};
+    const name = typeof raw.skinName === 'string' && raw.skinName ? raw.skinName : typeof raw.globalSkin === 'string' ? raw.globalSkin : '';
+    if (!name) continue;
+    const st = p.def.slotTypes.find((t) => t.includes('skin_') || t === 'paint_design');
+    if (!st) continue;
+    let slot = typeof raw.skinType === 'string' && raw.skinType ? raw.skinType : st;
+    if (slot === 'paint_design') slot = 'skin';
+    out.push({ slot, name });
+  }
+  return out;
+}
+
+/** glowMap entries of the installed parts: material -> its "off" material (later parts win) */
+export function glowOffMaterials(v: Vehicle): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const p of v.parts) {
+    const node = p.def.sections.get('glowMap');
+    const g = node ? toJs(node) : null;
+    if (!g || typeof g !== 'object') continue;
+    for (const [mat, e] of Object.entries<any>(g)) {
+      if (e && typeof e === 'object' && typeof e.off === 'string' && e.off) out.set(mat.toLowerCase(), e.off);
+    }
+  }
+  return out;
 }
 
 function lightGizmo(spot: boolean, r: Record<string, any>): THREE.Object3D {

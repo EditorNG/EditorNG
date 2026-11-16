@@ -9,7 +9,6 @@ import { parseObj, planImport, type MeshData, type ImportOptions } from '@core/i
 import { DEFAULT_HEADERS, fmtRow, rowFromRecord, insertKey, indentUnitOf, eolOf } from '@core/jbeam/edit';
 import { targetPart, EditSet, insertRowsHere, selectNodesByName, moveNodes, setSymmetryCrossPolicy, type SymmetryResult } from '../project/ops';
 import { beamKey, triKey } from '../state/selection';
-import { openFolder } from './commands';
 import type { BlenderExtract } from '@shared/ipc';
 import type { AArr } from '@core/sjson';
 import { MirrorPartDialog } from './MirrorPart';
@@ -17,11 +16,13 @@ import { GameLinkDialog } from './GameLink';
 import { DeleteRefsDialog, DiffDialog, PackModDialog } from './Tier2';
 import { MergeDialog } from './MergeDialog';
 import { NewPartDialog, FlexbodyDialog } from './AddDialogs';
+import { NewModDialog } from './NewMod';
 
 export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; width?: number }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // a popup inside the dialog (search list…) closes itself first
+      if (e.key === 'Escape' && !(e.target as HTMLElement | null)?.closest?.('[data-own-esc]') && !document.querySelector('.guide-card')) {
         e.stopPropagation();
         props.onClose();
       }
@@ -67,7 +68,8 @@ export function Dialogs() {
   if (!d) return null;
   switch (d.kind) {
     case 'newVehicle':
-      return <NewVehicle close={close} />;
+    case 'newMod':
+      return <NewModDialog close={close} data={d.data} />;
     case 'makeEditable':
       return <MakeEditable close={close} docKey={d.data} />;
     case 'import':
@@ -107,122 +109,6 @@ export function Dialogs() {
     default:
       return null;
   }
-}
-
-// ------------------------------------------------------------------------------------------
-
-function NewVehicle({ close }: { close: () => void }) {
-  const s = settings();
-  const [mod, setMod] = useState('my_vehicle_mod');
-  const [model, setModel] = useState('my_vehicle');
-  const [title, setTitle] = useState('My Vehicle');
-  const [author, setAuthor] = useState('');
-  const [template, setTemplate] = useState<'box' | 'empty'>('box');
-  const [busy, setBusy] = useState(false);
-  const root = s.userDir ? `${s.userDir}\\mods\\unpacked\\${mod}` : '';
-  const valid = /^[a-z0-9_]+$/i.test(model) && /^[\w.-]+$/.test(mod) && !!root;
-  const create = async () => {
-    if (!valid) return;
-    setBusy(true);
-    try {
-      const dir = `${root}\\vehicles\\${model}`;
-      const exists = await api.stat(dir);
-      if (exists) {
-        toast('warn', 'That vehicle folder already exists');
-        return;
-      }
-      const box = template === 'box';
-      const jbeam = `{
-"${model}_body": {
-    "information": {
-        "authors": "${author || 'me'}",
-        "name": "${title} Body",
-        "value": 1000
-    },
-    "slotType": "main",
-    "slots2": [
-        ["name", "allowTypes", "denyTypes", "default", "description"],
-    ],
-    "refNodes": [
-        ["ref:", "back:", "left:", "up:"],
-        ["b1", "b5", "b2", "b3"],
-    ],
-    "cameraExternal": {"distance": 5, "distanceMin": 3, "offset": {"x": 0, "y": 0, "z": 0.6}, "fov": 65},
-    "nodes": [
-        ["id", "posX", "posY", "posZ"],
-        {"nodeWeight": 20},
-        {"collision": true},
-        {"selfCollision": false},
-        {"nodeMaterial": "|NM_METAL"},
-        {"frictionCoef": 0.7},
-        {"group": "${model}_body"},${box ? `
-        ["b1", 0.5, -1.0, 0.3],
-        ["b2", -0.5, -1.0, 0.3],
-        ["b3", 0.5, -1.0, 1.0],
-        ["b4", -0.5, -1.0, 1.0],
-        ["b5", 0.5, 1.0, 0.3],
-        ["b6", -0.5, 1.0, 0.3],
-        ["b7", 0.5, 1.0, 1.0],
-        ["b8", -0.5, 1.0, 1.0],` : ''}
-        {"group": ""},
-    ],
-    "beams": [
-        ["id1:", "id2:"],
-        {"beamType": "|NORMAL", "beamPrecompression": 1, "beamLongBound": 1.0, "beamShortBound": 1.0},
-        {"beamSpring": 1501000, "beamDamp": 150},
-        {"beamDeform": 80000, "beamStrength": "FLT_MAX"},${box ? `
-        ["b1", "b2"], ["b3", "b4"], ["b5", "b6"], ["b7", "b8"],
-        ["b1", "b3"], ["b2", "b4"], ["b5", "b7"], ["b6", "b8"],
-        ["b1", "b5"], ["b2", "b6"], ["b3", "b7"], ["b4", "b8"],
-        ["b1", "b4"], ["b5", "b8"], ["b1", "b6"], ["b3", "b8"], ["b1", "b7"], ["b2", "b8"], ["b1", "b8"],` : ''}
-    ],
-    "triangles": [
-        ["id1:", "id2:", "id3:"],
-        {"groundModel": "metal"},${box ? `
-        ["b1", "b3", "b2"], ["b2", "b3", "b4"],
-        ["b5", "b6", "b7"], ["b6", "b8", "b7"],
-        ["b1", "b2", "b5"], ["b2", "b6", "b5"],
-        ["b3", "b7", "b4"], ["b4", "b7", "b8"],
-        ["b1", "b5", "b3"], ["b3", "b5", "b7"],
-        ["b2", "b4", "b6"], ["b4", "b8", "b6"],` : ''}
-        {"groundModel": ""},
-    ],
-},
-}
-`;
-      const info = JSON.stringify({ Name: title, Brand: '', Author: author || 'me', Type: 'Car', default_pc: '' }, null, 2);
-      await api.writeTextFile(`${dir}\\${model}.jbeam`, jbeam);
-      await api.writeTextFile(`${dir}\\info.json`, info);
-      await openFolder(root);
-      toast('ok', `Created ${model} in mods/unpacked/${mod}`);
-      close();
-    } catch (e: any) {
-      toast('error', String(e?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal title="New vehicle" onClose={close} footer={<>
-      <button className="btn" onClick={close}>Cancel</button>
-      <button className="btn primary" disabled={!valid || busy} onClick={create}>{busy ? <Loader2 size={13} className="spin" /> : null} Create</button>
-    </>}>
-      <Field label="Mod folder name" hint={root || 'BeamNG user folder not found — set it in Settings → Files'}>
-        <input className="input" value={mod} onChange={(e) => setMod(e.target.value)} />
-      </Field>
-      <Field label="Vehicle id (folder name)" hint="lowercase letters, digits and _ ; used as vehicles/<id>/">
-        <input className="input mono" value={model} onChange={(e) => setModel(e.target.value.toLowerCase())} />
-      </Field>
-      <Field label="Display name"><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-      <Field label="Author"><input className="input" value={author} onChange={(e) => setAuthor(e.target.value)} /></Field>
-      <Field label="Start from">
-        <div className="segmented">
-          <button className={'seg' + (template === 'box' ? ' active' : '')} onClick={() => setTemplate('box')}>Box (spawnable)</button>
-          <button className={'seg' + (template === 'empty' ? ' active' : '')} onClick={() => setTemplate('empty')}>Empty part</button>
-        </div>
-      </Field>
-    </Modal>
-  );
 }
 
 // ------------------------------------------------------------------------------------------
@@ -665,7 +551,7 @@ const SHORTCUT_GROUPS: Array<[string, string[]]> = [
   ['Select', ['select.all', 'select.none', 'select.invert', 'select.grow', 'select.shrink', 'select.linked', 'select.mirror', 'mode.nodes', 'mode.beams', 'mode.tris']],
   ['View', ['view.shading', 'view.hide', 'view.hideOthers', 'view.unhide', 'view.frame', 'view.frameAll', 'view.front', 'view.side', 'view.top', 'view.ortho', 'view.toggleLabels', 'view.toggleMeshes', 'view.isolatePart', 'view.xray']],
   ['Game', ['game.reload']],
-  ['App', ['app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload']],
+  ['App', ['app.newMod', 'app.save', 'app.saveAll', 'app.palette', 'app.quickOpen', 'app.gotoNode', 'app.settings', 'app.toggleEditor', 'app.toggleBottom', 'app.reload']],
 ];
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -683,7 +569,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'view.sideOther': 'Left view', 'view.top': 'Top view', 'view.bottom': 'Bottom view', 'view.ortho': 'Toggle ortho', 'view.toggleLabels': 'Toggle all labels',
   'view.toggleMeshes': 'Toggle flexbodies', 'view.isolatePart': 'Isolate part', 'view.xray': 'X-ray',
   'mode.nodes': 'Pick nodes only', 'mode.beams': 'Pick beams only', 'mode.tris': 'Pick triangles only',
-  'app.save': 'Save file', 'app.saveAll': 'Save all', 'app.palette': 'Command palette', 'app.quickOpen': 'Go to file', 'app.gotoNode': 'Go to node', 'app.settings': 'Settings',
+  'app.newMod': 'New mod', 'app.save': 'Save file', 'app.saveAll': 'Save all', 'app.palette': 'Command palette', 'app.quickOpen': 'Go to file', 'app.gotoNode': 'Go to node', 'app.settings': 'Settings',
   'app.toggleEditor': 'Toggle code editor', 'app.toggleBottom': 'Toggle bottom panel', 'app.reload': 'Reload from disk',
 };
 

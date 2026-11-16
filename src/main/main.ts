@@ -11,12 +11,62 @@ import { focusGame, warmUpGameFocus, stopGameFocus } from './gameFocus';
 import { checkForUpdates, downloadUpdate, startInstall, otherInstances, takeWhatsNew, updateLogTail, type UpdateCheck } from './updater';
 import { assertTextWritable } from './binaryGuard';
 import { parseJbeamFile } from '../core/jbeam/parts';
+import { parseSjson, toJs } from '../core/sjson';
 import { Vfs, decodeText, detectBeamNG } from './vfs';
 import type { BlenderExtract, DirEntry, EnvInfo, FileRef } from '../shared/ipc';
 
 const isDev = !!process.env.EDITORNG_DEV_URL;
 let win: BrowserWindow | null = null;
 let vfs: Vfs = new Vfs({});
+
+// ---------------------------------------------------------------------------------------------
+// vehicle catalog: names for pickers
+// ---------------------------------------------------------------------------------------------
+
+type CatalogEntry = { model: string; name: string; brand: string; type: string; source: string; game: boolean };
+let catalog: Promise<CatalogEntry[]> | null = null;
+
+async function buildCatalog(): Promise<CatalogEntry[]> {
+  const list = await vfs.listVehicles();
+  // the game's English strings, for "vehiclesData.etk800.Name" style values
+  let tr: Record<string, string> = {};
+  if (vfs.opts.gameDir) {
+    const f = path.join(vfs.opts.gameDir, 'locales', 'translations', 'en-US', 'vehiclesGenerated.translation.json');
+    try {
+      tr = JSON.parse(decodeText(await fsp.readFile(f)));
+    } catch {
+      /* names stay as ids */
+    }
+  }
+  const text = (v: unknown) => {
+    if (typeof v !== 'string') return '';
+    return tr[v] ?? (/^vehiclesData\./.test(v) ? '' : v);
+  };
+  const out: CatalogEntry[] = [];
+  const queue = [...list];
+  const worker = async () => {
+    for (let v = queue.shift(); v; v = queue.shift()) {
+      const src = v.sources[0];
+      let j: any = null;
+      try {
+        const f = await vfs.find(`vehicles/${v.model}/info.json`);
+        if (f) j = toJs(parseSjson(decodeText(await vfs.read(f))).root);
+      } catch {
+        /* info.json missing or invalid */
+      }
+      out.push({
+        model: v.model,
+        name: text(j?.Name) || v.model,
+        brand: text(j?.Brand),
+        type: typeof j?.Type === 'string' ? j.Type : '',
+        source: src.kind === 'game' ? 'game' : src.label,
+        game: src.kind === 'game',
+      });
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  return out.sort((a, b) => Number(a.game) - Number(b.game) || (a.brand + a.name).localeCompare(b.brand + b.name));
+}
 let detected: { gameDir?: string; userDir?: string; version?: string } = {};
 let allowClose = process.env.EDITORNG_AUTOMATION === '1';
 
@@ -241,6 +291,7 @@ function registerIpc(): void {
     platform: process.platform,
     argv: process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-')),
     isPackaged: app.isPackaged,
+    noRestore: process.argv.includes('--no-restore'),
     updatedFrom: argValue('--updated-from'),
     updateFailed: argValue('--update-failed'),
     updateLog: argValue('--update-failed') ? updateLogTail() : undefined,
@@ -293,6 +344,13 @@ function registerIpc(): void {
     return { gameDir: next.gameDir, userDir: next.userDir };
   });
   h('listVehicles', () => vfs.listVehicles());
+  /** Re-reads the mounts (a new folder in mods/unpacked is only seen after this). */
+  h('vfsRescan', async () => {
+    catalog = null;
+    await vfs.reset();
+  });
+  /** Every vehicle with its readable name, brand and type (info.json, game names translated). */
+  h('vehicleCatalog', () => (catalog ??= buildCatalog()));
   h('listTree', (vdir: string) => vfs.listTree(vdir));
   h('readTexts', async (files: FileRef[]) => (await vfs.readMany(files)).map(decodeText));
   h('readBinary', async (file: FileRef) => new Uint8Array(await vfs.read(file)));

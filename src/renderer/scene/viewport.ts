@@ -1454,6 +1454,77 @@ export class Viewport {
     return out;
   }
 
+  /** meshes shown in the view (thumbnails wait for them) */
+  meshCount(): number {
+    let n = 0;
+    (this.meshRoot.getObjectByName('flexbodies') ?? this.meshRoot).traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) n++;
+    });
+    return n;
+  }
+
+  /**
+   * A vehicle selector thumbnail like the game's (800 x 448 jpg): the meshes only, seen from the
+   * front left, three-quarter. Uses its own camera and puts the view back as it was.
+   */
+  thumbnail(w = 800, h = 448): string | null {
+    // the flexbodies only: props (lights, helpers) are drawn as gizmos
+    const flex = this.meshRoot.getObjectByName('flexbodies') ?? this.meshRoot;
+    const box = new THREE.Box3();
+    flex.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.visible) box.expandByObject(o);
+    });
+    if (box.isEmpty()) return null;
+    const hide = [this.grid, this.axes, this.overlayRoot, this.extraRoot, this.meshRoot.getObjectByName('props'), this.nodePoints, this.beamLines, this.emphLines, this.triMesh, this.triNormals, this.wheelLines].filter(Boolean) as THREE.Object3D[];
+    const was = hide.map((o) => o.visible);
+    const meshWas = this.meshRoot.visible;
+    hide.forEach((o) => (o.visible = false));
+    this.meshRoot.visible = true;
+    const cam = new THREE.PerspectiveCamera(35, w / h, 0.01, 2000);
+    cam.up.set(0, 0, 1);
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(0.2, box.getSize(new THREE.Vector3()).length() / 2);
+    // +X is the vehicle's left, -Y its front
+    const dir = new THREE.Vector3(0.75, -1, 0.42).normalize();
+    // fit the box's corners on screen with a margin (a long car fills the frame like the game's)
+    let dist = radius / Math.sin(THREE.MathUtils.degToRad(35) / 2);
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+    for (let it = 0; it < 4; it++) {
+      cam.position.copy(center).addScaledVector(dir, dist);
+      cam.lookAt(center);
+      cam.near = dist / 100;
+      cam.far = dist * 10;
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld();
+      let m = 0;
+      for (const c of corners) {
+        const p = c.clone().project(cam);
+        m = Math.max(m, Math.abs(p.x) / 0.84, Math.abs(p.y) / 0.8);
+      }
+      dist *= 0.35 + 0.65 * m;
+    }
+    cam.position.copy(center).addScaledVector(dir, dist);
+    cam.lookAt(center);
+    cam.near = dist / 100;
+    cam.far = dist * 10;
+    cam.updateProjectionMatrix();
+    const ratio = this.renderer.getPixelRatio();
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(w, h, false);
+    let url: string | null = null;
+    try {
+      this.renderer.render(this.scene, cam);
+      url = this.renderer.domElement.toDataURL('image/jpeg', 0.9);
+    } finally {
+      hide.forEach((o, i) => (o.visible = was[i]));
+      this.meshRoot.visible = meshWas;
+      this.renderer.setPixelRatio(ratio);
+      this.resize();
+      this.requestRender();
+    }
+    return url;
+  }
+
   /** Snapshot as PNG data URL. */
   screenshot(): string {
     this.render();

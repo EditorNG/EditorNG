@@ -203,6 +203,13 @@ class MeshManager {
           g.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
           g.setAttribute('normal', new THREE.BufferAttribute(m.nrm, 3));
           if (m.uv) g.setAttribute('uv', new THREE.BufferAttribute(m.uv, 2));
+          // second UV set for layered materials (liveries); the first set stands in when there is none
+          // the texture sets under names of our own for the layer shader (liveries). A mesh without a
+          // second set gets no layer at all, as in the game (lhas1 = 0)
+          if (m.uv) g.setAttribute('luv0', g.getAttribute('uv'));
+          if (m.uv2) g.setAttribute('luv1', new THREE.BufferAttribute(m.uv2, 2));
+          // explicit 0 / 1 per vertex (a missing attribute would read whatever its slot held last)
+          g.setAttribute('lhas1', new THREE.BufferAttribute(new Float32Array(m.pos.length / 3).fill(m.uv2 ? 1 : 0), 1));
           // draw ranges per material (used by the Shaded mode; single-material draws ignore them)
           for (let k = 0; k < m.groups.length; k++) g.addGroup(m.groups[k].start, m.groups[k].count, k);
           g.userData.materials = m.groups.map((x) => x.material);

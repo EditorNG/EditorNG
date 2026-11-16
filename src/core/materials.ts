@@ -35,6 +35,23 @@ export interface PbrSpec {
   paintMask?: string;
   clearcoat: number;
   clearcoatRoughness: number;
+  /**
+   * A textured layer over the base stage (liveries / skins): its own colour, metal and roughness,
+   * blended in where its opacity map is white. uv = 0 or 1, the mesh's texture coordinate set.
+   */
+  layer?: {
+    colorMap?: string;
+    colorUv: number;
+    color: [number, number, number];
+    mask: string;
+    maskUv: number;
+    metallic: number;
+    metallicMap?: string;
+    metallicUv: number;
+    roughness: number;
+    /** the clear coat belongs to the layer only (the base stage has none): masked by it */
+    clearcoatOnLayer: boolean;
+  };
   transparent: boolean;
   alphaTest: number;
   doubleSided: boolean;
@@ -115,6 +132,26 @@ export function pbrOf(d: MatDef): PbrSpec {
     const pi = st.findIndex((x) => x.instanceDiffuse === true || x.instanceBaseColor === true || !!x.colorPaletteMap);
     const layers = num(raw.activeLayers, st.filter((x) => Object.keys(x).length).length);
     if (pi > 0 && pi < layers && path(st[pi].opacityMap)) spec.paintMask = path(st[pi].opacityMap);
+    // a textured layer (a livery): a stage above the base with its own colour and an opacity map
+    const isPaint = (x: Record<string, any>) => x.instanceDiffuse === true || x.instanceBaseColor === true || !!x.colorPaletteMap;
+    const li = st.findIndex((x, i) => i > 0 && i < layers && !isPaint(x) && path(x.opacityMap) && (path(x.baseColorMap) || Array.isArray(x.baseColorFactor)));
+    if (li > 0) {
+      const L = st[li];
+      const bc = Array.isArray(L.baseColorFactor) ? L.baseColorFactor : null;
+      const uv = (k: string) => (num(L[k], 0) >= 1 ? 1 : 0);
+      spec.layer = {
+        colorMap: path(L.baseColorMap),
+        colorUv: uv(L.baseColorMapUseUV !== undefined ? 'baseColorMapUseUV' : 'diffuseMapUseUV'),
+        color: bc ? [num(bc[0], 1), num(bc[1], 1), num(bc[2], 1)] : [1, 1, 1],
+        mask: path(L.opacityMap)!,
+        maskUv: uv('opacityMapUseUV'),
+        metallic: num(L.metallicFactor, L.metallicMap ? 1 : spec.metallic),
+        metallicMap: path(L.metallicMap),
+        metallicUv: uv('metallicMapUseUV'),
+        roughness: num(L.roughnessFactor, spec.roughness),
+        clearcoatOnLayer: !(num(s0.clearCoatFactor, 0) > 0) && num(L.clearCoatFactor, 0) > 0,
+      };
+    }
   } else {
     // older stage format: base colour from the paint stage when there is one, else the first map
     const paintStage = st.find((x) => x.instanceDiffuse === true);
@@ -131,7 +168,13 @@ export function pbrOf(d: MatDef): PbrSpec {
       spec.clearcoat = 1;
     }
   }
-  if (spec.opacityMap || spec.baseColor[3] < 1) spec.transparent = true;
+  // the game only uses opacity on translucent or alpha-tested materials: an opaque one with
+  // "opacityFactor": 0 (the common brake disc) is still drawn solid
+  if (raw.translucent !== true && !spec.alphaTest) {
+    spec.baseColor[3] = 1;
+    spec.opacityMap = undefined;
+    spec.transparent = false;
+  } else if (spec.opacityMap || spec.baseColor[3] < 1) spec.transparent = true;
   return spec;
 }
 

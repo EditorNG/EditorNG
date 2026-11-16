@@ -391,52 +391,25 @@ input[type='color']::-webkit-color-swatch {
   flex: none;
 }
 
-/* tooltips: [data-tip] */
+/* tooltips: [data-tip], drawn by TooltipLayer (ui/Tooltip.tsx) */
 [data-tip] {
   position: relative;
 }
-[data-tip]:hover::after {
-  content: attr(data-tip);
-  position: absolute;
-  z-index: 1000;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 8px;
+.tip-float {
+  position: fixed;
+  z-index: 2000;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
   background: var(--bg-4);
   border: 1px solid var(--border-strong);
   color: var(--text);
   font-size: 11.5px;
   font-weight: 400;
-  white-space: pre;
+  line-height: 1.45;
+  white-space: pre-line;
   pointer-events: none;
   box-shadow: var(--shadow);
-  animation: tip-in 0s linear 0.45s both;
-}
-[data-tip][data-tip-pos='right']:hover::after {
-  top: 50%;
-  left: calc(100% + 8px);
-  transform: translateY(-50%);
-}
-[data-tip][data-tip-pos='top']:hover::after {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
-[data-tip][data-tip-pos='left']:hover::after {
-  top: 50%;
-  left: auto;
-  right: calc(100% + 8px);
-  transform: translateY(-50%);
-}
-[data-tip][data-tip-pos='bottom-left']:hover::after {
-  left: auto;
-  right: 0;
-  transform: none;
-}
-[data-tip][data-tip-pos='bottom-right']:hover::after {
-  left: 0;
-  transform: none;
 }
 @keyframes tip-in {
   from {
