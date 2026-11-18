@@ -619,6 +619,8 @@ function groupsOf(v: any): string[] {
 export interface BuildOptions {
   /** Loose mode: parts are shown side by side without slot resolution; missing node links are expected. */
   loose?: boolean;
+  /** Only merge the dictionary sections (engine, gearbox… data): no tables, nodes or meshes. */
+  dictsOnly?: boolean;
 }
 
 export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIssues: Issue[] = [], opts: BuildOptions = {}): Vehicle {
@@ -675,7 +677,7 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
     for (const [name, node] of part.def.sections) {
       if (SKIP_SECTIONS.has(name)) continue;
       if (node.k === 'arr') {
-        if (node.items.length === 0) continue;
+        if (node.items.length === 0 || opts.dictsOnly) continue;
         emitPartRows(tableFor(name), part, name, node, issues);
       } else if (node.k === 'obj') {
         let target = dicts.get(name);
@@ -742,6 +744,12 @@ export function buildVehicle(parts: ActivePart[], config: VehicleConfig, baseIss
   };
   for (const r of roots) for (const s of subtreeSections.get(r)!) if (!tables.has(s)) seed(s);
   for (const r of roots) emit(r);
+  if (opts.dictsOnly) {
+    return {
+      mainPart: root?.def.name ?? '', root, parts, partsByName: new Map(parts.map((p) => [p.def.name, p])), options, tables: new Map(), headers: new Map(), dicts,
+      nodes: [], nodeIndex: new Map(), beams: [], tris: [], wheels: [], flexbodies: [], props: [], variables, vars, triggers: [], issues, refNodes: {},
+    };
+  }
 
   const tableRows = new Map<string, Row[]>();
   const headers = new Map<string, string[]>();

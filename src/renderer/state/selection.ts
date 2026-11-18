@@ -44,6 +44,8 @@ export interface SelState {
   active: Hover | null;
   /** node names hidden with H (view only, not saved) */
   hidden: Set<string>;
+  /** flexbodies / mesh props hidden with H, by row key (view only) */
+  hiddenMeshes: Set<string>;
 }
 
 export const emptySel = (): Sel => ({ nodes: new Set(), beams: new Set(), tris: new Set(), flex: new Set(), props: new Set(), triggers: new Set() });
@@ -56,6 +58,7 @@ export const useSel = create<SelState>(() => ({
   scope: { mode: 'vehicle' },
   active: null,
   hidden: new Set(),
+  hiddenMeshes: new Set(),
 }));
 
 export function beamKey(a: string, b: string): string {

@@ -35,6 +35,10 @@ export interface PbrSpec {
   paintMask?: string;
   clearcoat: number;
   clearcoatRoughness: number;
+  /** tinted by the mesh's vertex colours ("vertColor" on the base stage) */
+  vertexColors: boolean;
+  /** base-stage maps read with the mesh's second texture set ("...MapUseUV": 1) */
+  uv1: Partial<Record<'map' | 'normalMap' | 'roughnessMap' | 'metalnessMap' | 'aoMap' | 'alphaMap', boolean>>;
   /**
    * A textured layer over the base stage (liveries / skins): its own colour, metal and roughness,
    * blended in where its opacity map is white. uv = 0 or 1, the mesh's texture coordinate set.
@@ -51,6 +55,10 @@ export interface PbrSpec {
     roughness: number;
     /** the clear coat belongs to the layer only (the base stage has none): masked by it */
     clearcoatOnLayer: boolean;
+    /** the layer is tinted by the mesh's vertex colours ("vertColor" on its stage) */
+    vertexColors: boolean;
+    /** the layer is a paint stage with its own texture: tinted by the vehicle paint */
+    paintTint?: boolean;
   };
   transparent: boolean;
   alphaTest: number;
@@ -64,7 +72,8 @@ export function parseMaterialsJson(text: string, file: string): MatDef[] {
   if (!obj || typeof obj !== 'object') return [];
   const out: MatDef[] = [];
   for (const [key, m] of Object.entries<any>(obj)) {
-    if (!m || typeof m !== 'object' || (m.class && m.class !== 'Material')) continue;
+    // the game reads "class" without caring about case ("material" works too)
+    if (!m || typeof m !== 'object' || (m.class && String(m.class).toLowerCase() !== 'material')) continue;
     const name = typeof m.name === 'string' ? m.name : key;
     out.push({
       name,
@@ -91,6 +100,19 @@ export function indexMaterials(defs: MatDef[]): Map<string, MatDef> {
 const num = (v: any, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const path = (v: any) => (typeof v === 'string' && v.trim() ? v.trim().replace(/\\/g, '/').replace(/^\/+/, '') : undefined);
 
+/** which base-stage maps use the second texture set */
+function uvSets(s: Record<string, any>): PbrSpec['uv1'] {
+  const one = (...keys: string[]) => keys.some((k) => typeof s[k] === 'number' && s[k] >= 1);
+  return {
+    map: one('baseColorMapUseUV', 'diffuseMapUseUV', 'colorMapUseUV'),
+    normalMap: one('normalMapUseUV'),
+    roughnessMap: one('roughnessMapUseUV'),
+    metalnessMap: one('metallicMapUseUV'),
+    aoMap: one('ambientOcclusionMapUseUV'),
+    alphaMap: one('opacityMapUseUV'),
+  };
+}
+
 export function pbrOf(d: MatDef): PbrSpec {
   const st = d.stages;
   const s0 = st[0] ?? {};
@@ -103,6 +125,8 @@ export function pbrOf(d: MatDef): PbrSpec {
     paint: false,
     clearcoat: 0,
     clearcoatRoughness: 0.08,
+    vertexColors: (d.stages[0] ?? {}).vertColor === true,
+    uv1: uvSets(d.stages[0] ?? {}),
     transparent: raw.translucent === true,
     alphaTest: raw.alphaTest === true ? Math.max(0.05, num(raw.alphaRef, 127) / 255) : 0,
     doubleSided: raw.doubleSided === true,
@@ -131,10 +155,15 @@ export function pbrOf(d: MatDef): PbrSpec {
     // a paint layer over the base stage, masked by its opacity map (activeLayers ≥ 2)
     const pi = st.findIndex((x) => x.instanceDiffuse === true || x.instanceBaseColor === true || !!x.colorPaletteMap);
     const layers = num(raw.activeLayers, st.filter((x) => Object.keys(x).length).length);
-    if (pi > 0 && pi < layers && path(st[pi].opacityMap)) spec.paintMask = path(st[pi].opacityMap);
+    // a paint stage with a livery texture of its own (race skins): drawn as a textured layer tinted
+    // by the paint, instead of a flat paint colour
+    const paintTex = pi > 0 && pi < layers && !!path(st[pi].opacityMap) && !!path(st[pi].baseColorMap);
+    if (pi > 0 && pi < layers && path(st[pi].opacityMap) && !paintTex) spec.paintMask = path(st[pi].opacityMap);
+    // the paint reaches only that layer, not the base below it
+    if (paintTex) spec.paint = false;
     // a textured layer (a livery): a stage above the base with its own colour and an opacity map
     const isPaint = (x: Record<string, any>) => x.instanceDiffuse === true || x.instanceBaseColor === true || !!x.colorPaletteMap;
-    const li = st.findIndex((x, i) => i > 0 && i < layers && !isPaint(x) && path(x.opacityMap) && (path(x.baseColorMap) || Array.isArray(x.baseColorFactor)));
+    const li = paintTex ? pi : st.findIndex((x, i) => i > 0 && i < layers && !isPaint(x) && path(x.opacityMap) && (path(x.baseColorMap) || Array.isArray(x.baseColorFactor)));
     if (li > 0) {
       const L = st[li];
       const bc = Array.isArray(L.baseColorFactor) ? L.baseColorFactor : null;
@@ -150,6 +179,8 @@ export function pbrOf(d: MatDef): PbrSpec {
         metallicUv: uv('metallicMapUseUV'),
         roughness: num(L.roughnessFactor, spec.roughness),
         clearcoatOnLayer: !(num(s0.clearCoatFactor, 0) > 0) && num(L.clearCoatFactor, 0) > 0,
+        vertexColors: L.vertColor === true,
+        paintTint: isPaint(L),
       };
     }
   } else {
@@ -168,13 +199,22 @@ export function pbrOf(d: MatDef): PbrSpec {
       spec.clearcoat = 1;
     }
   }
-  // the game only uses opacity on translucent or alpha-tested materials: an opaque one with
-  // "opacityFactor": 0 (the common brake disc) is still drawn solid
-  if (raw.translucent !== true && !spec.alphaTest) {
+  // How the game uses opacity:
+  // - translucent with a blend op (LerpAlpha by default, PreMulAlpha, AddAlpha…): blended (glass);
+  // - translucent with "translucentBlendOp": "None": no blending, drawn solid (many exported
+  //   materials have translucent on by default);
+  // - alphaTest: cut out at alphaRef, still solid (badges, lettering, grilles);
+  // - otherwise opacity is ignored ("opacityFactor": 0 on the common brake disc).
+  const blends = raw.translucent === true && String(raw.translucentBlendOp ?? 'LerpAlpha').toLowerCase() !== 'none';
+  if (!blends && !spec.alphaTest) {
     spec.baseColor[3] = 1;
     spec.opacityMap = undefined;
     spec.transparent = false;
-  } else if (spec.opacityMap || spec.baseColor[3] < 1) spec.transparent = true;
+  } else if (!blends) {
+    // cut out: alphaMap + alphaTest, depth written like any solid
+    spec.transparent = false;
+    if (!spec.opacityMap) spec.alphaTest = Math.min(spec.alphaTest, Math.max(0, spec.baseColor[3] - 0.001));
+  } else spec.transparent = !!spec.opacityMap || spec.baseColor[3] < 1;
   return spec;
 }
 

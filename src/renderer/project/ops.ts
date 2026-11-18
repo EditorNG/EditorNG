@@ -7,7 +7,7 @@ import {
 } from '@core/jbeam/edit';
 import { insertMarkOffset, moveInsertMark } from '../editor/insertMark';
 import { getNodeXform, invertNodeXform } from '@core/jbeam/nodeTransform';
-import { pathAt, type ANode, type AArr } from '@core/sjson';
+import { pathAt, objGet, type ANode, type AArr } from '@core/sjson';
 import type { ActivePart, PartDef, Row, Vehicle } from '@core/jbeam/types';
 import { settings } from '../state/settings';
 import { useUi } from '../state/ui';
@@ -15,7 +15,7 @@ import { collectRails, collectSlides, closestOnRail, railPoints } from '@core/jb
 import { placeTriggers, mirroredTriggerValues, worldAlignedAxes, triggerValues } from '@core/jbeam/triggers';
 import { swapSideTokens } from '@core/jbeam/mirror';
 import { toast } from '../state/toast';
-import { useSel, emptySel, beamKey, triKey, cloneSel, resolveSel, setSel } from '../state/selection';
+import { useSel, emptySel, beamKey, triKey, cloneSel, resolveSel, setSel, rowKey } from '../state/selection';
 
 /**
  * Like insertRows, but when the code insertion point (the user's last click in the code editor) is inside
@@ -1401,14 +1401,55 @@ function mergeNodesImpl(target: number, others: number[]): boolean {
 }
 
 /** Hides nodes in the view (H / Shift+H); Alt+H shows everything again. */
+/** Sets what is hidden as one undo step (Ctrl+Z brings it back). */
+function setHidden(label: string, hidden: Set<string>, hiddenMeshes: Set<string>) {
+  const st = useSel.getState();
+  const before = { hidden: st.hidden, hiddenMeshes: st.hiddenMeshes };
+  if (sameSet(before.hidden, hidden) && sameSet(before.hiddenMeshes, hiddenMeshes)) return;
+  const after = { hidden, hiddenMeshes };
+  useSel.setState(after);
+  ws.pushView(label, () => useSel.setState(before), () => useSel.setState(after));
+}
+
+function sameSet(a: Set<string>, b: Set<string>) {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
+
 export function hideNodes(names: Iterable<string> | null) {
   if (names === null) {
-    useSel.setState({ hidden: new Set() });
+    setHidden('Unhide all', new Set(), new Set());
     return;
   }
   const h = new Set(useSel.getState().hidden);
   for (const n of names) h.add(n);
-  useSel.setState({ hidden: h });
+  setHidden('Hide', h, useSel.getState().hiddenMeshes);
+  setSel(emptySel());
+}
+
+/**
+ * H on meshes: hides the selected flexbodies / mesh props, and their JBeam structure with them
+ * (the nodes of the flexbody's node groups, so their beams and triangles go too).
+ */
+export function hideMeshes(flex: Iterable<number>, props: Iterable<number>) {
+  const v = ws.vehicle;
+  if (!v) return;
+  const meshes = new Set(useSel.getState().hiddenMeshes);
+  const nodes = new Set(useSel.getState().hidden);
+  const groups = new Set<string>();
+  for (const i of flex) {
+    const f = v.flexbodies[i];
+    if (!f) continue;
+    meshes.add(rowKey(f.row.src.file, f.row.src.node.s));
+    for (const g of f.groups) groups.add(g);
+  }
+  for (const i of props) {
+    const p = v.props[i];
+    if (p) meshes.add(rowKey(p.row.src.file, p.row.src.node.s));
+  }
+  if (groups.size) for (const n of v.nodes) if (n.groups.some((g) => groups.has(g))) nodes.add(n.name);
+  setHidden('Hide', nodes, meshes);
   setSel(emptySel());
 }
 
@@ -1830,5 +1871,125 @@ export function deleteRowAt(file: string, s: number, e: number, label = 'Delete 
   if (!hit) return false;
   const es = new EditSet();
   es.add(d.key, deleteNodes(d.text, [hit]));
+  return es.apply(label);
+}
+
+// ------------------------------------------------------------------------------------------
+// lights in 3D
+// ------------------------------------------------------------------------------------------
+
+/** a SPOTLIGHT / POINTLIGHT prop (modular bulbs included: their part's light is one) */
+export function isLightProp(v: Vehicle, i: number): boolean {
+  const m = v.props[i]?.mesh;
+  return m === 'SPOTLIGHT' || m === 'POINTLIGHT';
+}
+
+/**
+ * Moves lights to world positions. A modular bulb gets its slot's $posX/$posY/$posZ rewritten (in
+ * the part that holds the slot, never the common bulb file); a light with a literal
+ * baseTranslationGlobal gets that; a node-anchored light its baseTranslation in the node frame.
+ */
+export function setLightPositions(pos: Map<number, [number, number, number]>, label = 'Move light'): boolean {
+  const v = ws.vehicle;
+  if (!v || !pos.size) return false;
+  const es = new EditSet();
+  const r3 = (x: number) => Math.round(x * 1000) / 1000;
+  for (const [i, w] of pos) {
+    const p = v.props[i];
+    if (!p) continue;
+    const rv = p.row.v;
+    const toRaw = (q: [number, number, number]) => {
+      const r = invertNodeXform(getNodeXform(rv), q[0], q[1], q[2]);
+      return [r3(r.x), r3(r.y), r3(r.z)] as [number, number, number];
+    };
+    // modular bulb: the slot's variables place it
+    const sn = p.row.part.slot;
+    const vars = sn?.def.variables;
+    if (rv.baseTranslationGlobal && sn && vars && ['$posX', '$posY', '$posZ'].every((k) => k in vars)) {
+      const ownerFile = sn.owner.def.file;
+      const d = writableDoc(ownerFile);
+      if (!d) return false;
+      const row = sn.def.row;
+      const opts = row && row.k === 'arr' ? row.items.find((c) => c.k === 'obj') : undefined;
+      const varsNode = opts ? objGet(opts, 'variables') : undefined;
+      if (!varsNode || varsNode.k !== 'obj') continue;
+      const raw = toRaw(w);
+      (['$posX', '$posY', '$posZ'] as const).forEach((k, j) => {
+        const cell = objGet(varsNode, k);
+        if (cell) es.add(d.key, [{ s: cell.s, e: cell.e, text: fmtNum(raw[j], dec()) }]);
+      });
+      continue;
+    }
+    const d = writableDoc(p.row.src.file);
+    if (!d || p.row.src.node.k !== 'arr') return false;
+    const hl = headerOf(p.row.src.table, 'props').length;
+    if (rv.baseTranslationGlobal) {
+      const raw = toRaw(w);
+      es.add(d.key, setRowOption(d.text, p.row.src.node as AArr, hl, 'baseTranslationGlobal', { x: raw[0], y: raw[1], z: raw[2] }, dec()));
+      continue;
+    }
+    // node frame (as the viewport draws it): X = ref->idX, Y = cross(ref->idY, X), Z = X x Y
+    if (p.idRef < 0 || p.idX < 0 || p.idY < 0) continue;
+    const N = (k: number) => [v.nodes[k].x, v.nodes[k].y, v.nodes[k].z];
+    const ref = N(p.idRef);
+    const sub = (a: number[], b: number[]) => a.map((x, k) => x - b[k]);
+    const norm = (a: number[]) => {
+      const l = Math.hypot(a[0], a[1], a[2]) || 1;
+      return a.map((x) => x / l);
+    };
+    const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const X = norm(sub(N(p.idX), ref));
+    const Y = norm(cross(sub(N(p.idY), ref), X));
+    const Z = norm(cross(X, Y));
+    const dl = sub(w, ref);
+    es.add(d.key, setRowOption(d.text, p.row.src.node as AArr, hl, 'baseTranslation', { x: r3(dot(dl, X)), y: r3(dot(dl, Y)), z: r3(dot(dl, Z)) }, dec()));
+  }
+  return es.apply(label);
+}
+
+// ------------------------------------------------------------------------------------------
+// powertrain editor
+// ------------------------------------------------------------------------------------------
+
+/** Rewrites literal numbers (torque points, ratios, rpm limits), one undo step. */
+export function setNumbers(edits: Array<{ file: string; node: ANode; value: number; decimals?: number }>, label = 'Edit values'): boolean {
+  const es = new EditSet();
+  for (const e of edits) {
+    const d = writableDoc(e.file);
+    if (!d) return false;
+    es.add(d.key, [{ s: e.node.s, e: e.node.e, text: fmtNum(e.value, e.decimals ?? dec()) }]);
+  }
+  return es.apply(label);
+}
+
+/** A new [rpm, torque] row right after another one of the table. */
+export function insertTableRowAfter(file: string, after: ANode, cells: number[], label = 'Add point'): boolean {
+  const d = writableDoc(file);
+  if (!d) return false;
+  const es = new EditSet();
+  es.add(d.key, insertRowsAfter(d.text, after, [fmtRow(cells, dec())]));
+  return es.apply(label);
+}
+
+export function deleteTableRow(file: string, row: ANode, label = 'Delete point'): boolean {
+  const d = writableDoc(file);
+  if (!d) return false;
+  const es = new EditSet();
+  es.add(d.key, deleteNodes(d.text, [row]));
+  return es.apply(label);
+}
+
+/** Appends a number to an inline array ("gearRatios":[…]) or removes its last one. */
+export function arrayPush(file: string, arr: AArr, value: number | null, label: string): boolean {
+  const d = writableDoc(file);
+  if (!d || !arr.items.length) return false;
+  const last = arr.items[arr.items.length - 1];
+  const es = new EditSet();
+  if (value !== null) es.add(d.key, [{ s: last.e, e: last.e, text: ', ' + fmtNum(value, dec()) }]);
+  else {
+    const prev = arr.items[arr.items.length - 2];
+    es.add(d.key, [{ s: prev ? prev.e : last.s, e: last.e, text: '' }]);
+  }
   return es.apply(label);
 }

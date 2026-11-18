@@ -10,7 +10,7 @@ setInsertMarkFilter((m, off) => {
   return d.jfile.parts.some((p) => [...p.sections.values()].some((sec) => sec.k === 'arr' && sec.s < off && off < sec.e - 1));
 });
 import { ws, useWs } from '../project/workspace';
-import { useUi, openTab, closeTab } from '../state/ui';
+import { useUi, openTab, closeTab, keepTab } from '../state/ui';
 import { useSettings, settings } from '../state/settings';
 import { useSel, emptySel, beamKey, triKey, rowKey, resolveSel, addToSel, setSel, type Sel } from '../state/selection';
 import { pathAt } from '@core/sjson';
@@ -187,6 +187,7 @@ function highlightFromCursor() {
 export function CodeEditor() {
   const host = useRef<HTMLDivElement>(null);
   const tabs = useUi((s) => s.tabs);
+  const previewTab = useUi((s) => s.previewTab);
   const active = useUi((s) => s.activeTab);
   const s = useSettings((x) => x.s);
   const version = useWs((x) => x.version);
@@ -434,15 +435,21 @@ export function CodeEditor() {
 
   return (
     <div className="code-editor">
-      <div className="tabs">
+      <div className="tabs" onWheel={(e) => {
+        // the wheel scrolls the tab strip sideways (no Shift needed)
+        const el = e.currentTarget;
+        if (el.scrollWidth > el.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY;
+      }}>
         {tabs.map((k) => {
           const d = ws.doc(k);
           if (!d) return null;
           const dirty = ws.isDirty(d);
+          const preview = k === previewTab && !dirty;
           return (
             <div
               key={k}
-              className={'tab' + (k === active ? ' active' : '')}
+              className={'tab' + (k === active ? ' active' : '') + (preview ? ' preview' : '')}
+              onDoubleClick={() => keepTab(k)}
               onMouseDown={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();
@@ -454,6 +461,7 @@ export function CodeEditor() {
                 e.preventDefault();
                 const others = tabs.filter((t) => t !== k);
                 openMenu(e.clientX, e.clientY, [
+                  preview && { label: 'Keep open', hint: 'double-click', run: () => keepTab(k) },
                   { label: 'Close', run: () => closeTab(k) },
                   { label: 'Close others', disabled: others.length ? false : 'No other tabs', run: () => others.forEach((t) => closeTab(t)) },
                   { label: 'Close all', run: () => [...tabs].forEach((t) => closeTab(t)) },

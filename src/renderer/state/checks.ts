@@ -8,6 +8,7 @@ import { CHECKS, runChecks, type Finding } from '@core/analysis/debug';
 import type { Issue, Vehicle } from '@core/jbeam/types';
 import { settings, useSettings } from './settings';
 import { ws, useWs } from '../project/workspace';
+import { meshes } from '../scene/meshes';
 
 interface ChecksState {
   enabled: Set<string>;
@@ -26,7 +27,7 @@ export function runAllChecks(): Finding[] {
   const v = ws.vehicle;
   if (!v) return [];
   const s = settings();
-  const texts = [...ws.docs.values()].filter((d) => /\.jbeam$/i.test(d.key) && d.text).map((d) => ({ file: d.vpath, text: d.text }));
+  const texts = [...ws.docs.values()].filter((d) => /\.jbeam$|materials\.json$/i.test(d.key) && d.text).map((d) => ({ file: d.vpath, text: d.text }));
   const res = runChecks(v, {
     shortBeam: s.debugShortBeam, closeNodes: s.debugCloseNodes, minBeams: s.debugMinBeamsPerNode, mirrorTolerance: s.mirrorTolerance, suffixL: s.mirrorSuffixLeft, suffixR: s.mirrorSuffixRight,
     editable: (f) => {
@@ -34,6 +35,14 @@ export function runAllChecks(): Finding[] {
       return !!d?.writable && !d.isCommon;
     },
     texts,
+    model: ws.model ?? undefined,
+    meshFile: (m) => meshes.fileOf(m)?.vpath,
+    isOwnFile: (f) => {
+      const d = ws.doc(f);
+      if (d) return d.writable;
+      const mf = [...meshes.allFiles()].find((x) => x.vpath.toLowerCase() === f.toLowerCase());
+      return !!mf?.writable;
+    },
   }, useChecks.getState().enabled);
   useChecks.setState({ results: res, forVehicle: v });
   return res;
@@ -67,9 +76,9 @@ export interface CheckItem {
 
 function findingPart(v: Vehicle, f: Finding): string {
   if (f.part) return f.part;
-  if (f.beams?.length) return v.beams[f.beams[0]].row.part.def.name;
-  if (f.tris?.length) return v.tris[f.tris[0]].row.part.def.name;
-  if (f.nodes?.length) return v.nodes[f.nodes[0]].row.part.def.name;
+  if (f.beams?.length) return v.beams[f.beams[0]]?.row.part.def.name ?? '';
+  if (f.tris?.length) return v.tris[f.tris[0]]?.row.part.def.name ?? '';
+  if (f.nodes?.length) return v.nodes[f.nodes[0]]?.row.part.def.name ?? '';
   if (f.src) return v.parts.find((p) => p.def.file.toLowerCase() === f.src!.file.toLowerCase())?.def.name ?? '';
   return '';
 }

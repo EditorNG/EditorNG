@@ -38,6 +38,12 @@ export interface CheckOptions {
   editable?: (file: string) => boolean;
   /** text of the vehicle's files, to tell "no such group" from "its nodes are commented out" */
   texts?: Array<{ file: string; text: string }>;
+  /** the vehicle folder (vehicles/<model>) */
+  model?: string;
+  /** the .dae a mesh comes from, when known */
+  meshFile?: (mesh: string) => string | undefined;
+  /** a file of the user's own mods (an update of the game does not touch it) */
+  isOwnFile?: (file: string) => boolean;
 }
 
 export const CHECKS: Array<{ id: string; title: string; doc: string }> = [
@@ -55,6 +61,7 @@ export const CHECKS: Array<{ id: string; title: string; doc: string }> = [
   { id: 'modLeaks', title: 'Leaking modifiers', doc: 'A {"key": value} modifier row stays in effect for the rest of its section, and the game carries it into the same section of every part assembled after it. Values that are not reset at the end of a part change rows of other parts. Reset them with {"key": ""} (or the default) at the end of the section.' },
   { id: 'propTypos', title: 'Property typos', doc: 'Modifier and inline option names that are not known to the game but look like a known one (e.g. beamSprng). The game silently ignores them. Names come from the game\'s own JBeam spellchecker.' },
   { id: 'otherSidePart', title: 'Elements in the other side\'s part', doc: 'Beams or triangles defined in a left/right part (…_L / …_R) whose nodes all belong to the other side\'s part, and none to their own: usually rows copied or mirrored into the wrong part. They only work while both parts are installed, and break or weigh with the wrong one. Elements that link the two sides (one node from each, like a damper between both seats) or use other parts\' nodes (the body, a subframe) are fine and not reported.' },
+  { id: 'dependencies', title: 'Dependencies on other folders', doc: 'What your parts take from vehicles/common or from another vehicle folder: common parts in your slots, meshes and textures. A game update can change or remove them, so these are the things to look at first when something breaks after an update. Nothing to fix by itself.' },
   { id: 'rails', title: 'Rails & slidenodes', doc: 'Rails with unknown nodes, slidenodes on rails that do not exist, and slidenodes that are not on their rail (they jump onto it when the vehicle spawns). Fix with Snap onto rail (Shift+R).' },
 ];
 
@@ -293,6 +300,9 @@ export function runChecks(v: Vehicle, o: CheckOptions, enabled?: Set<string>): F
       });
     }
   }
+  if (on('dependencies') && o.model) {
+    for (const d of dependencies(v, o)) out.push({ check: 'dependencies', sev: 'info', msg: d.msg, part: d.part, src: d.src });
+  }
   if (on('rails')) {
     for (const r of collectRails(v).values()) {
       if (r.missing.length) out.push({ check: 'rails', sev: 'error', msg: `rail ${r.name}: unknown node(s) ${r.missing.join(', ')} (${r.part.def.name})`, nodes: r.nodes });
@@ -438,4 +448,65 @@ export function massReport(v: Vehicle): MassReport {
     byPart: [...parts.entries()].map(([part, e]) => ({ part, ...e })).sort((a, b) => b.mass - a.mass),
     front, rear, left, right, axles,
   };
+}
+
+/** where a game path lives: 'common', another vehicle's folder, or null for the vehicle's own */
+function foreign(vpath: string, model: string): string | null {
+  const m = /^\/?vehicles\/([^/]+)\//i.exec(vpath.replace(/\\/g, '/'));
+  if (!m) return null;
+  const f = m[1].toLowerCase();
+  if (f === model.toLowerCase()) return null;
+  return f === 'common' ? 'common' : f;
+}
+
+/**
+ * What the vehicle's own parts take from vehicles/common or other vehicles: parts in their slots,
+ * meshes of their flexbodies / props, textures named in the vehicle's materials files.
+ */
+export function dependencies(v: Vehicle, o: Pick<CheckOptions, 'model' | 'meshFile' | 'texts' | 'editable' | 'isOwnFile'>): Array<{ msg: string; part: string; src?: { file: string; s: number; e: number } }> {
+  const model = o.model!;
+  const own = (file: string) => !foreign(file, model) && (!o.editable || o.editable(file));
+  // a common / other-vehicle file is only a dependency when the game (or another mod) provides it
+  const from = (file: string) => (o.isOwnFile?.(file) ? null : foreign(file, model));
+  const out: Array<{ msg: string; part: string; src?: { file: string; s: number; e: number } }> = [];
+  // parts from elsewhere sitting in the slots of the vehicle's own parts
+  for (const p of v.parts) {
+    if (!p.slot || !own(p.slot.owner.def.file)) continue;
+    const where = from(p.def.file);
+    if (!where) continue;
+    const row = p.slot.def.row;
+    out.push({
+      msg: `${p.def.name} from ${where === 'common' ? 'vehicles/common' : `the ${where} vehicle`} (${p.def.file.split('/').pop()}) in slot ${p.slot.id}`,
+      part: p.slot.owner.def.name,
+      src: row ? { file: p.slot.owner.def.file, s: row.s, e: row.e } : undefined,
+    });
+  }
+  // meshes of the own parts that live in another folder
+  if (o.meshFile) {
+    const seen = new Set<string>();
+    const mesh = (name: string, row: { src: { file: string; node: { s: number; e: number } }; part: { def: { name: string; file: string } } }) => {
+      if (!own(row.part.def.file)) return;
+      const f = o.meshFile!(name);
+      const where = f && !o.isOwnFile?.(f) ? foreign(f, model) : null;
+      if (!where || seen.has(row.part.def.name + '|' + name)) return;
+      seen.add(row.part.def.name + '|' + name);
+      out.push({ msg: `mesh ${name} from ${where === 'common' ? 'vehicles/common' : `the ${where} vehicle`} (${f!.split('/').pop()})`, part: row.part.def.name, src: { file: row.src.file, s: row.src.node.s, e: row.src.node.e } });
+    };
+    for (const f of v.flexbodies) mesh(f.mesh, f.row);
+    for (const p of v.props) if (p.mesh !== 'SPOTLIGHT' && p.mesh !== 'POINTLIGHT') mesh(p.mesh, p.row);
+  }
+  // textures named in the vehicle's own materials files
+  for (const t of o.texts ?? []) {
+    if (!/materials\.json$/i.test(t.file) || !own(t.file)) continue;
+    const seen = new Set<string>();
+    const re = /"([^"]*vehicles\/[^"]+\.(?:png|dds|jpe?g))"/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(t.text))) {
+      const where = foreign(m[1].replace(/^\//, ''), model);
+      if (!where || seen.has(m[1])) continue;
+      seen.add(m[1]);
+      out.push({ msg: `texture ${m[1].replace(/^\//, '')} from ${where === 'common' ? 'vehicles/common' : `the ${where} vehicle`}`, part: t.file.split('/').pop() ?? t.file, src: { file: t.file, s: m.index, e: m.index + m[0].length } });
+    }
+  }
+  return out;
 }

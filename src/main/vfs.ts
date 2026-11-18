@@ -399,6 +399,22 @@ export class Vfs {
     return out;
   }
 
+  /** Files of the game's own zips whose (lower-case) path matches. */
+  async gameFiles(test: (lowerPath: string) => boolean): Promise<VFile[]> {
+    await this.init();
+    const out: VFile[] = [];
+    for (const mount of this.mounts) {
+      if (!mount.isZip || mount.kind !== 'game') continue;
+      try {
+        const idx = await this.zipIndex(mount);
+        for (const [lc, e] of idx.entries) if (test(lc)) out.push({ vpath: e.fileName, mount: mount.id, size: e.uncompressedSize, writable: false, source: mount.label, kind: mount.kind });
+      } catch {
+        /* ignore */
+      }
+    }
+    return out;
+  }
+
   /** .jbeam files of the game's own zips (vpath + mount) for name collision checks. */
   async gameJbeams(): Promise<VFile[]> {
     await this.init();

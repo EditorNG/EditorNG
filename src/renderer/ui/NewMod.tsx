@@ -567,7 +567,7 @@ async function openNewVehicle(id: string, modRoot: string) {
   const dir = `${modRoot}\\vehicles\\${id}`;
   if (ws.vehicle?.flexbodies.length) await writeThumbnails([`${dir}\\default.jpg`, `${dir}\\${BASE_CONFIG}.jpg`]);
   const main = ws.vehicle?.parts.find((p) => p.def.name === `${id}_body`)?.def.file ?? ws.vehicle?.root?.def.file;
-  if (main) openTab(main.toLowerCase());
+  if (main) openTab(main.toLowerCase(), true);
 }
 
 async function openNewParts(model: string, plans: PartPlan[], pc: string | null, modRoot: string, mod: string) {
@@ -579,7 +579,7 @@ async function openNewParts(model: string, plans: PartPlan[], pc: string | null,
   if (first) {
     ws.focusPart(first.name);
     const def = ws.vehicle?.partsByName.get(first.name)?.def;
-    if (def) openTab(def.file.toLowerCase());
+    if (def) openTab(def.file.toLowerCase(), true);
     getViewport()?.frameNodes(null);
     if (!pc) toast('info', `${plans.map((p) => p.name).join(', ')} ${plans.length > 1 ? 'are' : 'is'} fitted for this session. F5 shows ${plans.length > 1 ? 'them' : 'it'} in game.`, undefined, 7000);
   }

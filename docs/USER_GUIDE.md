@@ -18,7 +18,8 @@ everything you can do with it, and each entry shows its shortcut.
 
 | Want to… | Do |
 |---|---|
-| Pick up where you left off | The last vehicle reopens at start, with the same part/file view, open code tabs and camera. |
+| Pick up where you left off | Every vehicle is a **workspace**: it comes back as you left it (configuration and unsaved slot choices, part shown, code tabs, camera), at start and whenever you open it again. |
+| Switch between your projects | **File → Open recent…** lists your workspaces (with the configuration they were on) and recent files. |
 | Make a new mod | Start page → **New mod…** (or **File → New mod…**, Ctrl+Shift+N). See below. |
 | Open a vehicle (mod or vanilla) | Start page → **Open… → Vehicle…**, the car icon in the Structure panel, or the palette (Ctrl+Shift+P → "Open vehicle"). Mods are listed first. |
 | Reopen something recent | The start page lists recent vehicles and recent `.jbeam` files. |
@@ -87,8 +88,8 @@ status bar    errors / warnings · target part · selection · symmetry · parts
   The **Files | Slots** switch turns the panel into the slot tree (swap parts, pick the `.pc`).
 - **Create** (hammer icon): placers for triggers, bulbs, occupants, wheels, rails, subdivide, and
   the Blender / OBJ import.
-- **Viewport bar**: the breadcrumb `vehicle › file › part` changes what the view shows (Shift+I
-  isolates the part of the selection); pick filter (All / Nodes / Beams / Tris); views (Persp, Top,
+- **Viewport bar**: the breadcrumb `vehicle › file › part` changes what the view shows (Shift+H
+  shows only the part of what is selected); pick filter (All / Nodes / Beams / Tris); views (Persp, Top,
   Front, Side; numpad keys work too); flexbodies and x-ray toggles; the **eye** opens Display
   (every layer, sizes, opacity, labels, beam colours); symmetry; inspector on/off.
 - **Inspector**: a column on the right of the view (it floats over the view when the window is
@@ -114,7 +115,10 @@ status bar    errors / warnings · target part · selection · symmetry · parts
     neutral metallic), lit by a built-in studio. Settings → 3D view → *Shaded: environment*
     lets you use your own HDRI (equirectangular `.hdr` or `.exr`; its brightness is normalised,
     and *environment brightness* / the Display popover's "Light" slider adjust it).
-- **H** hides the selected nodes, **Shift+H** everything else, **Alt+H** shows all again.
+- **H** hides the selected nodes, and selected meshes together with their nodes, beams and
+  triangles. **Shift+H** shows only the part of what is selected (a node, a beam, a mesh; with
+  nothing selected, the part you work on); press it again to go back. **Alt+H** shows all again.
+  **Ctrl+Z** brings back what was hidden, like any edit.
 - **Selectable** (Display popover): what a plain click or box select can pick — Nodes, Beams,
   Tris, Triggers, Flexbodies, Props. Flexbodies and props are off by default so they never get in
   the way; **Alt+click** always picks flexbodies, props and triggers. Meshes are picked only where
@@ -190,6 +194,10 @@ click jumping to the part or file a message names.
 
 ## 6. The code editor
 
+**Tabs.** A file you open by looking around (the explorer, a click in 3D, a search) takes the
+*preview* tab (in italics), which the next one replaces, so tabs don't pile up. It stays once you
+edit it, double-click its tab or pick **Keep open**. The mouse wheel scrolls the tab strip.
+
 - syntax colouring, folding, sticky headers, a **breadcrumb** (`part › section › row`), minimap;
 - **hover** a node name for its position and beams, a beam row for length and stiffness, any row
   for the **modifiers in effect** and where each was set;
@@ -234,6 +242,9 @@ is open while installing, restart it once: the add-on enables itself at the next
   direction, slot name and description follow from it and from the side (taken from the position).
   **Both sides** adds the mirrored bulb too. The electrics menu lists the vehicle's own values and
   **Breaks with** its deform groups.
+- **Lights in the 3D view** can be clicked (Display → Selectable → Lights) and moved with **G** or
+  the move gizmo. A modular bulb's `$posX/$posY/$posZ` are rewritten in the slot that places it
+  (your file, never the common bulb file); a plain light prop gets its `baseTranslation`.
 
 ## Updates
 
@@ -274,7 +285,8 @@ Settings → Files & game → *On external change* has the older behaviours.
   when those nodes are commented out), extreme weights, rails & slidenodes, elements in the
   other side's part, **leaking modifiers** (a `{"beamSpring": …}` not reset at the end of a part
   changes the next parts' rows; only leaks that touch your own files are listed), **property
-  typos**.
+  typos**, and **dependencies on other folders**: the parts, meshes and textures your parts take
+  from the game's `vehicles/common` or another vehicle (what a game update can break).
 - Click a finding to select it in 3D and in the code; for duplicates, click again to jump to the
   next copy. Long lists are folded per part.
 - Right-click a finding to fix it (remove the extra copies, remove a repeated slot row, move rows
@@ -285,25 +297,68 @@ Settings → Files & game → *On external change* has the older behaviours.
 
 ## 10. Releasing
 
-**Tools → Pack mod…** checks a mod folder against the game's modding rules
-(`NOTE_FOR_MODDERS.md`) and zips it:
-zip name characters, no version in the name, files that override game files, part names that
-clash with vanilla parts, leftover notes/logs/backups/sources, texture naming
-(`*.color.png`, `*.normal.png`, `*.data.png`), and an `info.json` and preview for new vehicles.
+**Tools → Pack mod…** checks a mod against the game's modding rules (`NOTE_FOR_MODDERS.md`)
+and zips it. Pick the mod; the findings come in four groups:
 
-## 11. Suspension analysis (wave icon)
+- **Must fix**: zip name characters, files that replace game files, part names that clash with
+  the game's parts of the same vehicle or of `vehicles/common`, material names that clash with
+  the game's, JBeam syntax errors, textures a material names that exist nowhere.
+- **Before release**: version in the name, `info.json` and preview for new vehicles,
+  configurations without their `info_*.json` or thumbnail, leftover files (notes, logs, sources,
+  backups: left out of the zip).
+- **Smaller download**: the game converts `*.color.png`, `*.normal.png` and `*.data.png` to DDS.
+  A PNG that has its DDS next to it is left out of the zip; when the game already converted it
+  (the DDS is in the user folder's `temp/`), **Use the DDS** copies it next to the PNG. Textures
+  that are not converted, or very large, are pointed out.
+- **Tidy up**: material textures nothing in the mod uses.
+
+Anything can be kept in or left out of the zip with its **leave out** switch; the footer shows
+the size of what gets packed.
+
+## 11. Powertrain (gauge icon)
+
+The powertrain takes the place of the 3D view, with the code editor next to it: every edit selects
+the line it changed. The curves are for the configuration named in the bar.
+
+- **Torque & power** are computed like the game: the base `torque` table, times `torqueModMult`,
+  plus `torqueModIntake` and `torqueModExhaust`, the drop-off past `maxRPM`, the rev limiter,
+  turbocharger, supercharger and nitrous boost, minus friction. The dashed line is the engine
+  without boost, the thin one the base table. The points are the **base torque table** of the
+  engine part: dragging one changes that engine in every configuration that uses it, and the
+  tooltip says which.
+- **Layers**: what shapes the curve, part by part (torque table, multiplier, intake, exhaust,
+  turbo pressure and efficiency, supercharger boost, nitrous), with the number of configurations
+  that use each part. Pick one to edit it. When other configurations use the part, choose first:
+  **Edit for all** (their curves are drawn faintly and follow the change), or **Copy for this
+  configuration only**: the part is copied under a new name, the `.pc` switches to the copy, and
+  you edit the copy (one Ctrl+Z undoes it). **Scale** multiplies the layer (previewed on every
+  curve before you apply it); **Peak of …** finds the scale that gives the configuration a peak
+  torque or power.
+- **Configurations**: every configuration's peak power and torque (live while you edit) and the
+  `Power` / `Torque` its `info_*.json` gives the vehicle selector. **Update info files** writes
+  them as the game does (hp rounded down, Nm rounded up to 5). Click a row to show that
+  configuration.
+- **Engine / Turbocharger / Supercharger / Nitrous**: every value of the section with the part it
+  comes from and how many configurations use that part. Values that other parts change with
+  `$+key`, `$*key`, `$<key` or `$>key` (ECU, internals, intake parts…) show the result and each
+  part's change under it; editing the result writes the base value that gives it. A `$` field is
+  a tuning variable: it changes the configuration. Locked values are expressions or game files.
+- **Gearbox**: each ratio with the top speed it gives (at the limiter, with the final drive and the
+  wheel radius), a chart of every gear, buttons to add or remove a gear, and the final drive.
+
+## 12. Suspension analysis (wave icon)
 
 The suspension is solved from the beams, so it works for any design: camber, toe, caster, KPI,
 scrub radius, trail, roll centre, heave sweeps (camber gain, bump steer, RC migration), steering
 and Ackermann, motion ratios and wheel rates, anti-dive / anti-squat, with live tuning variables.
 
-## 12. Settings
+## 13. Settings
 
 **Settings** (gear icon, Ctrl+,): theme and accent, UI scale, 3D colours and sizes, labels,
 camera, code editor, number precision, backups, naming, folders, Blender, check thresholds,
 suspension model and a full **keymap** editor (F1 lists every shortcut).
 
-## 13. Good to know
+## 14. Good to know
 
 - Nothing is written to disk until you save; closing asks before discarding.
 - Positions written by tools use 3 decimals by default (Settings → Editing).

@@ -207,7 +207,19 @@ class MeshManager {
           // the texture sets under names of our own for the layer shader (liveries). A mesh without a
           // second set gets no layer at all, as in the game (lhas1 = 0)
           if (m.uv) g.setAttribute('luv0', g.getAttribute('uv'));
+          // three's second texture set, for maps the material reads with "UseUV": 1 (tiled carbon…);
+          // the first set stands in when the mesh has only one
+          if (m.uv2 || m.uv) g.setAttribute('uv1', new THREE.BufferAttribute(m.uv2 ?? m.uv!, 2));
           if (m.uv2) g.setAttribute('luv1', new THREE.BufferAttribute(m.uv2, 2));
+          // vertex colours (materials with vertColor tint by them); white when the mesh has none, so
+          // such a material never reads an unset attribute. Stored as sRGB, three wants linear.
+          {
+            const n = m.pos.length;
+            const c = new Float32Array(n).fill(1);
+            if (m.col) for (let i = 0; i < n; i++) c[i] = srgbToLinear(m.col[i]);
+            g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+            g.setAttribute('lcol', g.getAttribute('color'));
+          }
           // explicit 0 / 1 per vertex (a missing attribute would read whatever its slot held last)
           g.setAttribute('lhas1', new THREE.BufferAttribute(new Float32Array(m.pos.length / 3).fill(m.uv2 ? 1 : 0), 1));
           // draw ranges per material (used by the Shaded mode; single-material draws ignore them)
@@ -232,3 +244,7 @@ class MeshManager {
 }
 
 export const meshes = new MeshManager();
+
+function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}

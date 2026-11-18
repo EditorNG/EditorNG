@@ -11,7 +11,7 @@ import { registerJbeam } from './editor/jbeamLang';
 import { App } from './ui/App';
 import { api } from './lib/api';
 import { useSettings, settings } from './state/settings';
-import { useUi, PERSISTED_UI, log, migrateUi } from './state/ui';
+import { useUi, PERSISTED_UI, log, migrateUi, setTabDirtyCheck } from './state/ui';
 import { ws, useWs } from './project/workspace';
 import { useSel } from './state/selection';
 import { toast } from './state/toast';
@@ -19,9 +19,12 @@ import * as ops from './project/ops';
 import { getViewport, getGizmo, getLayers } from './scene/ViewportPanel';
 import { command } from './ui/commands';
 import { meshes, useMeshStatus } from './scene/meshes';
+import * as powertrain from '@core/analysis/powertrain';
+import { resolveTree, buildVehicle } from '@core/jbeam/assemble';
+import { parseConfig } from '@core/jbeam/config';
 import { shading } from './scene/shading';
 import { revealRange, getEditor } from './editor/CodeEditor';
-import { loadRecent, addRecentFiles, restoreSession } from './ui/Tier2';
+import { loadRecent, addRecentFiles, restoreSession, saveSession } from './ui/Tier2';
 import { setOnFilesOpened } from './project/workspace';
 import { updateOnBoot, useUpdate, checkForUpdates, installUpdate } from './state/update';
 import { setKnownProps, parseSpellcheckerLua } from '@core/jbeam/knownProps';
@@ -146,12 +149,18 @@ async function boot() {
   updateOnBoot(env);
   await loadRecent();
   setOnFilesOpened(addRecentFiles);
+  // workspaces: each vehicle comes back as it was left (configuration, parts shown, tabs, camera)
+  ws.onBeforeSwitch = () => saveSession();
+  ws.onOpened = (model, explicitConfig) => restoreSession(model, explicitConfig);
+  setTabDirtyCheck((k) => {
+    const d = ws.doc(k);
+    return !!d && ws.isDirty(d);
+  });
   if (state.lastVehicle && !(window as any).__noRestore && !env.automation && !env.noRestore) {
-    await ws.openVehicle(state.lastVehicle, state.lastConfig ?? undefined);
-    await restoreSession(state.lastVehicle).catch(() => {});
+    await ws.openVehicle(state.lastVehicle);
   }
   // automation hooks (used by scripts/shot.mjs and handy in devtools)
-  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, layers: getLayers, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading, useUpdate, checkForUpdates, installUpdate };
+  window.__app = { ready: true, ws, useWs, useUi, useSel, useSettings, ops, command, viewport: getViewport, layers: getLayers, gizmo: getGizmo, monaco, meshes, useMeshStatus, revealRange, getEditor, shading, useUpdate, checkForUpdates, installUpdate, powertrain, assemble: { resolveTree, buildVehicle, parseConfig } };
 }
 
 boot().catch((e) => {

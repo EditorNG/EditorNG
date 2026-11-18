@@ -49,7 +49,7 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
   'select.grow': 'Ctrl+Numpad+',
   'select.shrink': 'Ctrl+Numpad-',
   'edit.merge': 'M',
-  'view.isolatePart': 'Shift+I',
+  'view.isolatePart': '',
   'view.xray': 'Alt+Z',
   'view.shading': 'Z',
   'mode.nodes': '1',
@@ -110,6 +110,8 @@ export interface Settings {
   selTriggers: boolean;
   selFlex: boolean;
   selProps: boolean;
+  /** lights (spot / point light props, modular bulbs) can be clicked and moved */
+  selLights: boolean;
   showGrid: boolean;
   showAxes: boolean;
   showGround: boolean;
@@ -267,6 +269,7 @@ export const DEFAULT_SETTINGS: Settings = {
   selTriggers: true,
   selFlex: false,
   selProps: false,
+  selLights: true,
   showGrid: true,
   showAxes: true,
   showGround: true,

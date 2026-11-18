@@ -73,8 +73,9 @@ export interface Api {
   vfsRescan(): Promise<void>;
   vehicleCatalog(): Promise<Array<{ model: string; name: string; brand: string; type: string; source: string; game: boolean }>>;
   listBackups(real: string, backupDir?: string): Promise<Array<{ path: string; time: number }>>;
-  scanMod(modDir: string): Promise<{ name: string; files: string[]; total: number; issues: Array<{ sev: 'error' | 'warning' | 'info'; msg: string; file?: string }> }>;
-  packMod(modDir: string, outZip: string): Promise<{ files: number; size: number }>;
+  scanMod(modDir: string): Promise<{ name: string; files: Array<{ rel: string; size: number }>; total: number; exclude: string[]; issues: Array<{ sev: 'error' | 'warning' | 'info'; cat: 'release' | 'before' | 'size' | 'tidy'; msg: string; file?: string; fix?: { kind: 'copyDds'; from: string; to: string } | { kind: 'exclude' }; saves?: number }> }>;
+  modCopyDds(from: string, to: string): Promise<boolean>;
+  packMod(modDir: string, outZip: string, exclude?: string[]): Promise<{ files: number; size: number }>;
 
   readTextFile(real: string): Promise<string>;
   readBinaryFile(real: string): Promise<Uint8Array>;

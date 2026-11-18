@@ -252,9 +252,12 @@ export class Viewport {
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
+      // pulled toward the camera: collision triangles lie on the body mesh, and without this the
+      // mesh wins the depth test farther away (the triangles seemed cut off at a distance).
+      // They write no depth, so beams and nodes are unaffected.
       polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -4,
     });
 
     const ro = new ResizeObserver(() => this.resize());
@@ -566,7 +569,7 @@ export class Viewport {
       this.ortho.zoom = 1;
       this.updateOrthoFrustum();
     }
-    this.persp.near = Math.max(0.005, dist / 500);
+    this.persp.near = Math.max(0.005, dist / 200);
     this.persp.far = Math.max(100, dist * 50);
     this.persp.updateProjectionMatrix();
     this.controls.update();
@@ -1475,7 +1478,7 @@ export class Viewport {
       if ((o as THREE.Mesh).isMesh && o.visible) box.expandByObject(o);
     });
     if (box.isEmpty()) return null;
-    const hide = [this.grid, this.axes, this.overlayRoot, this.extraRoot, this.meshRoot.getObjectByName('props'), this.nodePoints, this.beamLines, this.emphLines, this.triMesh, this.triNormals, this.wheelLines].filter(Boolean) as THREE.Object3D[];
+    const hide = [this.grid, this.axes, this.overlayRoot, this.extraRoot, this.meshRoot.getObjectByName('props'), this.meshRoot.getObjectByName('occupants'), this.nodePoints, this.beamLines, this.emphLines, this.triMesh, this.triNormals, this.wheelLines].filter(Boolean) as THREE.Object3D[];
     const was = hide.map((o) => o.visible);
     const meshWas = this.meshRoot.visible;
     hide.forEach((o) => (o.visible = false));

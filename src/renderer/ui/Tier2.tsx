@@ -184,26 +184,49 @@ interface Session {
   tabs?: string[];
   activeTab?: string | null;
   camera?: { pos: number[]; target: number[]; ortho: boolean };
+  /** the configuration as it was: the .pc, and slot / variable choices not saved to it */
+  config?: string;
+  overrides?: { parts: Record<string, string>; vars: Record<string, number> };
+  target?: { doc: string; part: string } | null;
+  /** when it was last used (Open recent) */
+  at?: number;
 }
 
 /** Saves scope, open tabs and camera of the open vehicle (debounced by the caller). */
 export async function saveSession() {
+  // a vehicle being opened is not in the state the user left it yet
+  if (ws.opening) return;
   const model = ws.model;
   const vp = getViewport();
   if (!model || !vp) return;
   const ui = useUi.getState();
-  const s: Session = { scope: useSel.getState().scope, tabs: ui.tabs, activeTab: ui.activeTab, camera: vp.getCameraState() };
+  const st = useWs.getState();
+  const s: Session = {
+    scope: useSel.getState().scope, tabs: ui.tabs.filter((t) => t !== ui.previewTab || t === ui.activeTab), activeTab: ui.activeTab, camera: vp.getCameraState(),
+    config: st.activeConfig, overrides: JSON.parse(JSON.stringify(ws.configOverride)), target: st.target, at: Date.now(),
+  };
   const cur = await api.stateLoad();
   await api.stateSave({ ...cur, sessions: { ...(cur.sessions ?? {}), [model.toLowerCase()]: s } });
 }
 
 /** Restores what saveSession stored for this vehicle (after it was opened). */
-export async function restoreSession(model: string) {
+export async function restoreSession(model: string, explicitConfig = false) {
   const cur = await api.stateLoad();
   const s: Session | undefined = cur.sessions?.[model.toLowerCase()];
   if (!s) return;
+  // the configuration first (it changes what is assembled), unless one was asked for explicitly
+  if (!explicitConfig && (s.config !== undefined || s.overrides)) {
+    if (s.config !== undefined && (s.config === '' || ws.doc(s.config))) ws.setActiveConfig(s.config);
+    const ov = s.overrides;
+    if (ov && (Object.keys(ov.parts ?? {}).length || Object.keys(ov.vars ?? {}).length)) {
+      for (const [slot, part] of Object.entries(ov.parts ?? {})) ws.configOverride.parts[slot] = part;
+      for (const [k, v] of Object.entries(ov.vars ?? {})) ws.configOverride.vars[k] = v;
+      ws.assemble();
+    }
+  }
+  if (s.target && ws.doc(s.target.doc)) ws.setTarget(s.target.doc, s.target.part);
   const tabs = (s.tabs ?? []).filter((t) => ws.doc(t));
-  if (tabs.length) useUi.setState({ tabs, activeTab: s.activeTab && tabs.includes(s.activeTab) ? s.activeTab : tabs[0] });
+  if (tabs.length) useUi.setState({ tabs, previewTab: null, activeTab: s.activeTab && tabs.includes(s.activeTab) ? s.activeTab : tabs[0] });
   const v = ws.vehicle;
   const sc = s.scope;
   if (v && sc) {
@@ -370,90 +393,4 @@ export function DiffDialog({ close, data }: { close: () => void; data: { doc: st
 // pack a mod with a pre-release check (5.12)
 // ------------------------------------------------------------------------------------------
 
-type Scan = Awaited<ReturnType<typeof api.scanMod>>;
 
-export function PackModDialog({ close }: { close: () => void }) {
-  const [dir, setDir] = useState<string>(() => guessModDir() ?? '');
-  const [scan, setScan] = useState<Scan | null>(null);
-  const [busy, setBusy] = useState(false);
-  const run = async (d = dir) => {
-    if (!d) return;
-    setBusy(true);
-    try {
-      setScan(await api.scanMod(d));
-    } catch (e: any) {
-      toast('error', String(e?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  useEffect(() => {
-    if (dir) run(dir);
-  }, []);
-  const errors = scan?.issues.filter((i) => i.sev === 'error').length ?? 0;
-  const icon = { error: <AlertCircle size={13} className="err-text" />, warning: <AlertTriangle size={13} className="warn-text" />, info: <Info size={13} className="info-text" /> };
-  return (
-    <Modal title="Pack mod" onClose={close} width={720} footer={<>
-      <button className="btn" onClick={close}>Close</button>
-      <button className="btn primary" disabled={!scan || busy} onClick={async () => {
-        if (!scan) return;
-        if (useWs.getState().dirtyCount > 0) await ws.saveAll();
-        const out = await api.saveDialog({ title: 'Save mod zip', defaultPath: dir.replace(/[\\/]mods[\\/]unpacked[\\/][^\\/]+$/i, '') + '\\' + scan.name + '.zip', filters: [{ name: 'Zip', extensions: ['zip'] }] });
-        if (!out) return;
-        setBusy(true);
-        try {
-          const r = await api.packMod(dir, out);
-          toast('ok', `Packed ${r.files} files (${(r.size / 1048576).toFixed(1)} MB) → ${out.split(/[\\/]/).pop()}`);
-          api.reveal(out);
-        } finally {
-          setBusy(false);
-        }
-      }}><Package size={13} /> {errors ? `Pack anyway (${errors} errors)` : 'Pack zip…'}</button>
-    </>}>
-      <div className="row" style={{ gap: 6, marginBottom: 10 }}>
-        <input className="input grow mono" value={dir} placeholder="mods/unpacked/<your mod>" onChange={(e) => setDir(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') run(); }} />
-        <button className="btn" onClick={async () => {
-          const p = await api.pickFolder('Mod folder (mods/unpacked/<mod>)', dir || settings().userDir || undefined);
-          if (p) {
-            setDir(p);
-            run(p);
-          }
-        }}><FolderOpen size={13} /> Browse</button>
-        <button className="btn" disabled={!dir || busy} onClick={() => run()}>Check</button>
-      </div>
-      {busy && <div className="faint">Checking… (the first run indexes the game's part names)</div>}
-      {scan && !busy && (
-        <>
-          <div className="dim" style={{ marginBottom: 6 }}>
-            <b className="mono">{scan.name}</b> · {scan.files.length} files · {(scan.total / 1048576).toFixed(1)} MB ·{' '}
-            {scan.issues.length ? `${errors} errors, ${scan.issues.length - errors} notes` : 'nothing to fix, ready to pack'}
-          </div>
-          <div className="list-scroll pack-list">
-            {scan.issues.map((i, k) => (
-              <div key={k} className="problem" onContextMenu={(e) => {
-                e.preventDefault();
-                openMenu(e.clientX, e.clientY, [{ label: 'Copy', run: () => navigator.clipboard.writeText(`${i.file ?? ''} ${i.msg}`) }]);
-              }}>
-                {icon[i.sev]}
-                <span className="grow">{i.msg}</span>
-                {i.file && <span className="faint mono small-text ellipsis" style={{ maxWidth: 300 }}>{i.file}</span>}
-              </div>
-            ))}
-          </div>
-          <div className="faint small-text" style={{ marginTop: 8 }}>Rules from the game's NOTE_FOR_MODDERS.md: unique names, no overridden game files, no leftover files, texture naming, info file and preview.</div>
-        </>
-      )}
-    </Modal>
-  );
-}
-
-/** mods/unpacked/<mod> of the open vehicle, when it lives there */
-function guessModDir(): string | null {
-  for (const d of ws.docs.values()) {
-    const r = d.ref.real;
-    if (!r || d.isCommon) continue;
-    const m = /^(.*[\\/]mods[\\/]unpacked[\\/][^\\/]+)[\\/]/i.exec(r);
-    if (m) return m[1];
-  }
-  return null;
-}

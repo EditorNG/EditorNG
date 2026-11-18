@@ -56,6 +56,9 @@ type Modal = {
   last?: { x: number; y: number };
   /** trigger transform (G/R/S with triggers selected) */
   trig?: TriggerPlacement[];
+  /** light move (G with lights selected): start positions and the previewed ones */
+  lights?: Map<number, THREE.Vector3>;
+  lightPos?: Map<number, THREE.Vector3>;
   trigVals?: Map<number, Record<string, any>>;
   start: { x: number; y: number };
   centroid: THREE.Vector3;
@@ -91,6 +94,8 @@ export function ViewportPanel() {
   const [box, setBox] = useState<null | { x0: number; y0: number; x1: number; y1: number }>(null);
   const [modal, setModal] = useState<Modal | null>(null);
   const modalRef = useRef<Modal | null>(null);
+  /** what Shift+H showed before it isolated a part (restored by the second Shift+H) */
+  const isolatedFrom = useRef<ReturnType<typeof useSel.getState>['scope'] | null>(null);
   const [nameInput, setNameInput] = useState<null | { x: number; y: number; value: string; node?: string; create?: [number, number, number]; queue?: string[] }>(null);
   const [chain, setChain] = useState<string[]>([]);
   const mouse = useRef({ x: 0, y: 0, inside: false });
@@ -156,6 +161,10 @@ export function ViewportPanel() {
     }
     vpInstance.setHidden(h);
   }, [hidden, vehicle, scope]);
+  const hiddenMeshes = useSel((x) => x.hiddenMeshes);
+  useEffect(() => {
+    layersInstance?.setHiddenMeshes(hiddenMeshes);
+  }, [hiddenMeshes, vehicle]);
 
   // view scope: rebuild the visible set when the scope changes (frame it), or silently after re-assembly
   const lastScope = useRef<string>('');
@@ -196,6 +205,11 @@ export function ViewportPanel() {
     // creation tools only care about nodes / structure
     if (useUi.getState().tool !== 'select') return vp.pick(x, y, mode);
     const s = settings();
+    // lights first: their click target is small and usually sits among nodes
+    if (s.selLights && mode === 'all') {
+      const lh = layersInstance?.pick(x, y, { trigger: false, flex: false, prop: false, light: true });
+      if (lh) return lh;
+    }
     const hit = vp.pick(x, y, mode, undefined, { node: s.selNodes, beam: s.selBeams, tri: s.selTris });
     if (hit) return hit;
     if (mode !== 'all' || !(s.selTriggers || s.selFlex || s.selProps)) return null;
@@ -210,6 +224,14 @@ export function ViewportPanel() {
         : hit.kind === 'flex' ? v.flexbodies[hit.idx]?.row : hit.kind === 'prop' ? v.props[hit.idx]?.row : hit.kind === 'wheel' ? v.wheels[hit.idx]?.row
         : v.triggers[hit.idx];
     if (!row) return;
+    // a modular bulb lives in a common file: show the slot row that places it instead
+    if (hit.kind === 'prop' && ops.isLightProp(v, hit.idx)) {
+      const sn = v.props[hit.idx].row.part.slot;
+      if (sn?.def.row && sn.def.variables && '$posX' in sn.def.variables) {
+        revealRange(sn.owner.def.file, sn.def.row.s, sn.def.row.e);
+        return;
+      }
+    }
     revealRange(row.src.file, row.src.node.s, row.src.node.e);
     const d = ws.doc(row.src.file);
     if (d?.writable && !d.isCommon) ws.setTarget(d.key, row.src.part);
@@ -332,7 +354,7 @@ export function ViewportPanel() {
         'sep',
         { label: 'Show in code', run: () => revealRange(row.src.file, row.src.node.s, row.src.node.e, true) },
         { label: `Write new elements into ${row.part.def.name}`, disabled: d?.writable && !d.isCommon ? false : 'This file is read-only: make an editable copy first', run: () => ws.setTarget(row.src.file, row.part.def.name) },
-        { label: 'Show only this part', key: 'Shift+I', run: () => ws.focusPart(row.part.def.name) },
+        { label: 'Show only this part', run: () => ws.focusPart(row.part.def.name) },
       ];
     };
     const deleteEntry: MenuEntry[] = ['sep', { label: 'Delete', key: 'X', danger: true, run: () => deleteWithCheck() }];
@@ -502,7 +524,7 @@ export function ViewportPanel() {
         ] },
         { label: 'Scope', submenu: [
           { label: 'Whole vehicle', checked: st.scope.mode === 'vehicle', run: () => ws.setScope({ mode: 'vehicle' }) },
-          { label: 'Part of the selection', key: 'Shift+I', disabled: nodeIdx.length ? false : 'Nothing selected', run: toggleIsolate },
+          { label: 'Part of the selection', disabled: nodeIdx.length ? false : 'Nothing selected', run: toggleIsolate },
         ] },
         'sep',
         { label: 'Select all', key: 'A', run: () => {
@@ -554,9 +576,28 @@ export function ViewportPanel() {
     if (!vp || !v) return;
     const idx = selectionNodeIdx();
     if (!idx.length) {
-      const st = resolveSel(v, useSel.getState().sel).triggers;
+      const rs = resolveSel(v, useSel.getState().sel);
+      const st = rs.triggers;
       if (st.size) return startTriggerModal(type, st);
-      toast('info', 'Select nodes or triggers first');
+      const lights = [...rs.props].filter((i) => ops.isLightProp(v, i));
+      if (lights.length) {
+        if (type !== 'move') {
+          toast('info', 'Lights move with G. Turn them with the Lights tool (Create & place).');
+          return;
+        }
+        const init = new Map<number, THREE.Vector3>();
+        for (const i of lights) {
+          const o = layersInstance?.lightOrigin(i);
+          if (o) init.set(i, o);
+        }
+        if (!init.size) return;
+        const c = new THREE.Vector3();
+        for (const p of init.values()) c.add(p);
+        c.divideScalar(init.size);
+        setModal({ type, start: { ...mouse.current }, centroid: c, cScreen: vp.project(c.x, c.y, c.z), initial: new Map(), axis: null, numeric: '', current: new Map(), shown: new Map(), info: '', ref: -1, lights: init });
+        return;
+      }
+      toast('info', 'Select nodes, triggers or lights first');
       return;
     }
     const initial = new Map<number, [number, number, number]>();
@@ -753,6 +794,10 @@ export function ViewportPanel() {
       }
       for (const [i, p] of m.initial) out.set(i, [p[0] + d.x, p[1] + d.y, p[2] + d.z]);
       if (m.trig) applyToTriggers(m, { d });
+      if (m.lights) {
+        m.lightPos = new Map([...m.lights].map(([i, p]) => [i, p.clone().add(d)]));
+        layersInstance?.previewLights(m.lightPos);
+      }
       info = `Move  Δ ${d.x.toFixed(4)}, ${d.y.toFixed(4)}, ${d.z.toFixed(4)}  (${d.length().toFixed(4)} m)`;
     } else if (m.type === 'scale') {
       const d0 = Math.hypot(m.start.x - m.cScreen.x, m.start.y - m.cScreen.y) || 1;
@@ -789,6 +834,7 @@ export function ViewportPanel() {
       if (m.trig) applyToTriggers(m, { q });
       info = `Rotate  ${((ang * 180) / Math.PI).toFixed(2)}°`;
     }
+    if (m.lights) info = `${m.lights.size === 1 ? 'Light' : m.lights.size + ' lights'}  ·  ` + info;
     if (m.trig) info = `${m.trig.length === 1 ? m.trig[0].name.split(' · ')[0] : m.trig.length + ' triggers'}  ·  ` + info;
     if (m.axis) info += m.trig && m.type === 'scale' ? `   local ${m.axis.toUpperCase()}` : `   along ${m.axis.toUpperCase()}`;
     if (m.numeric) info += `   [${m.numeric}]`;
@@ -818,6 +864,12 @@ export function ViewportPanel() {
       if (vals?.size) ops.setTriggerValues(vals, m.type === 'move' ? 'Move trigger' : m.type === 'scale' ? 'Resize trigger' : 'Rotate trigger');
       return;
     }
+    if (m.lights) {
+      const lp = m.lightPos;
+      layersInstance?.previewLights(null);
+      if (lp?.size) ops.setLightPositions(new Map([...lp].map(([i, p]) => [i, p.toArray() as [number, number, number]])), lp.size > 1 ? 'Move lights' : 'Move light');
+      return;
+    }
     let changed = false;
     for (const [i, p] of m.current) {
       const q = m.initial.get(i)!;
@@ -838,6 +890,7 @@ export function ViewportPanel() {
 
   const cancelModal = () => {
     if (modalRef.current?.trig) layersInstance?.previewTriggers(null);
+    if (modalRef.current?.lights) layersInstance?.previewLights(null);
     setModal(null);
     if (vpInstance) vpInstance.extraLabels = [];
     vpInstance?.resetPositions();
@@ -873,6 +926,19 @@ export function ViewportPanel() {
         return g.show(gizmoMode, c, orient);
       }
     }
+    const lightIdx = [...si.props].filter((i) => ops.isLightProp(v, i));
+    if (lightIdx.length) {
+      const c = new THREE.Vector3();
+      let n = 0;
+      for (const i of lightIdx) {
+        const o = layersInstance?.lightOrigin(i);
+        if (o) {
+          c.add(o);
+          n++;
+        }
+      }
+      if (n) return g.show('translate', c.divideScalar(n), null);
+    }
     g.hide();
   }, [sel, vehicle, gizmoMode, modal, s.showTriggers]);
 
@@ -888,9 +954,18 @@ export function ViewportPanel() {
       const initial = new Map<number, [number, number, number]>();
       for (const i of idx) initial.set(i, [vp.pos[i * 3], vp.pos[i * 3 + 1], vp.pos[i * 3 + 2]]);
       const trig = idx.length ? undefined : placeTriggers(v, vp.pos).filter((t) => si.triggers.has(t.idx));
+      let lights: Map<number, THREE.Vector3> | undefined;
+      if (!idx.length && !trig?.length) {
+        lights = new Map();
+        for (const i of si.props) {
+          const o = ops.isLightProp(v, i) ? layersInstance?.lightOrigin(i) : null;
+          if (o) lights.set(i, o);
+        }
+        if (!lights.size) lights = undefined;
+      }
       gDrag.current = {
         type: g.tc.mode === 'translate' ? 'move' : g.tc.mode === 'rotate' ? 'rotate' : 'scale', start: { x: 0, y: 0 }, centroid: g.proxy.position.clone(), cScreen: { x: 0, y: 0 },
-        initial, axis: null, numeric: '', current: new Map(initial), shown: new Map(initial), info: '', ref: -1, trig,
+        initial, axis: null, numeric: '', current: new Map(initial), shown: new Map(initial), info: '', ref: -1, trig: trig?.length ? trig : undefined, lights,
       };
     };
     g.onDrag = (dl: GizmoDelta) => {
@@ -901,6 +976,12 @@ export function ViewportPanel() {
       const mode = g.tc.mode;
       if (m.trig) {
         applyToTriggers(m, mode === 'translate' ? { d: dl.d } : mode === 'rotate' ? { q: dl.q } : { f: dl.f });
+        return;
+      }
+      if (m.lights) {
+        if (mode !== 'translate') return;
+        m.lightPos = new Map([...m.lights].map(([i, p]) => [i, p.clone().add(dl.d)]));
+        layersInstance?.previewLights(m.lightPos);
         return;
       }
       const out = new Map<number, [number, number, number]>();
@@ -925,6 +1006,12 @@ export function ViewportPanel() {
         const vals = m.trigVals;
         layersInstance?.previewTriggers(null);
         if (vals?.size) ops.setTriggerValues(vals, 'Transform trigger');
+        return;
+      }
+      if (m.lights) {
+        const lp = m.lightPos;
+        layersInstance?.previewLights(null);
+        if (lp?.size) ops.setLightPositions(new Map([...lp].map(([i, p]) => [i, p.toArray() as [number, number, number]])));
         return;
       }
       let changed = false;
@@ -1294,15 +1381,17 @@ export function ViewportPanel() {
       if (matches('view.toggleLabels', e)) return run(() => useSettings.getState().set({ showLabels: settings().showLabels === 'all' ? 'hover' : 'all' }));
       if (matches('view.toggleMeshes', e)) return run(() => useSettings.getState().set({ showMeshes: !settings().showMeshes }));
       if (matches('view.unhide', e)) return run(() => ops.hideNodes(null));
-      if (matches('view.hide', e)) return run(() => ops.hideNodes(selectionNodeIdx().map((i) => v.nodes[i].name)));
-      if (matches('view.hideOthers', e)) return run(() => {
-        const keep = new Set(selectionNodeIdx());
-        if (!keep.size) return;
-        ops.hideNodes(v.nodes.map((n, i) => (keep.has(i) || vp.nodeVis[i] === 0 ? '' : n.name)).filter(Boolean));
-        const s2 = emptySel();
-        for (const i of keep) s2.nodes.add(v.nodes[i].name);
-        setSel(s2);
+      if (matches('view.hide', e)) return run(() => {
+        // selected meshes go with their structure; selected nodes on their own
+        const si = resolveSel(v, useSel.getState().sel);
+        const nodes = selectionNodeIdx().map((i) => v.nodes[i].name);
+        ws.group('Hide', () => {
+          if (si.flex.size || si.props.size) ops.hideMeshes(si.flex, si.props);
+          if (nodes.length) ops.hideNodes(nodes);
+        });
       });
+      // show only the part of what is selected (or the part being worked on); again: back
+      if (matches('view.hideOthers', e)) return run(() => toggleIsolate());
       if (matches('select.grow', e)) return run(() => ops.growSelection(true, (i) => vp.nodeVis[i] > 0));
       if (matches('select.shrink', e)) return run(() => ops.growSelection(false, (i) => vp.nodeVis[i] > 0));
       if (matches('select.invert', e)) return run(() => {
@@ -1389,16 +1478,37 @@ export function ViewportPanel() {
   const toggleIsolate = () => {
     const v = ws.vehicle;
     if (!v) return;
-    const sc = useSel.getState().scope;
-    if (sc.mode === 'part') return useSel.setState({ scope: { mode: 'file', file: sc.file } });
+    const before = useSel.getState().scope;
+    const recordScope = (label: string) => {
+      const after = useSel.getState().scope;
+      if (after !== before) ws.pushView(label, () => useSel.setState({ scope: before }), () => useSel.setState({ scope: after }));
+    };
     const t = useWs.getState().target;
     const act = useSel.getState().active;
     let part: string | null = null;
     if (act?.kind === 'node') part = v.nodes[act.idx]?.row.part.def.name ?? null;
     else if (act?.kind === 'beam') part = v.beams[act.idx]?.row.part.def.name ?? null;
     else if (act?.kind === 'tri') part = v.tris[act.idx]?.row.part.def.name ?? null;
+    if (!part) {
+      // anything selected: its part (nodes, beams, triangles, meshes)
+      const si = resolveSel(v, useSel.getState().sel);
+      const first = <T,>(s: Set<T>) => s.values().next().value as T | undefined;
+      const n = first(si.nodes), b = first(si.beams), tr = first(si.tris), f = first(si.flex), p = first(si.props);
+      part = (n !== undefined ? v.nodes[n] : b !== undefined ? v.beams[b] : tr !== undefined ? v.tris[tr] : f !== undefined ? v.flexbodies[f] : p !== undefined ? v.props[p] : null)?.row.part.def.name ?? null;
+    }
+    // already showing that part (or nothing new to show): back to what was shown before
+    if (before.mode === 'part' && (!part || part === before.part)) {
+      const prev = isolatedFrom.current;
+      isolatedFrom.current = null;
+      useSel.setState({ scope: prev && prev.mode !== 'part' ? prev : { mode: 'vehicle' } });
+      recordScope('Show all parts');
+      return;
+    }
     if (!part && t) part = t.part;
-    if (part) ws.focusPart(part);
+    if (!part) return;
+    if (before.mode !== 'part') isolatedFrom.current = before;
+    ws.focusPart(part);
+    recordScope(`Show only ${part}`);
   };
 
   const selectLinked = () => {

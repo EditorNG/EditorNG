@@ -13,7 +13,8 @@ import type { BlenderExtract } from '@shared/ipc';
 import type { AArr } from '@core/sjson';
 import { MirrorPartDialog } from './MirrorPart';
 import { GameLinkDialog } from './GameLink';
-import { DeleteRefsDialog, DiffDialog, PackModDialog } from './Tier2';
+import { DeleteRefsDialog, DiffDialog } from './Tier2';
+import { PackModDialog } from './PackMod';
 import { MergeDialog } from './MergeDialog';
 import { NewPartDialog, FlexbodyDialog } from './AddDialogs';
 import { NewModDialog } from './NewMod';
@@ -567,7 +568,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'edit.mirror': 'Mirror to other side', 'edit.duplicate': 'Duplicate & move', 'edit.undo': 'Undo', 'edit.redo': 'Redo', 'edit.redoAlt': 'Redo (alt)',
   'view.frame': 'Frame selection', 'view.frameSelected': 'Frame selection (numpad)', 'view.frameAll': 'Frame all', 'view.front': 'Front view', 'view.back': 'Back view', 'view.side': 'Right view',
   'view.sideOther': 'Left view', 'view.top': 'Top view', 'view.bottom': 'Bottom view', 'view.ortho': 'Toggle ortho', 'view.toggleLabels': 'Toggle all labels',
-  'view.toggleMeshes': 'Toggle flexbodies', 'view.isolatePart': 'Isolate part', 'view.xray': 'X-ray',
+  'view.toggleMeshes': 'Toggle flexbodies', 'view.isolatePart': 'Isolate part (Shift+H with nothing selected)', 'view.xray': 'X-ray',
   'mode.nodes': 'Pick nodes only', 'mode.beams': 'Pick beams only', 'mode.tris': 'Pick triangles only',
   'app.newMod': 'New mod', 'app.save': 'Save file', 'app.saveAll': 'Save all', 'app.palette': 'Command palette', 'app.quickOpen': 'Go to file', 'app.gotoNode': 'Go to node', 'app.settings': 'Settings',
   'app.toggleEditor': 'Toggle code editor', 'app.toggleBottom': 'Toggle bottom panel', 'app.reload': 'Reload from disk',

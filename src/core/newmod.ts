@@ -493,6 +493,12 @@ ${q(o.name)}: {
  * information.name and information.authors.
  */
 export function copyPartText(fileText: string, def: PartDef, o: NewPartOptions): string {
+  const eol = /\r\n/.test(fileText) ? '\r\n' : '\n';
+  return `{${eol}${copyPartBody(fileText, def, o)},${eol}}${eol}`;
+}
+
+/** The copied part alone ("name": {…}), to go into an existing file. */
+export function copyPartBody(fileText: string, def: PartDef, o: NewPartOptions): string {
   const s = def.key.s;
   const e = def.node.e;
   const edits: Array<{ s: number; e: number; text: string }> = [{ s: def.key.s, e: def.key.e, text: q(o.name) }];
@@ -505,6 +511,5 @@ export function copyPartText(fileText: string, def: PartDef, o: NewPartOptions):
   }
   let body = fileText.slice(s, e);
   for (const ed of edits.sort((a, b) => b.s - a.s)) body = body.slice(0, ed.s - s) + ed.text + body.slice(ed.e - s);
-  const eol = /\r\n/.test(fileText) ? '\r\n' : '\n';
-  return `{${eol}${body},${eol}}${eol}`;
+  return body;
 }

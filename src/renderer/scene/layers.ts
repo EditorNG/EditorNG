@@ -7,13 +7,14 @@ import { shading } from './shading';
 import { ws } from '../project/workspace';
 import type { Vehicle, Row } from '@core/jbeam/types';
 import type { Settings } from '../state/settings';
-import type { Hover, SelIdx } from '../state/selection';
+import { rowKey, type Hover, type SelIdx } from '../state/selection';
 import { meshes } from './meshes';
 import { bulbDirection } from '@core/jbeam/generators';
 import { placeTriggers } from '@core/jbeam/triggers';
 import { isOccupant } from '@core/jbeam/assemble';
 import { partColor, type Viewport } from './viewport';
 import { toJs } from '@core/sjson';
+import { quatFromEulerBng } from '@core/jbeam/nodeTransform';
 
 // flexbody picking: a bounding volume tree per geometry (built the first time a ray reaches it) turns
 // per-triangle raycasts over whole bodies into a few box tests
@@ -104,6 +105,16 @@ export interface PropPlacement {
   isLight: boolean;
 }
 
+/**
+ * Props whose mesh is placed by its pivot (geometry relative to the DAE node, scale kept):
+ * baseTranslationGlobal, or baseTranslation from the ref node (generic meshes modelled at the
+ * origin: common steering wheels, racing pedals). Without either, the mesh keeps its DAE placement.
+ */
+export function pivotProp(p: { globalPos: unknown; row: { v: Record<string, any> } }): boolean {
+  const bt = p.row.v.baseTranslation;
+  return !!p.globalPos || (!!bt && typeof bt === 'object');
+}
+
 export function propPlacements(v: Vehicle, pos: Float32Array): PropPlacement[] {
   const out: PropPlacement[] = [];
   v.props.forEach((p, idx) => {
@@ -121,7 +132,7 @@ export function propPlacements(v: Vehicle, pos: Float32Array): PropPlacement[] {
       return;
     }
     offset = new THREE.Vector3().addScaledVector(axes.X, bt.x).addScaledVector(axes.Y, bt.y).addScaledVector(axes.Z, bt.z);
-    out.push({ idx, origin: isLight ? ref.clone().add(offset) : offset, axes, offset, isLight });
+    out.push({ idx, origin: isLight || pivotProp(p) ? ref.clone().add(offset) : offset, axes, offset, isLight });
   });
   return out;
 }
@@ -129,6 +140,8 @@ export function propPlacements(v: Vehicle, pos: Float32Array): PropPlacement[] {
 export class Layers {
   private flexGroup = new THREE.Group();
   private propGroup = new THREE.Group();
+  /** occupant props: shown by the Occupants switch, not Props & lights */
+  private occGroup = new THREE.Group();
   private trigGroup = new THREE.Group();
   private bulbGroup = new THREE.Group();
   private flexMats = new Map<string, THREE.MeshLambertMaterial>();
@@ -147,6 +160,14 @@ export class Layers {
     return !this.scope || this.scope.has(part);
   }
 
+  /** row keys of meshes hidden with H */
+  private hiddenMeshes = new Set<string>();
+
+  setHiddenMeshes(h: Set<string>) {
+    this.hiddenMeshes = h;
+    this.buildMeshes();
+  }
+
   setScope(scope: Set<string> | null) {
     this.scope = scope;
     this.buildMeshes();
@@ -160,7 +181,8 @@ export class Layers {
     shading.onChange = () => vp.requestRender();
     this.flexGroup.name = 'flexbodies';
     this.propGroup.name = 'props';
-    vp.meshRoot.add(this.flexGroup, this.propGroup);
+    this.occGroup.name = 'occupants';
+    vp.meshRoot.add(this.flexGroup, this.propGroup, this.occGroup);
     vp.extraRoot.add(this.trigGroup, this.bulbGroup);
     this.selMat = new THREE.MeshLambertMaterial({ color: s.colorSelect, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
     this.hlMat = new THREE.MeshLambertMaterial({ color: s.colorHighlight, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
@@ -253,7 +275,7 @@ export class Layers {
   }
 
   private clear(group: THREE.Group, list: THREE.Object3D[]) {
-    for (const o of list) group.remove(o);
+    for (const o of list) (o.parent ?? group).remove(o);
     list.length = 0;
   }
 
@@ -282,8 +304,8 @@ export class Layers {
     }
     shading.setVehicleContext(vehicleSkins(v), glowOffMaterials(v));
     const meshProps = v.props.filter((p) => p.mesh !== 'SPOTLIGHT' && p.mesh !== 'POINTLIGHT');
-    const names = [...v.flexbodies.map((f) => f.mesh), ...meshProps.filter((p) => !p.globalPos).map((p) => p.mesh)];
-    const localNames = meshProps.filter((p) => p.globalPos).map((p) => p.mesh);
+    const names = [...v.flexbodies.map((f) => f.mesh), ...meshProps.filter((p) => !pivotProp(p)).map((p) => p.mesh)];
+    const localNames = meshProps.filter(pivotProp).map((p) => p.mesh);
     // build immediately with what is cached, then again once loaded
     this.buildMeshes();
     if (this.s.showMeshes) {
@@ -303,7 +325,7 @@ export class Layers {
     const grey = new THREE.Color(0x9aa1ab);
     v.flexbodies.forEach((f, i) => {
       const g = meshes.get(f.mesh);
-      if (!g || !this.inScope(f.row.part.def.name) || (f.occupant && !this.s.showOccupants)) {
+      if (!g || !this.inScope(f.row.part.def.name) || (f.occupant && !this.s.showOccupants) || this.hiddenMeshes.has(rowKey(f.row.src.file, f.row.src.node.s))) {
         this.flexObjs.push(new THREE.Object3D());
         return;
       }
@@ -320,7 +342,7 @@ export class Layers {
         holder.add(w);
       }
       if (f.pos) holder.position.set(f.pos[0], f.pos[1], f.pos[2]);
-      if (f.rot) holder.rotation.set(f.rot[0] * DEG, f.rot[1] * DEG, f.rot[2] * DEG, 'ZXY');
+      if (f.rot) holder.quaternion.copy(flexbodyQuaternion(f.rot));
       if (f.scale) holder.scale.set(f.scale[0] || 1, f.scale[1] || 1, f.scale[2] || 1);
       holder.userData = { kind: 'flex', idx: i };
       holder.renderOrder = 0;
@@ -331,7 +353,7 @@ export class Layers {
     const byIdx = new Map(places.map((p) => [p.idx, p]));
     v.props.forEach((p, i) => {
       const pl = byIdx.get(i);
-      if (!pl || !this.inScope(p.row.part.def.name) || (!this.s.showOccupants && isOccupant(p.row.part))) {
+      if (!pl || !this.inScope(p.row.part.def.name) || (!this.s.showOccupants && isOccupant(p.row.part)) || this.hiddenMeshes.has(rowKey(p.row.src.file, p.row.src.node.s))) {
         this.propObjs.push(new THREE.Object3D());
         return;
       }
@@ -341,7 +363,7 @@ export class Layers {
         obj.position.copy(pl.origin);
         obj.quaternion.copy(propQuaternion(pl, p.row.v));
       } else {
-        const g = meshes.get(p.mesh, !!p.globalPos);
+        const g = meshes.get(p.mesh, pivotProp(p));
         if (!g) {
           this.propObjs.push(new THREE.Object3D());
           return;
@@ -359,13 +381,18 @@ export class Layers {
           // applied again; a global rotation is turned by it (BeamNG rotates by the conjugate).
           obj.quaternion.copy(propQuaternion(pl, p.row.v));
           if (p.xfRot && p.row.v.baseRotationGlobal) obj.quaternion.premultiply(new THREE.Quaternion(-p.xfRot.x, -p.xfRot.y, -p.xfRot.z, p.xfRot.w));
+        } else if (pivotProp(p)) {
+          // pivot at the ref node + baseTranslation (in the node frame), turned like the prop
+          obj.position.copy(pl.origin);
+          obj.quaternion.copy(propQuaternion(pl, p.row.v));
         } else {
           obj.position.copy(pl.offset);
         }
       }
-      obj.userData = { kind: 'prop', idx: i };
-      obj.traverse((o) => (o.userData = { kind: 'prop', idx: i }));
-      this.propGroup.add(obj);
+      const isLightObj = !!obj.userData.light;
+      obj.traverse((o) => (o.userData = { ...(o.userData.base ? { base: o.userData.base } : {}), kind: 'prop', idx: i }));
+      if (isLightObj) obj.userData.light = true;
+      (isOccupant(p.row.part) ? this.occGroup : this.propGroup).add(obj);
       this.propObjs.push(obj);
     });
     this.applySelection(null, null, null);
@@ -477,6 +504,17 @@ export class Layers {
       else mesh.material = mesh.userData.baseMat ?? this.flexMats.get(key) ?? mesh.material;
     });
     this.propObjs.forEach((o, i) => {
+      if (o.userData.light) {
+        const on = sel?.props.has(i) || hl?.props.has(i) || (hover?.kind === 'prop' && hover.idx === i);
+        o.scale.setScalar(on ? 1.8 : 1);
+        const b = o.getObjectByName('bulb') as THREE.Mesh | undefined;
+        if (b) {
+          const m = b.material as THREE.MeshBasicMaterial;
+          if (!b.userData.base) b.userData.base = m.color.clone();
+          m.color.copy(sel?.props.has(i) ? this.selMat.color : b.userData.base);
+        }
+        return;
+      }
       if (!(o instanceof THREE.Mesh)) return;
       if (sel?.props.has(i) || (hover?.kind === 'prop' && hover.idx === i)) o.material = this.selMat;
       else if (hl?.props.has(i)) o.material = this.hlMat;
@@ -503,6 +541,7 @@ export class Layers {
     rc.ray.copy(this.vp.ray(px, py));
     const targets: THREE.Object3D[] = [this.flexGroup];
     if (this.s.showProps) targets.push(this.propGroup);
+    targets.push(this.occGroup);
     const hits = rc.intersectObjects(targets, true);
     for (const h of hits) {
       const mesh = h.object as THREE.Mesh;
@@ -524,13 +563,14 @@ export class Layers {
   }
 
   /** Ray pick against meshes, props and triggers. */
-  pick(px: number, py: number, allow: { trigger?: boolean; flex?: boolean; prop?: boolean } = {}): Hover | null {
+  pick(px: number, py: number, allow: { trigger?: boolean; flex?: boolean; prop?: boolean; light?: boolean } = {}): Hover | null {
     const rc = new THREE.Raycaster();
     rc.ray.copy(this.vp.ray(px, py));
     const targets: THREE.Object3D[] = [];
     if (this.s.showTriggers && allow.trigger !== false) targets.push(this.trigGroup);
     if (this.s.showMeshes) {
-      if (this.s.showProps && allow.prop !== false) targets.push(this.propGroup);
+      if (this.s.showProps && (allow.prop !== false || allow.light)) targets.push(this.propGroup);
+      if (allow.prop !== false) targets.push(this.occGroup);
       if (allow.flex !== false) targets.push(this.flexGroup);
     }
     if (!targets.length) return null;
@@ -553,9 +593,37 @@ export class Layers {
     const hits = rc.intersectObjects(list, false);
     for (const h of hits) {
       const ud = h.object.userData;
-      if (ud && (ud.kind === 'flex' || ud.kind === 'prop' || ud.kind === 'trigger')) return { kind: ud.kind, idx: ud.idx };
+      if (!ud || !(ud.kind === 'flex' || ud.kind === 'prop' || ud.kind === 'trigger')) continue;
+      if (ud.kind === 'prop') {
+        const light = h.object.name === 'lighthit' || h.object.name === 'bulb';
+        if (light ? !allow.light : allow.prop === false) continue;
+      }
+      return { kind: ud.kind, idx: ud.idx };
     }
     return null;
+  }
+
+  /** where a light prop is drawn (its gizmo), or null */
+  lightOrigin(i: number): THREE.Vector3 | null {
+    const o = this.propObjs[i];
+    return o && o.userData.light ? o.position.clone() : null;
+  }
+
+  private lightHome = new Map<number, THREE.Vector3>();
+  /** moves light gizmos while dragging (null puts them back) */
+  previewLights(pos: Map<number, THREE.Vector3> | null) {
+    if (!pos) {
+      for (const [i, p] of this.lightHome) this.propObjs[i]?.position.copy(p);
+      this.lightHome.clear();
+    } else {
+      for (const [i, p] of pos) {
+        const o = this.propObjs[i];
+        if (!o) continue;
+        if (!this.lightHome.has(i)) this.lightHome.set(i, o.position.clone());
+        o.position.copy(p);
+      }
+    }
+    this.vp.requestRender();
   }
 
   flexBox(i: number): THREE.Box3 | null {
@@ -563,6 +631,16 @@ export class Layers {
     if (!o || !o.children.length) return null;
     return new THREE.Box3().setFromObject(o);
   }
+}
+
+/**
+ * A flexbody's "rot" (degrees) as the game applies it: meshs.lua's quatFromEuler(-x, -y, -z),
+ * vectors turned by the conjugate (so three gets the vector part flipped). A tailgate plate with
+ * rot (8, 0, 180) faces back and tips up 8°.
+ */
+export function flexbodyQuaternion(rot: [number, number, number]): THREE.Quaternion {
+  const q = quatFromEulerBng(-rot[0] * DEG, -rot[1] * DEG, -rot[2] * DEG);
+  return new THREE.Quaternion(-q.x, -q.y, -q.z, q.w);
 }
 
 /** a flexbody's "materialOverride":[["from","to"],…] as a lookup (lower-case keys) */
@@ -613,7 +691,13 @@ function lightGizmo(spot: boolean, r: Record<string, any>): THREE.Object3D {
   const lc = r.lightColor;
   if (lc && typeof lc === 'object' && 'r' in lc) color.setRGB(num(lc.r, 255) / 255, num(lc.g, 255) / 255, num(lc.b, 255) / 255);
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), new THREE.MeshBasicMaterial({ color }));
+  bulb.name = 'bulb';
   g.add(bulb);
+  // a larger invisible sphere to click (the bulb itself is tiny)
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+  hit.name = 'lighthit';
+  g.add(hit);
+  g.userData.light = true;
   if (spot) {
     const outer = num(r.lightOuterAngle, 45) * DEG;
     const len = 0.25;

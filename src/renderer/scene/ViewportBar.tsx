@@ -40,6 +40,7 @@ const SELECTABLE: Array<[keyof Settings, string]> = [
   ['selTriggers', 'Triggers'],
   ['selFlex', 'Flexbodies'],
   ['selProps', 'Props'],
+  ['selLights', 'Lights'],
 ];
 
 export function ViewportBar() {
@@ -209,7 +210,7 @@ function ScopeCrumbs() {
       {scope.mode !== 'vehicle' && (
         <>
           <span className="crumb-sep">›</span>
-          <select className={'crumb-select mono' + (scope.mode === 'part' ? ' active' : '')} value={curPart} onChange={(e) => (e.target.value ? ws.focusPart(e.target.value) : ws.setScope({ mode: 'file', file: fileForParts }))} onKeyDown={(e) => e.stopPropagation()} data-tip="Show one part (Shift+I)">
+          <select className={'crumb-select mono' + (scope.mode === 'part' ? ' active' : '')} value={curPart} onChange={(e) => (e.target.value ? ws.focusPart(e.target.value) : ws.setScope({ mode: 'file', file: fileForParts }))} onKeyDown={(e) => e.stopPropagation()} data-tip="Show one part (Shift+H with nothing selected)">
             <option value="">{parts.length} part{parts.length === 1 ? '' : 's'}{installed.size < parts.length ? ` (${installed.size} installed)` : ''}</option>
             {parts.map((p) => <option key={p.def.name} value={p.def.name}>{p.def.name}{p.on ? '' : '  (not installed)'}</option>)}
             {curPart && !parts.some((p) => p.def.name === curPart) && <option value={curPart}>{curPart}</option>}

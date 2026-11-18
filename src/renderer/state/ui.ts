@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 export type Activity = 'structure' | 'create';
-export type Page = 'workbench' | 'suspension' | 'settings';
+export type Page = 'workbench' | 'suspension' | 'powertrain' | 'settings';
 export type Tool = 'select' | 'addNode' | 'beam' | 'tri' | 'name';
 export type BottomTab = 'checks' | 'gamelog' | 'refs' | 'mass' | 'output';
 
@@ -17,6 +17,8 @@ export interface UiState {
   bottom: boolean;
   bottomTab: BottomTab;
   tabs: string[];
+  /** the tab that the next opened file replaces (unless it gets edited) */
+  previewTab: string | null;
   activeTab: string | null;
   palette: null | 'commands' | 'files' | 'nodes' | 'vehicles';
   dialog: null | { kind: string; data?: any };
@@ -42,6 +44,7 @@ export const useUi = create<UiState>(() => ({
   bottom: true,
   bottomTab: 'checks',
   tabs: [],
+  previewTab: null,
   activeTab: null,
   palette: null,
   dialog: null,
@@ -67,11 +70,34 @@ export function requestPick(label: string): Promise<string | null> {
   });
 }
 
-export function openTab(key: string) {
+/** is a tab's document edited (set by the workspace: keeps preview tabs from being replaced) */
+let isTabDirty: (key: string) => boolean = () => false;
+export function setTabDirtyCheck(fn: (key: string) => boolean) {
+  isTabDirty = fn;
+}
+
+/**
+ * Opens a document in a tab. Like VS Code, a file opened by looking around (explorer, a click in
+ * 3D, search) takes the "preview" tab, replacing the previous preview unless it was edited; it
+ * becomes a normal tab once edited, double-clicked or opened with keep.
+ */
+export function openTab(key: string, keep = false) {
   const k = key.toLowerCase();
   const s = useUi.getState();
-  const tabs = s.tabs.includes(k) ? s.tabs : [...s.tabs, k];
-  useUi.setState({ tabs, activeTab: k });
+  if (s.tabs.includes(k)) {
+    useUi.setState({ activeTab: k, previewTab: keep && s.previewTab === k ? null : s.previewTab });
+    return;
+  }
+  let tabs = [...s.tabs];
+  const prev = s.previewTab;
+  if (prev && tabs.includes(prev) && !isTabDirty(prev)) tabs[tabs.indexOf(prev)] = k;
+  else tabs = [...tabs, k];
+  useUi.setState({ tabs, activeTab: k, previewTab: keep ? (prev && tabs.includes(prev) && prev !== k ? prev : null) : k });
+}
+
+/** makes a preview tab a normal one */
+export function keepTab(key: string) {
+  if (useUi.getState().previewTab === key) useUi.setState({ previewTab: null });
 }
 
 export function closeTab(key: string) {
@@ -80,7 +106,7 @@ export function closeTab(key: string) {
   if (i < 0) return;
   const tabs = s.tabs.filter((t) => t !== key);
   const active = s.activeTab === key ? tabs[Math.min(i, tabs.length - 1)] ?? null : s.activeTab;
-  useUi.setState({ tabs, activeTab: active });
+  useUi.setState({ tabs, activeTab: active, previewTab: s.previewTab === key ? null : s.previewTab });
 }
 
 export function log(line: string) {

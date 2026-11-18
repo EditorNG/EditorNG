@@ -103,6 +103,8 @@ interface HistGroup {
   entries: Array<{ key: string; before: number; after: number }>;
   time: number;
   typing?: boolean;
+  /** a view change (hiding, isolating): undone / redone by these instead of text */
+  view?: { undo: () => void; redo: () => void };
 }
 
 type Listener = () => void;
@@ -185,7 +187,24 @@ class Workspace {
     return doc;
   }
 
+  /** called before a vehicle is replaced (save its workspace) and after one opened (restore it) */
+  onBeforeSwitch: (() => Promise<void>) | null = null;
+  onOpened: ((model: string, explicitConfig: boolean) => Promise<void>) | null = null;
+
+  /** true while a vehicle opens and its workspace is restored (nothing to save meanwhile) */
+  opening = false;
+
   async openVehicle(model: string, pc?: string): Promise<void> {
+    if (this.model && this.onBeforeSwitch && !this.opening) await this.onBeforeSwitch().catch(() => {});
+    this.opening = true;
+    try {
+      await this.openVehicleInner(model, pc);
+    } finally {
+      this.opening = false;
+    }
+  }
+
+  private async openVehicleInner(model: string, pc?: string): Promise<void> {
     const token = ++this.openToken;
     useWs.setState({ loading: `Loading ${model}…` });
     try {
@@ -229,13 +248,15 @@ class Workspace {
       this.watch();
       const main = this.vehicle?.root?.def.file;
       useUi.setState({ activity: 'structure', structMode: 'files', sidebar: true });
-      if (main && this.doc(main)) openTab(main);
-      useSel.setState({ scope: main ? { mode: 'file', file: main } : { mode: 'vehicle' }, sel: { nodes: new Set(), beams: new Set(), tris: new Set(), flex: new Set(), props: new Set(), triggers: new Set() } });
+      if (main && this.doc(main)) openTab(main, true);
+      // the whole vehicle in 3D (its main file only holds the main part, often nothing to see)
+      useSel.setState({ scope: { mode: 'vehicle' }, sel:{ nodes: new Set(), beams: new Set(), tris: new Set(), flex: new Set(), props: new Set(), triggers: new Set() } });
     } catch (e: any) {
       toast('error', `Could not open ${model}: ${e?.message ?? e}`);
     } finally {
       if (token === this.openToken) useWs.setState({ loading: null });
     }
+    if (token === this.openToken && this.model === model && this.onOpened) await this.onOpened(model, pc !== undefined).catch(() => {});
   }
 
   /** Closes the vehicle / files: back to the start page. */
@@ -775,6 +796,14 @@ class Workspace {
     return true;
   }
 
+  /** Records a view change (hide, isolate) so Ctrl+Z / Ctrl+Y walk through it with the edits. */
+  pushView(label: string, undo: () => void, redo: () => void) {
+    this.undoStack.push({ label, entries: [], time: Date.now(), view: { undo, redo } });
+    if (this.undoStack.length > 300) this.undoStack.shift();
+    this.redoStack = [];
+    this.publish();
+  }
+
   /** Runs several edit operations as one undo step. */
   group<T>(label: string, fn: () => T): T {
     const n = this.undoStack.length;
@@ -782,7 +811,13 @@ class Workspace {
       return fn();
     } finally {
       const added = this.undoStack.splice(n);
-      if (added.length > 1) {
+      if (added.length > 1 && added.every((g) => g.view)) {
+        const views = added.map((g) => g.view!);
+        this.undoStack.push({ label, entries: [], time: Date.now(), view: {
+          undo: () => [...views].reverse().forEach((x) => x.undo()),
+          redo: () => views.forEach((x) => x.redo()),
+        } });
+      } else if (added.length > 1) {
         const by = new Map<string, HistGroup['entries'][number]>();
         for (const g of added) {
           for (const e of g.entries) {
@@ -799,6 +834,12 @@ class Workspace {
   undo(): string | null {
     const g = this.undoStack.pop();
     if (!g) return null;
+    if (g.view) {
+      g.view.undo();
+      this.redoStack.push(g);
+      this.publish();
+      return g.label;
+    }
     this.internal++;
     try {
       for (const en of g.entries) {
@@ -820,6 +861,12 @@ class Workspace {
   redo(): string | null {
     const g = this.redoStack.pop();
     if (!g) return null;
+    if (g.view) {
+      g.view.redo();
+      this.undoStack.push(g);
+      this.publish();
+      return g.label;
+    }
     this.internal++;
     try {
       for (const en of g.entries) {

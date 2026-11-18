@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import * as dgram from 'node:dgram';
 import { makeZip } from './zip';
+import { scanMod as scanModFolder, gameMaterialNames } from './modcheck';
 import { focusGame, warmUpGameFocus, stopGameFocus } from './gameFocus';
 import { checkForUpdates, downloadUpdate, startInstall, otherInstances, takeWhatsNew, updateLogTail, type UpdateCheck } from './updater';
 import { assertTextWritable } from './binaryGuard';
@@ -96,11 +97,23 @@ async function readJson(file: string): Promise<Record<string, any>> {
   }
 }
 
+let tmpSeq = 0;
+/** per file, writes run one after another (two at once used to fight over the same temp file) */
+const writeQueue = new Map<string, Promise<void>>();
 async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
-  await fsp.mkdir(path.dirname(file), { recursive: true });
-  const tmp = file + '.tmp';
-  await fsp.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await fsp.rename(tmp, file);
+  const prev = writeQueue.get(file) ?? Promise.resolve();
+  const run = prev.catch(() => {}).then(async () => {
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.${++tmpSeq}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
+    await fsp.rename(tmp, file);
+  });
+  writeQueue.set(file, run);
+  try {
+    await run;
+  } finally {
+    if (writeQueue.get(file) === run) writeQueue.delete(file);
+  }
 }
 
 async function walk(dir: string, out: DirEntry[], depth = 0): Promise<void> {
@@ -375,7 +388,8 @@ function registerIpc(): void {
   let vanillaParts: Map<string, string> | null = null;
   const vanillaPartNames = async () => {
     if (vanillaParts) return vanillaParts;
-    const cacheFile = path.join(userData(), 'cache', `vanilla-parts-${(detected.version ?? 'x').replace(/[^\w.]/g, '_')}.json`);
+    // v2: every file that defines the name (parts only clash within a vehicle folder or with common)
+    const cacheFile = path.join(userData(), 'cache', `vanilla-parts2-${(detected.version ?? 'x').replace(/[^\w.]/g, '_')}.json`);
     const cached = await fsp.readFile(cacheFile, 'utf8').then((t) => JSON.parse(t) as Record<string, string>).catch(() => null);
     if (cached) return (vanillaParts = new Map(Object.entries(cached)));
     const files = await vfs.gameJbeams();
@@ -383,7 +397,10 @@ function registerIpc(): void {
     const map = new Map<string, string>();
     files.forEach((f, i) => {
       try {
-        for (const p of parseJbeamFile(f.vpath, decodeText(bufs[i])).parts) if (!map.has(p.name.toLowerCase())) map.set(p.name.toLowerCase(), f.vpath);
+        for (const p of parseJbeamFile(f.vpath, decodeText(bufs[i])).parts) {
+          const k = p.name.toLowerCase();
+          map.set(k, map.has(k) ? map.get(k) + '|' + f.vpath : f.vpath);
+        }
       } catch {
         /* unparsable vanilla file */
       }
@@ -392,65 +409,40 @@ function registerIpc(): void {
     await fsp.writeFile(cacheFile, JSON.stringify(Object.fromEntries(map)));
     return (vanillaParts = map);
   };
-  h('scanMod', async (modDir: string) => {
-    const files: Array<{ rel: string; size: number }> = [];
-    const walkDir = async (dir: string, rel: string) => {
-      for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
-        const p = path.join(dir, e.name);
-        const r = rel ? rel + '/' + e.name : e.name;
-        if (e.isDirectory()) await walkDir(p, r);
-        else files.push({ rel: r, size: (await fsp.stat(p)).size });
-      }
-    };
-    await walkDir(modDir, '');
-    const gamePaths = await vfs.gameFilePaths();
-    const vparts = await vanillaPartNames();
-    const issues: Array<{ sev: 'error' | 'warning' | 'info'; msg: string; file?: string }> = [];
-    const name = path.basename(modDir);
-    if (!/^[A-Za-z0-9_-]+$/.test(name)) issues.push({ sev: 'error', msg: `Mod folder / zip name "${name}" may only use A-Z a-z 0-9 - _` });
-    if (/v?\d+(\.\d+)+/i.test(name)) issues.push({ sev: 'warning', msg: 'Leave the version out of the name, so updates replace the old zip' });
-    for (const f of files) {
-      const lc = f.rel.toLowerCase();
-      if (gamePaths.has(lc)) issues.push({ sev: 'error', msg: 'Overrides a game file (give it a unique name or path)', file: f.rel });
-      if (/\.(txt|md|log|bak|blend\d*|psd|xcf|tmp|orig)$/i.test(lc) || /(^|\/)(thumbs\.db|desktop\.ini|\.ds_store)$/i.test(lc) || /(^|\/)\.git\//.test(lc)) issues.push({ sev: 'warning', msg: 'Leftover file: remove notes, logs, backups and sources before release', file: f.rel });
-      if (/\.png$/i.test(lc) && /(^|\/)vehicles\/[^/]+\/.+/.test(lc) && !/\.(color|normal|data)\.png$/i.test(lc) && !/(^|\/)[^/]*(preview|default|thumb|_icon)[^/]*\.png$/i.test(lc)) {
-        issues.push({ sev: 'info', msg: 'Texture not named *.color.png / *.normal.png / *.data.png (the game converts only those to DDS)', file: f.rel });
-      }
-      if (lc.endsWith('.jbeam')) {
-        try {
-          const text = decodeText(await fsp.readFile(path.join(modDir, f.rel)));
-          for (const p of parseJbeamFile(f.rel, text).parts) {
-            const v = vparts.get(p.name.toLowerCase());
-            if (v) issues.push({ sev: 'error', msg: `Part "${p.name}" has the same name as a game part (${v}); it replaces it for every player`, file: f.rel });
-          }
-        } catch {
-          issues.push({ sev: 'warning', msg: 'Could not parse this .jbeam', file: f.rel });
-        }
-      }
-    }
-    // vehicles: info file and preview image
-    const models = new Set(files.map((f) => /^vehicles\/([^/]+)\//i.exec(f.rel)?.[1]).filter((x): x is string => !!x && x.toLowerCase() !== 'common'));
-    for (const m of models) {
-      const inModel = files.filter((f) => f.rel.toLowerCase().startsWith(`vehicles/${m.toLowerCase()}/`));
-      const hasJbeam = inModel.some((f) => f.rel.toLowerCase().endsWith('.jbeam'));
-      const isNewVehicle = hasJbeam && !gamePaths.has(`vehicles/${m.toLowerCase()}/info.json`) && ![...gamePaths].some((p) => p.startsWith(`vehicles/${m.toLowerCase()}/`));
-      if (isNewVehicle) {
-        if (!inModel.some((f) => /\/info[^/]*\.json$/i.test(f.rel))) issues.push({ sev: 'warning', msg: `vehicles/${m}: no info.json (vehicle selector name, brand, type)` });
-        if (!inModel.some((f) => /\/default\.(png|jpg|jpeg)$/i.test(f.rel))) issues.push({ sev: 'warning', msg: `vehicles/${m}: no default.png / default.jpg preview` });
-      }
-    }
-    const total = files.reduce((a, f) => a + f.size, 0);
-    return { name, files: files.map((f) => f.rel), total, issues };
+  let vanillaMats: Map<string, string> | null = null;
+  const vanillaMaterialNames = async () => {
+    if (vanillaMats) return vanillaMats;
+    const cacheFile = path.join(userData(), 'cache', `vanilla-materials-${(detected.version ?? 'x').replace(/[^\w.]/g, '_')}.json`);
+    const cached = await fsp.readFile(cacheFile, 'utf8').then((t) => JSON.parse(t) as Record<string, string>).catch(() => null);
+    if (cached) return (vanillaMats = new Map(Object.entries(cached)));
+    const map = await gameMaterialNames(async () => {
+      const files = await vfs.gameFiles((lc) => lc.endsWith('materials.json'));
+      const bufs = await vfs.readMany(files);
+      return files.map((f, i) => ({ vpath: f.vpath, text: decodeText(bufs[i]) }));
+    });
+    await fsp.mkdir(path.dirname(cacheFile), { recursive: true });
+    await fsp.writeFile(cacheFile, JSON.stringify(Object.fromEntries(map)));
+    return (vanillaMats = map);
+  };
+  h('scanMod', (modDir: string) =>
+    scanModFolder(modDir, { userDir: vfs.opts.userDir, gamePaths: () => vfs.gameFilePaths(), vanillaParts: vanillaPartNames, vanillaMaterials: vanillaMaterialNames }));
+  /** copies a DDS the game cooked (user/temp) next to the mod's PNG */
+  h('modCopyDds', async (from: string, to: string) => {
+    await fsp.mkdir(path.dirname(to), { recursive: true });
+    await fsp.copyFile(from, to);
+    return true;
   });
-  h('packMod', async (modDir: string, outZip: string) => {
+  h('packMod', async (modDir: string, outZip: string, exclude: string[] = []) => {
+    const skip = new Set(exclude.map((x) => x.toLowerCase()));
     const files: Array<{ name: string; data: Buffer; mtime: Date }> = [];
     const walkDir = async (dir: string, rel: string) => {
       for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
         const p = path.join(dir, e.name);
         const r = rel ? rel + '/' + e.name : e.name;
         if (e.isDirectory()) await walkDir(p, r);
-        else {
+        else if (!skip.has(r.toLowerCase())) {
           const st = await fsp.stat(p);
+          // inside the zip the files sit under the mod's folder name, as the repository expects
           files.push({ name: r, data: await fsp.readFile(p), mtime: st.mtime });
         }
       }

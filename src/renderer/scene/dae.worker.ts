@@ -37,6 +37,7 @@ self.onmessage = (ev: MessageEvent) => {
           transfer.push(mesh.pos.buffer as ArrayBuffer, mesh.nrm.buffer as ArrayBuffer);
           if (mesh.uv) transfer.push(mesh.uv.buffer as ArrayBuffer);
           if (mesh.uv2) transfer.push(mesh.uv2.buffer as ArrayBuffer);
+          if (mesh.col) transfer.push(mesh.col.buffer as ArrayBuffer);
         }
       }
       (self as any).postMessage({ id: m.id, meshes }, transfer);

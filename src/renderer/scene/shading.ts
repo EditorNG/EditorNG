@@ -166,6 +166,7 @@ class Shading {
       depthWrite: !sp.transparent,
       clearcoat: sp.clearcoat,
       clearcoatRoughness: sp.clearcoatRoughness,
+      vertexColors: sp.vertexColors,
     });
     m.name = sp.name;
     const pt = sp.paint ? this.paint() : null;
@@ -193,7 +194,7 @@ class Shading {
         layerColor: { value: Shading.pixel(255) as THREE.Texture },
         layerMask: { value: Shading.pixel(0) as THREE.Texture },
         layerMetal: { value: Shading.pixel(255) as THREE.Texture },
-        layerTint: { value: new THREE.Color(L.color[0], L.color[1], L.color[2]) },
+        layerTint: { value: L.paintTint ? this.paint().color.clone() : new THREE.Color(L.color[0], L.color[1], L.color[2]) },
         layerMetalF: { value: L.metallic },
         layerRoughF: { value: L.roughness },
       }
@@ -203,7 +204,7 @@ class Shading {
       ? `
   float layerA = texture2D( layerMask, ${uvv(L.maskUv)} ).r${L.maskUv || L.colorUv ? ' * vLayerHas1' : ''};
   vec4 layerC = texture2D( layerColor, ${uvv(L.colorUv)} );
-  diffuseColor.rgb = mix( diffuseColor.rgb, layerC.rgb * layerTint, layerA );
+  diffuseColor.rgb = mix( diffuseColor.rgb, layerC.rgb * layerTint${L.vertexColors ? ' * vLayerCol' : ''}, layerA );
   metalnessFactor = mix( metalnessFactor, layerMetalF * texture2D( layerMetal, ${uvv(L.metallicUv)} ).r, layerA );
   roughnessFactor = mix( roughnessFactor, layerRoughF, layerA );`
       : '';
@@ -215,8 +216,8 @@ class Shading {
       Object.assign(sh.uniforms, paintU);
       if (layerU) {
         Object.assign(sh.uniforms, layerU);
-        sh.vertexShader = 'attribute vec2 luv0;\nattribute vec2 luv1;\nattribute float lhas1;\nvarying vec2 vLayerUv0;\nvarying vec2 vLayerUv1;\nvarying float vLayerHas1;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n  vLayerUv0 = luv0;\n  vLayerUv1 = luv1;\n  vLayerHas1 = lhas1;');
-        sh.fragmentShader = 'uniform sampler2D layerColor;\nuniform sampler2D layerMask;\nuniform sampler2D layerMetal;\nuniform vec3 layerTint;\nuniform float layerMetalF;\nuniform float layerRoughF;\nvarying vec2 vLayerUv0;\nvarying vec2 vLayerUv1;\nvarying float vLayerHas1;\n' + sh.fragmentShader;
+        sh.vertexShader = 'attribute vec2 luv0;\nattribute vec2 luv1;\nattribute float lhas1;\nattribute vec3 lcol;\nvarying vec2 vLayerUv0;\nvarying vec2 vLayerUv1;\nvarying float vLayerHas1;\nvarying vec3 vLayerCol;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n  vLayerUv0 = luv0;\n  vLayerUv1 = luv1;\n  vLayerHas1 = lhas1;\n  vLayerCol = lcol;');
+        sh.fragmentShader = 'uniform sampler2D layerColor;\nuniform sampler2D layerMask;\nuniform sampler2D layerMetal;\nuniform vec3 layerTint;\nuniform float layerMetalF;\nuniform float layerRoughF;\nvarying vec2 vLayerUv0;\nvarying vec2 vLayerUv1;\nvarying float vLayerHas1;\nvarying vec3 vLayerCol;\n' + sh.fragmentShader;
         // the layer's clear coat stays on the layer: none on the bare base (raw carbon stays matte)
         if (L?.clearcoatOnLayer) sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n#ifdef USE_CLEARCOAT\n  material.clearcoat *= layerA;\n#endif');
       }
@@ -243,7 +244,7 @@ class Shading {
         .replace('#include <clearcoat_normal_fragment_maps>', rebuildZ(C.clearcoat_normal_fragment_maps, 'clearcoatMapN'));
       if (layered) sh.fragmentShader = 'uniform vec3 paintColor;\nuniform float paintMetal;\nuniform float paintRough;\n' + sh.fragmentShader;
     };
-    m.customProgramCacheKey = () => 'beamng-pbr' + (layered ? '-layered' : '') + (L ? `-layer${L.colorUv}${L.maskUv}${L.metallicUv}${L.clearcoatOnLayer ? 'c' : ''}` : '');
+    m.customProgramCacheKey = () => 'beamng-pbr' + (layered ? '-layered' : '') + (L ? `-layer${L.colorUv}${L.maskUv}${L.metallicUv}${L.clearcoatOnLayer ? 'c' : ''}${L.vertexColors ? 'v' : ''}` : '');
     if (L && layerU) {
       const bind = (u: { value: THREE.Texture }, p: string | undefined, srgb: boolean) => {
         if (!p) return;
@@ -259,8 +260,15 @@ class Shading {
     }
     const set = (slot: 'map' | 'normalMap' | 'roughnessMap' | 'metalnessMap' | 'aoMap' | 'alphaMap' | 'clearcoatMap', p: string | undefined, srgb: boolean) => {
       if (!p) return;
-      this.texture(p, srgb).then((t) => {
-        if (!t) return;
+      this.texture(p, srgb).then((t0) => {
+        if (!t0) return;
+        // read with the mesh's second texture set: a copy of the texture (the cached one is shared)
+        let t = t0;
+        if (slot !== 'clearcoatMap' && sp.uv1[slot]) {
+          t = t0.clone();
+          t.channel = 1;
+          t.needsUpdate = true;
+        }
         (m as any)[slot] = t;
         if (slot === 'normalMap') {
           m.normalScale.set(1, -1);

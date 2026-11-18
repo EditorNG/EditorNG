@@ -269,7 +269,7 @@ let partMenuHandler: (x: number, y: number, part: string, file: string) => void 
   const canMirror = mirrorName !== part && !ws.partDef(mirrorName);
   openMenu(x, y, [
     { title: part },
-    { label: 'Show only this part', key: 'Shift+I', run: () => ws.focusPart(part) },
+    { label: 'Show only this part', run: () => ws.focusPart(part) },
     { label: 'Show its file', run: () => ws.setScope({ mode: 'file', file }) },
     { label: 'Go to definition', run: () => def && revealRange(file, def.key.s, def.key.e, true) },
     'sep',

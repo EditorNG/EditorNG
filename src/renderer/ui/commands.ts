@@ -1,5 +1,6 @@
 import { ws, useWs } from '../project/workspace';
-import { showReferences } from './Tier2';
+import { showReferences, useRecent } from './Tier2';
+import { openMenu } from './Menu';
 import { reloadInGame } from './GameLink';
 import { useUi, log } from '../state/ui';
 import { useSettings, settings, keyFor } from '../state/settings';
@@ -46,6 +47,7 @@ export const COMMANDS: Command[] = [
       await openFolder(dir);
     },
   },
+  { id: 'file.openRecent', title: 'Open recent…', group: 'File', run: () => openRecentMenu() },
   { id: 'file.close', title: 'Close vehicle', group: 'File', run: () => {
     if (useWs.getState().dirtyCount && !confirm('Close without saving your changes?')) return;
     ws.close();
@@ -100,6 +102,7 @@ export const COMMANDS: Command[] = [
   { id: 'tools.debug', title: 'Run JBeam checks', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'checks' }), enabled: hasVehicle },
   { id: 'tools.mass', title: 'Weight distribution', group: 'Tools', run: () => useUi.setState({ bottom: true, bottomTab: 'mass' }), enabled: hasVehicle },
   { id: 'page.suspension', title: 'Suspension analysis', group: 'View', run: () => useUi.setState({ page: 'suspension' }), enabled: hasVehicle },
+  { id: 'page.powertrain', title: 'Powertrain: torque curve and gear ratios', group: 'View', run: () => useUi.setState({ page: 'powertrain' }), enabled: hasVehicle },
   { id: 'app.settings', title: 'Settings', group: 'View', key: 'app.settings', run: () => useUi.setState({ page: 'settings' }) },
   { id: 'page.workbench', title: 'Back to editor', group: 'View', run: () => useUi.setState({ page: 'workbench' }) },
   { id: 'app.toggleEditor', title: 'Toggle code editor', group: 'View', key: 'app.toggleEditor', run: () => useSettings.getState().set({ editorVisible: !settings().editorVisible }) },
@@ -185,6 +188,41 @@ export async function openFolder(dir: string) {
     return;
   }
   await ws.openFiles(jb);
+}
+
+/**
+ * Recent workspaces (each vehicle comes back with its configuration, parts shown, tabs and camera)
+ * and recent loose files.
+ */
+async function openRecentMenu() {
+  const st = await api.stateLoad().catch(() => ({} as any));
+  const sessions: Record<string, { at?: number; config?: string; tabs?: string[] }> = st.sessions ?? {};
+  const r = useRecent.getState();
+  const vehicles = await api.vehicleCatalog().catch(() => []);
+  const ago = (t?: number) => {
+    if (!t) return '';
+    const m = Math.round((Date.now() - t) / 60000);
+    return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+  };
+  const items: any[] = [{ title: 'Workspaces: each comes back as you left it' }];
+  for (const m of r.vehicles) {
+    const s = sessions[m.toLowerCase()];
+    const c = vehicles.find((x) => x.model.toLowerCase() === m.toLowerCase());
+    const cfg = s?.config ? s.config.split('/').pop()!.replace(/\.pc$/i, '') : '';
+    items.push({ label: `${c ? [c.brand, c.name].filter(Boolean).join(' ') : m}${cfg ? ' › ' + cfg : ''}`, hint: [c && !c.game ? c.source : c ? 'game' : '', ago(s?.at)].filter(Boolean).join(' · '), run: () => ws.openVehicle(m) });
+  }
+  if (!r.vehicles.length) items.push({ label: 'No vehicles yet', disabled: 'Vehicles you open show up here' });
+  if (r.files.length) {
+    items.push('sep', { title: 'Files' });
+    for (const f of r.files) items.push({ label: f.split(/[\\/]/).pop(), hint: f.split(/[\\/]/).slice(-3, -1).join('/'), run: () => ws.openFiles([f]) });
+  }
+  items.push('sep', { label: 'Clear the list', run: async () => {
+    useRecent.setState({ vehicles: [], files: [] });
+    const cur = await api.stateLoad();
+    await api.stateSave({ ...cur, recentVehicles: [], recentFiles: [] });
+  } });
+  const b = document.querySelector('.menu-btn')?.getBoundingClientRect();
+  openMenu(b ? b.left : 60, b ? b.bottom + 2 : 36, items);
 }
 
 /** a hint the first time something is saved while a vehicle is open */

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import {
-  ListTree, Hammer, Activity as ActivityIcon, Settings as SettingsIcon, Sun, Moon, Save, Undo2, Redo2, Code2, PanelBottom, PanelLeft,
+  ListTree, Hammer, Activity as ActivityIcon, Gauge, Settings as SettingsIcon, Sun, Moon, Save, Undo2, Redo2, Code2, PanelBottom, PanelLeft,
   Command as CommandIcon, Loader2, ShieldCheck, ChevronUp, FlipHorizontal2, Target, Search,
 } from 'lucide-react';
 import { ws, useWs } from '../project/workspace';
@@ -32,6 +32,7 @@ import logoDark from '../assets/logo-dark.png';
 
 const SettingsPage = lazy(() => import('./SettingsPage'));
 const SuspensionPage = lazy(() => import('./SuspensionPage'));
+const PowertrainPage = lazy(() => import('./PowertrainPage'));
 
 function Splitter(props: { dir: 'x' | 'y'; onDrag: (delta: number) => void; className?: string }) {
   const start = useRef<number | null>(null);
@@ -161,7 +162,7 @@ function ActivityBar() {
       {icon}
     </button>
   );
-  const pageBtn = (p: 'suspension' | 'settings', icon: React.ReactNode, tip: string) => (
+  const pageBtn = (p: 'suspension' | 'powertrain' | 'settings', icon: React.ReactNode, tip: string) => (
     <button className={'act-btn' + (page === p ? ' active' : '')} data-tip={tip} data-tip-pos="right" aria-label={tip} onClick={() => useUi.setState({ page: page === p ? 'workbench' : p })}>
       {icon}
     </button>
@@ -171,6 +172,7 @@ function ActivityBar() {
       {item('structure', <ListTree size={20} />, 'Structure: files, parts, slots')}
       {item('create', <Hammer size={20} />, 'Create & place')}
       {pageBtn('suspension', <ActivityIcon size={20} />, 'Suspension analysis')}
+      {pageBtn('powertrain', <Gauge size={20} />, 'Powertrain: torque curve, gear ratios')}
       <div className="grow" />
       {pageBtn('settings', <SettingsIcon size={20} />, 'Settings (Ctrl+,)')}
     </div>
@@ -424,11 +426,17 @@ export function App() {
             <Splitter dir="x" onDrag={(d) => useUi.setState({ sideWidth: clamp(useUi.getState().sideWidth + d, 180, 560) })} />
           </>
         )}
-        <div className="center" style={{ display: page === 'workbench' ? 'flex' : 'none' }}>
+        <div className="center" style={{ display: page === 'workbench' || page === 'powertrain' ? 'flex' : 'none' }}>
           <div className="workbench">
             <div className="work-top">
-              <div className="viewport-wrap"><ViewportPanel /></div>
-              {s.editorVisible && (
+              {/* the 3D view stays mounted; the powertrain takes its place next to the code */}
+              <div className="viewport-wrap" style={page === 'powertrain' ? { display: 'none' } : undefined}><ViewportPanel /></div>
+              {page === 'powertrain' && (
+                <div className="viewport-wrap">
+                  <Suspense fallback={<div className="empty-hint">Loading…</div>}><PowertrainPage /></Suspense>
+                </div>
+              )}
+              {(s.editorVisible || page === 'powertrain') && (
                 <>
                   <Splitter dir="x" onDrag={(d) => useUi.setState({ editorWidth: clamp(useUi.getState().editorWidth - d, 280, 1400) })} />
                   <div className="editor-wrap" style={{ width: editorWidth, maxWidth: `calc(100vw - ${page === 'workbench' && sidebar ? sideWidth : 0}px - 48px - 480px)` }}><CodeEditor /></div>
@@ -443,7 +451,7 @@ export function App() {
             )}
           </div>
         </div>
-        {page !== 'workbench' && (
+        {page !== 'workbench' && page !== 'powertrain' && (
           <div className="page">
             <Suspense fallback={<div className="empty-hint">Loading…</div>}>
               {page === 'settings' ? <SettingsPage /> : <SuspensionPage />}

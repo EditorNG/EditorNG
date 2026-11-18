@@ -161,7 +161,8 @@ function Checks() {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const stale = !!res && forV !== v;
   const ignored = useMemo(() => new Set(ignoredAll[model ?? '(loose files)'] ?? []), [ignoredAll, model]);
-  const all = useMemo(() => buildItems(v, res), [v, res]);
+  // results of another vehicle (just switched) are not this one's: their indexes do not match
+  const all = useMemo(() => buildItems(v, stale ? null : res), [v, res, stale]);
   const run = () => {
     if (v) runAllChecks();
   };
